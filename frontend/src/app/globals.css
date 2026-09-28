@@ -292,3 +292,48 @@ textarea::placeholder {
     scroll-behavior: auto !important;
   }
 }
+
+.memory {
+  margin: 0 0 28px;
+  padding: 14px 16px;
+  border: 1px solid #dedfd4;
+  border-radius: 10px;
+  color: #586650;
+  font-size: 12px;
+}
+.memory summary {
+  cursor: pointer;
+  width: fit-content;
+}
+.memory summary:focus-visible {
+  outline: 2px solid #586d5d;
+  outline-offset: 5px;
+}
+.memory dl {
+  margin: 18px 0 10px;
+  display: grid;
+  gap: 14px;
+}
+.memory dl > div {
+  display: grid;
+  grid-template-columns: minmax(100px, 1fr) 2fr;
+  gap: 16px;
+}
+.memory dt {
+  color: #74776f;
+}
+.memory dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+.memory p {
+  margin: 18px 0 0;
+  color: #74776f;
+}
+.clarification {
+  display: block;
+  color: #8a6e37;
+  font-size: 11px;
+  margin-top: 4px;
+}

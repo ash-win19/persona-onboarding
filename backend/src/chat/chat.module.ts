@@ -1,3 +1,4 @@
+import { OnboardingService } from './onboarding.js';
 import { Module } from '@nestjs/common';
 import { ChatController } from './chat.controller.js';
 import { ChatService } from './chat.service.js';
@@ -9,6 +10,7 @@ import { MODEL, OpenAIReplyModel } from './model.js';
   controllers: [ChatController],
   providers: [
     ChatService,
+    OnboardingService,
     { provide: CHAT_CONFIG, useFactory: chatConfig },
     {
       provide: DATABASE,
