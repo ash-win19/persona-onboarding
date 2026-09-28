@@ -1,7 +1,15 @@
 import type { NextConfig } from "next";
+import { getBackendUrl } from "./src/lib/backend-url";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  async rewrites() {
+    return [
+      {
+        source: "/api/:path*",
+        destination: `${getBackendUrl()}/:path*`,
+      },
+    ];
+  },
 };
 
 export default nextConfig;
