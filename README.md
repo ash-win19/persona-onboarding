@@ -1,10 +1,31 @@
-# persona-onboarding
+Persona onboarding uses two independent TypeScript apps:
 
-A conversational onboarding experience for Persona, the personal AI assistant.
+- `frontend/`: Next.js App Router, Tailwind CSS, and ESLint. Runs on port 3000.
+- `backend/`: NestJS, Vitest, and Oxlint. Runs on port 3001, or the `PORT` environment variable.
 
-The onboarding collects four things (a name for the assistant, the user's name, a connected Gmail account, and something the user wants help with) through an iMessage-style text thread and an in-browser simulated voice call. It is built to stay conversational, recover from user errors such as call hangups, and let users who already know what they need move into the main experience early.
+Use Node.js 22. Run these commands from the repository root in separate terminals:
 
-## Structure
+```sh
+npm --prefix frontend run dev
+```
 
-- `frontend/`: the web app (landing page, text thread, and voice call simulator).
-- `backend/`: the onboarding brain (session state, conversation controller, voice and Gmail integrations).
+```sh
+npm --prefix backend run start:dev
+```
+
+On a fresh checkout, install each app with `npm --prefix frontend ci` and `npm --prefix backend ci`.
+
+Build and check the apps:
+
+```sh
+npm --prefix frontend run lint
+npm --prefix frontend run build
+npm --prefix backend run lint
+npm --prefix backend test
+npm --prefix backend run test:e2e
+npm --prefix backend run build
+```
+
+If local process restrictions prevent Turbopack from building, use `npm --prefix frontend run build -- --webpack`.
+
+The apps currently contain starter code. The onboarding flow, voice, Gmail, and conversation coordinator are not implemented yet.
