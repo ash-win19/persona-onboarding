@@ -9,11 +9,7 @@ npm run start:dev
 
 The server runs at [localhost:3001](http://localhost:3001). Set the `PORT` environment variable to change the port. The starter `GET /` endpoint returns `Hello World!`.
 
-Set `FRONTEND_URL` to the frontend's deployed origin in this Vercel project's environment variables. It must be an HTTP(S) origin without a path, query, or fragment. Production startup requires it. Locally, CORS defaults to `http://localhost:3000`.
-
-To override local settings, copy `.env.example` to `.env` and run `npm run start:dev -- --env-file .env`. Vercel supplies environment variables directly; it does not need this local file. For Preview deployments, set the exact corresponding frontend origin separately.
-
-CORS allows browser requests and preflights from the configured origin. It does not grant other origins permission or enable cookie credentials, and it is not an authentication mechanism.
+The backend needs no environment configuration. It does not enable CORS: browsers reach it through the frontend's `/api/*` proxy, so requests arrive from the frontend server rather than from a browser origin. CORS is not an authentication mechanism, so the backend remains publicly callable at its URL.
 
 Check and build:
 
