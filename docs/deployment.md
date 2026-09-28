@@ -10,6 +10,8 @@ Use the Neon Free project `persona-onboarding` in Ashwin's personal organization
 
 Render builds with `npm ci --include=dev && npm run build` from `backend/`. `npm run start:prod` runs the transactional, repeatable initial migration before starting NestJS. A failed migration prevents startup. `/ready` queries the conversation table; it returns 503 when storage is unavailable. The process-only starter root response is not a readiness signal.
 
+Every database operation runs inside a transaction with `SET LOCAL statement_timeout = '10s'`. This is applied after beginning the transaction because the deployed Neon connection did not preserve the driver's startup timeout setting. CI exercises cancellation and subsequent recovery against Postgres, and the same check runs against Neon during release verification.
+
 Vercel uses `frontend/` as its root directory. Set production `BACKEND_URL` to the Render HTTPS URL, then redeploy because rewrites are generated during the build. `APP_ORIGINS` must include the stable frontend origin. Previews should use isolated services/data if enabled; arbitrary preview origins are not trusted automatically.
 
 ## Merge and release
