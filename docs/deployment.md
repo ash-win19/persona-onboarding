@@ -1,6 +1,10 @@
-# Checkpoint 1 deployment
+# Persona deployment
 
 The public entry point is the Vercel `usepersona` project. Next.js proxies `/api/*` to the Render service through its build-time `BACKEND_URL`. The backend authenticates session cookies itself and checks `Origin` plus the custom client header on every write.
+
+## Account selection
+
+Use the personal Render workspace `My Personal Workspace`, ID `tea-d731qrp9fqoc73cc7ehg`. The backend service is `persona-api`, ID `srv-datekju0tbcc73aeq1h0`, at `https://persona-api-ngfi.onrender.com`. Before a deployment mutation, run `render whoami` and `render workspace current` and verify the personal account and this workspace. Do not reuse an unrelated work account's credentials.
 
 ## Configuration
 
@@ -39,3 +43,7 @@ One unresolved submission is allowed per conversation. Concurrent replays return
 The model receives the latest 40 committed turns. Transcripts remain stored in the app database. App-generated logs contain failure codes and operation IDs, not message content, cookies, connection strings or API keys. The app requests `store: false` from OpenAI, which does not change the provider's separate abuse-monitoring policy.
 
 Start over, operator cleanup, voice and Gmail belong to later checkpoints. Use a fresh private browser session to test a new conversation before Start over ships.
+
+## Checkpoint 2
+
+The migration adds fact history, per-submission assessment receipts and integration verification timestamps. It is additive and repeatable, so the previous frontend and backend remain compatible during rollout. Follow the [conversational onboarding checks](./onboarding.md) after the usual readiness and saved-chat checks.

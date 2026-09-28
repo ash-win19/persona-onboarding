@@ -9,7 +9,18 @@ type Turn = {
   role: "user" | "assistant";
   content: string;
 };
+type SavedFact = {
+  value: string | null;
+  status: "missing" | "known" | "ambiguous";
+};
+type Onboarding = {
+  facts: Record<"agentName" | "userName" | "helpRequest", SavedFact>;
+  gmail: "connected" | "not_connected";
+  graduated: boolean;
+  onboardingComplete: boolean;
+};
 type Snapshot = {
+  onboarding?: Onboarding;
   conversationId: string;
   revision: number;
   turns: Turn[];
@@ -193,6 +204,7 @@ export default function Chat() {
     }
   }
 
+  const agentName = snapshot?.onboarding?.facts.agentName.value || "Persona";
   const unresolved =
     snapshot?.operation && snapshot.operation.status !== "completed"
       ? snapshot.turns.find(
@@ -272,8 +284,8 @@ export default function Chat() {
               <em>A little more headspace.</em>
             </h1>
             <p>
-              Bring a question, a half-formed idea, or something on your mind.
-              We can work through it together.
+              What would you like to call me? You can also tell me your name, or
+              jump straight into something you need help with.
             </p>
             <div className="suggestions">
               {[
@@ -295,6 +307,44 @@ export default function Chat() {
             </div>
           </div>
         )}
+        {snapshot?.onboarding && snapshot.turns.length > 0 && (
+          <details className="memory" aria-label="Saved details">
+            <summary>What I remember</summary>
+            <dl>
+              {(
+                [
+                  ["agentName", "Your assistant"],
+                  ["userName", "Your name"],
+                  ["helpRequest", "What we are working on"],
+                ] as const
+              ).map(([key, label]) => {
+                const fact = snapshot.onboarding!.facts[key];
+                return (
+                  <div key={key}>
+                    <dt>{label}</dt>
+                    <dd>
+                      {fact.value || "Not shared yet"}
+                      {fact.status === "ambiguous" && (
+                        <span className="clarification">
+                          Needs clarification
+                        </span>
+                      )}
+                    </dd>
+                  </div>
+                );
+              })}
+              <div>
+                <dt>Gmail</dt>
+                <dd>
+                  {snapshot.onboarding.gmail === "connected"
+                    ? "Connected"
+                    : "Not connected"}
+                </dd>
+              </div>
+            </dl>
+            <p>You can correct any detail in the conversation.</p>
+          </details>
+        )}
         <div
           className="turns"
           role="log"
@@ -305,7 +355,7 @@ export default function Chat() {
           {snapshot?.turns.map((turn) => (
             <article key={turn.id} className={`turn ${turn.role}`}>
               <div className="turn-label">
-                {turn.role === "user" ? "You" : "Persona"}
+                {turn.role === "user" ? "You" : agentName}
                 <span>Saved</span>
               </div>
               <p>{turn.content}</p>
@@ -321,7 +371,7 @@ export default function Chat() {
           )}
           {busy && (pending || unresolved) && (
             <p className="thinking" role="status">
-              Persona is thinking<span aria-hidden="true">...</span>
+              {agentName} is thinking<span aria-hidden="true">...</span>
             </p>
           )}
         </div>

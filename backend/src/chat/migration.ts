@@ -21,5 +21,21 @@ export async function migrate(db: Database) {
       error_code text, created_at timestamptz NOT NULL DEFAULT now(),
       PRIMARY KEY (conversation_id, id)
     )`);
+    await sql.query(
+      'ALTER TABLE conversations ADD COLUMN IF NOT EXISTS gmail_verified_at timestamptz, ADD COLUMN IF NOT EXISTS call_successful_at timestamptz',
+    );
+    await sql.query(`CREATE TABLE IF NOT EXISTS onboarding_facts (
+      id uuid PRIMARY KEY, conversation_id uuid NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      goal text NOT NULL CHECK (goal IN ('agentName', 'userName', 'helpRequest')),
+      value text, status text NOT NULL CHECK (status IN ('known', 'ambiguous')),
+      source_turn_id uuid NOT NULL REFERENCES turns(id), revision integer NOT NULL,
+      evidence text NOT NULL, UNIQUE(conversation_id, goal, revision)
+    )`);
+    await sql.query(`CREATE TABLE IF NOT EXISTS onboarding_assessments (
+      conversation_id uuid NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      submission_id uuid NOT NULL, ask_onboarding boolean NOT NULL,
+      PRIMARY KEY(conversation_id, submission_id),
+      FOREIGN KEY(conversation_id, submission_id) REFERENCES submissions(conversation_id, id) ON DELETE CASCADE
+    )`);
   });
 }

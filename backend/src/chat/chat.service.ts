@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { DATABASE, type Database, type Sql } from './database.js';
+import { OnboardingService } from './onboarding.js';
 import { MODEL, type ReplyModel } from './model.js';
 
 type Conversation = { id: string; revision: number };
@@ -32,6 +33,7 @@ export class ChatService {
   constructor(
     @Inject(DATABASE) private readonly db: Database,
     @Inject(MODEL) private readonly model: ReplyModel,
+    @Inject(OnboardingService) private readonly onboarding: OnboardingService,
   ) {}
   async create() {
     const credential = randomBytes(32).toString('base64url');
@@ -71,6 +73,11 @@ export class ChatService {
         operation?.status === 'generating' &&
         new Date(operation.lease_until).getTime() <= Date.now();
       return {
+        onboarding: await this.onboarding.read(
+          sql,
+          conversation.id,
+          conversation.revision,
+        ),
         conversationId: conversation.id,
         revision: conversation.revision,
         turns: result.rows,
@@ -142,6 +149,14 @@ export class ChatService {
         snapshot.turns
           .slice(-40)
           .map(({ role, content: text }) => ({ role, content: text })),
+        {
+          state: snapshot.onboarding,
+          capture: (command) =>
+            this.onboarding.capture(
+              { conversationId: conversation.id, submissionId, attempt },
+              command,
+            ),
+        },
       );
     } catch {
       await this.db.query(

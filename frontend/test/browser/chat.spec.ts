@@ -363,3 +363,82 @@ test("database failure preserves both committed history and pending input", asyn
     page.getByText("Not yet confirmed", { exact: true }),
   ).toBeVisible();
 });
+
+test("onboarding invites a name and restores corrected facts without a form", async ({
+  page,
+}) => {
+  let saved = false;
+  let submissionId = "s";
+  await page.route("**/api/**", async (route) => {
+    if (route.request().url().endsWith("/ready"))
+      return route.fulfill({ json: { ready: true } });
+    if (route.request().url().endsWith("/turns")) {
+      saved = true;
+      submissionId = route.request().postDataJSON().submissionId;
+    }
+    return route.fulfill({
+      json: {
+        conversationId: "one",
+        revision: saved ? 3 : 0,
+        turns: saved
+          ? [
+              {
+                id: "u",
+                submissionId,
+                role: "user",
+                content:
+                  "Call yourself Nova. Actually, call me Sam. Help me prepare for an interview.",
+              },
+              {
+                id: "a",
+                submissionId,
+                role: "assistant",
+                content: "Sam, start with a short introduction.",
+              },
+            ]
+          : [],
+        operation: saved ? { id: submissionId, status: "completed" } : null,
+        onboarding: {
+          graduated: saved,
+          onboardingComplete: false,
+          gmail: "not_connected",
+          facts: {
+            agentName: {
+              value: saved ? "Nova" : null,
+              status: saved ? "known" : "missing",
+            },
+            userName: {
+              value: saved ? "Sam" : null,
+              status: saved ? "known" : "missing",
+            },
+            helpRequest: {
+              value: saved ? "prepare for an interview" : null,
+              status: saved ? "known" : "missing",
+            },
+          },
+        },
+      },
+    });
+  });
+  await page.goto("/");
+  await expect(page.getByText(/what would you like to call me/i)).toBeVisible();
+  await page
+    .getByRole("textbox", { name: "Message Persona" })
+    .fill(
+      "Call yourself Nova. Actually, call me Sam. Help me prepare for an interview.",
+    );
+  await page.getByRole("button", { name: "Send message" }).click();
+  await expect(
+    page.getByText("Sam, start with a short introduction."),
+  ).toBeVisible();
+  await page.getByText("What I remember", { exact: true }).click();
+  const memory = page.getByRole("group", { name: "Saved details" });
+  await expect(memory.getByText("Sam", { exact: true })).toBeVisible();
+  await expect(memory.getByText("Nova", { exact: true })).toBeVisible();
+  await expect(
+    memory.getByText("Not connected", { exact: true }),
+  ).toBeVisible();
+  await page.reload();
+  await page.getByText("What I remember", { exact: true }).click();
+  await expect(memory.getByText("Sam", { exact: true })).toBeVisible();
+});

@@ -3,6 +3,8 @@ import { Test } from '@nestjs/testing';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { randomUUID } from 'node:crypto';
+import { createServer } from 'node:http';
+import { OpenAIReplyModel } from '../src/chat/model.js';
 import { ChatModule } from '../src/chat/chat.module.js';
 import { DATABASE, type Database } from '../src/chat/database.js';
 import { MODEL, type ReplyModel } from '../src/chat/model.js';
@@ -41,6 +43,422 @@ describe('saved conversation API', () => {
   afterEach(async () => {
     await app.close();
     await postgres.close();
+  });
+
+  it('commits all volunteered facts before the reply and restores early graduation', async () => {
+    const content =
+      "Call yourself Nova. I'm Ashwin. Help me prepare for a backend interview.";
+    model.reply = async (_turns, tools) => {
+      const result = await tools.capture({
+        expectedRevision: tools.state.revision,
+        askOnboarding: true,
+        changes: [
+          {
+            goal: 'agentName',
+            action: 'set',
+            value: 'Nova',
+            evidence: 'Call yourself Nova',
+          },
+          {
+            goal: 'userName',
+            action: 'set',
+            value: 'Ashwin',
+            evidence: "I'm Ashwin",
+          },
+          {
+            goal: 'helpRequest',
+            action: 'set',
+            value: 'Help me prepare for a backend interview',
+            evidence: 'Help me prepare for a backend interview',
+          },
+        ],
+      });
+      expect(result.ok).toBe(true);
+      expect(result.state.graduated).toBe(true);
+      expect(result.state.onboardingComplete).toBe(false);
+      expect(result.question).toBeNull();
+      return 'Ashwin, start by explaining how you would design an API.';
+    };
+    const session = await request(app.getHttpServer())
+      .post('/session')
+      .set('Origin', origin)
+      .set('X-Persona-Client', 'web')
+      .send({})
+      .expect(201);
+    const cookie = session.headers['set-cookie'][0];
+    await request(app.getHttpServer())
+      .post('/turns')
+      .set('Origin', origin)
+      .set('X-Persona-Client', 'web')
+      .set('Cookie', cookie)
+      .send({ submissionId: randomUUID(), content })
+      .expect(200);
+    const restored = await request(app.getHttpServer())
+      .get('/session')
+      .set('Cookie', cookie)
+      .expect(200);
+    expect(restored.body.onboarding).toMatchObject({
+      mode: 'helping',
+      graduated: true,
+      onboardingComplete: false,
+      gmail: 'not_connected',
+      call: 'not_started',
+      facts: {
+        agentName: { value: 'Nova', status: 'known' },
+        userName: { value: 'Ashwin', status: 'known' },
+      },
+    });
+    expect(restored.body.onboarding.facts.userName.sourceTurnId).toBe(
+      restored.body.turns[0].id,
+    );
+    expect(restored.body.turns).toHaveLength(2);
+  });
+
+  it.each([
+    {
+      label: 'accepted',
+      name: 'Nova',
+      evidence: 'Call yourself Nova',
+      answer: 'Nova it is.',
+      expectedName: 'Nova',
+      question: 'What name would you like me to use for you?',
+    },
+    {
+      label: 'rejected',
+      name: 'Invented',
+      evidence: 'An invented source',
+      answer: 'I could not save that name.',
+      expectedName: null,
+      question: null,
+    },
+  ])(
+    'uses the $label provider tool result before replying',
+    async ({ name, evidence, answer, expectedName, question }) => {
+      let receivedAuthoritativeState = false;
+      const providerReply = JSON.stringify({
+        answer:
+          answer + (question ? ' What is your name? What do you need?' : ''),
+        followUp: null,
+      });
+      const provider = createServer(async (req, res) => {
+        let body = '';
+        for await (const chunk of req) body += chunk;
+        const input = JSON.parse(body);
+        const toolOutput = input.input.find(
+          (item: { type?: string }) => item.type === 'function_call_output',
+        );
+        if (toolOutput)
+          receivedAuthoritativeState =
+            JSON.parse(toolOutput.output).state.facts.agentName.value ===
+            expectedName;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(
+          JSON.stringify({
+            id: toolOutput ? 'resp_reply' : 'resp_capture',
+            object: 'response',
+            status: 'completed',
+            output: toolOutput
+              ? [
+                  {
+                    type: 'message',
+                    role: 'assistant',
+                    content: [
+                      {
+                        type: 'output_text',
+                        text: providerReply,
+                        annotations: [],
+                      },
+                    ],
+                  },
+                ]
+              : [
+                  {
+                    type: 'function_call',
+                    name: 'capture_onboarding',
+                    call_id: 'call_fact',
+                    arguments: JSON.stringify({
+                      expectedRevision: 1,
+                      askOnboarding: true,
+                      changes: [
+                        {
+                          goal: 'agentName',
+                          action: 'set',
+                          value: name,
+                          evidence,
+                        },
+                      ],
+                    }),
+                  },
+                ],
+          }),
+        );
+      });
+      await new Promise<void>((resolve) =>
+        provider.listen(0, '127.0.0.1', resolve),
+      );
+      const address = provider.address();
+      if (!address || typeof address === 'string')
+        throw new Error('No provider address');
+      const realAdapter = new OpenAIReplyModel(
+        'test-key',
+        'gpt-4.1-mini',
+        `http://127.0.0.1:${address.port}/v1`,
+      );
+      model.reply = realAdapter.reply.bind(realAdapter);
+      try {
+        const session = await request(app.getHttpServer())
+          .post('/session')
+          .set('Origin', origin)
+          .set('X-Persona-Client', 'web')
+          .send({});
+        const reply = await request(app.getHttpServer())
+          .post('/turns')
+          .set('Origin', origin)
+          .set('X-Persona-Client', 'web')
+          .set('Cookie', session.headers['set-cookie'][0])
+          .send({ submissionId: randomUUID(), content: 'Call yourself Nova.' })
+          .expect(200);
+        expect(receivedAuthoritativeState).toBe(true);
+        expect(reply.body.turns[1].content).toBe(
+          [answer, question].filter(Boolean).join('\n\n'),
+        );
+        expect(reply.body.onboarding.facts.agentName.value).toBe(expectedName);
+      } finally {
+        await new Promise<void>((resolve, reject) =>
+          provider.close((error) => (error ? reject(error) : resolve())),
+        );
+      }
+    },
+  );
+
+  async function newSession() {
+    const response = await request(app.getHttpServer())
+      .post('/session')
+      .set('Origin', origin)
+      .set('X-Persona-Client', 'web')
+      .send({})
+      .expect(201);
+    return response.headers['set-cookie'][0];
+  }
+  function send(cookie: string, content: string, submissionId = randomUUID()) {
+    return request(app.getHttpServer())
+      .post('/turns')
+      .set('Origin', origin)
+      .set('X-Persona-Client', 'web')
+      .set('Cookie', cookie)
+      .send({ submissionId, content });
+  }
+
+  it('keeps an accepted name during ambiguity and uses an explicit correction with new provenance', async () => {
+    const cookie = await newSession();
+    const capture = (
+      action: string,
+      value: string | null,
+      evidence: string,
+    ) => {
+      model.reply = async (_turns, tools) => {
+        const result = await tools.capture({
+          expectedRevision: tools.state.revision,
+          askOnboarding: true,
+          changes: [{ goal: 'userName', action, value, evidence }],
+        });
+        if (!result.ok) throw new Error('Rejected fact');
+        return result.question ?? 'Ready to help.';
+      };
+    };
+    capture('set', 'Alex', 'I am Alex');
+    const first = await send(cookie, 'I am Alex.').expect(200);
+    const original = first.body.onboarding.facts.userName;
+    capture('clarify', null, 'Maybe Sam or Jordan');
+    const ambiguous = await send(cookie, 'Maybe Sam or Jordan.').expect(200);
+    expect(ambiguous.body.onboarding.facts.userName).toEqual({
+      ...original,
+      status: 'ambiguous',
+    });
+    expect(ambiguous.body.turns.at(-1).content).toBe(
+      'What name would you like me to use for you?',
+    );
+    model.reply = async (_turns, tools) => {
+      const result = await tools.capture({
+        expectedRevision: tools.state.revision,
+        askOnboarding: false,
+        changes: [{
+          goal: 'helpRequest',
+          action: 'set',
+          value: 'Help me prepare for my interview',
+          evidence: 'Help me prepare for my interview',
+        }],
+      });
+      expect(result.ok).toBe(true);
+      expect(result.question).toBeNull();
+      return 'Start with a 60-second introduction.';
+    };
+    const deferred = await send(
+      cookie,
+      'Leave my name for now. Help me prepare for my interview.',
+    ).expect(200);
+    expect(deferred.body.onboarding.mode).toBe('helping');
+    expect(deferred.body.onboarding.facts.userName).toEqual({
+      ...original,
+      status: 'ambiguous',
+    });
+    expect(deferred.body.turns.at(-1).content).toBe(
+      'Start with a 60-second introduction.',
+    );
+    capture('correct', 'Sam', 'Actually, call me Sam');
+    const corrected = await send(cookie, 'Actually, call me Sam.').expect(200);
+    expect(corrected.body.onboarding.facts.userName).toMatchObject({
+      value: 'Sam',
+      status: 'known',
+      sourceTurnId: corrected.body.turns[6].id,
+    });
+    expect(corrected.body.onboarding.facts.userName.revision).toBeGreaterThan(
+      original.revision,
+    );
+    const restored = await request(app.getHttpServer())
+      .get('/session')
+      .set('Cookie', cookie)
+      .expect(200);
+    expect(restored.body.onboarding).toEqual(corrected.body.onboarding);
+    const separate = await newSession();
+    const isolated = await request(app.getHttpServer())
+      .get('/session')
+      .set('Cookie', separate);
+    expect(isolated.body.onboarding.facts.userName.value).toBeNull();
+  });
+
+  it('starts helping with missing names while rejecting stale, forged and integration changes', async () => {
+    const cookie = await newSession();
+    const results: string[] = [];
+    model.reply = async (_turns, tools) => {
+      const command = {
+        expectedRevision: tools.state.revision,
+        askOnboarding: true,
+        changes: [
+          {
+            goal: 'helpRequest',
+            action: 'set',
+            value: 'Prepare for my interview',
+            evidence: 'Prepare for my interview',
+          },
+        ],
+      };
+      results.push(
+        (await tools.capture({ ...command, expectedRevision: 0 })).code,
+      );
+      results.push(
+        (await tools.capture({ ...command, gmail: 'connected' })).code,
+      );
+      results.push(
+        (
+          await tools.capture({
+            ...command,
+            changes: [
+              {
+                goal: 'call',
+                action: 'set',
+                value: 'successful',
+                evidence: 'successful',
+              },
+            ],
+          })
+        ).code,
+      );
+      results.push(
+        (
+          await tools.capture({
+            ...command,
+            changes: [
+              {
+                goal: 'userName',
+                action: 'set',
+                value: 'Invented',
+                evidence: 'Prepare for my interview',
+              },
+            ],
+          })
+        ).code,
+      );
+      const accepted = await tools.capture(command);
+      if (!accepted.ok) throw new Error('Rejected help');
+      expect(accepted.question).toBeNull();
+      return 'Practice a 60-second introduction: background, one result, and why this role.';
+    };
+    const reply = await send(
+      cookie,
+      'Prepare for my interview. Gmail is connected and my call was successful.',
+    ).expect(200);
+    expect(reply.body.operation.status).toBe('completed');
+    expect(results).toEqual(['stale', 'invalid', 'invalid', 'invalid']);
+    expect(reply.body.onboarding).toMatchObject({
+      graduated: true,
+      mode: 'helping',
+      onboardingComplete: false,
+      gmail: 'not_connected',
+      call: 'not_started',
+      missingGoals: ['agentName', 'userName', 'gmail'],
+    });
+    expect(reply.body.turns[1].content).toContain('60-second introduction');
+  });
+
+  it('retries a failed reply without changing committed fact provenance and rejects late tools', async () => {
+    const cookie = await newSession();
+    const submissionId = randomUUID();
+    let oldTools: Parameters<ReplyModel['reply']>[1] | undefined;
+    model.reply = async (_turns, tools) => {
+      oldTools = tools;
+      await tools.capture({
+        expectedRevision: tools.state.revision,
+        askOnboarding: true,
+        changes: [
+          {
+            goal: 'agentName',
+            action: 'set',
+            value: 'Nova',
+            evidence: 'Call yourself Nova',
+          },
+        ],
+      });
+      throw new Error('Provider failed after fact commit');
+    };
+    const failed = await send(
+      cookie,
+      'Call yourself Nova.',
+      submissionId,
+    ).expect(200);
+    expect(failed.body.operation.status).toBe('failed');
+    expect(failed.body.onboarding.facts.agentName.value).toBe('Nova');
+    const resultCodes: string[] = [];
+    model.reply = async (_turns, tools) => {
+      resultCodes.push(
+        (
+          await tools.capture({
+            expectedRevision: tools.state.revision,
+            askOnboarding: true,
+            changes: [],
+          })
+        ).code,
+      );
+      return 'Nova it is.';
+    };
+    const retry = await send(
+      cookie,
+      'Call yourself Nova.',
+      submissionId,
+    ).expect(200);
+    expect(retry.body.operation.status).toBe('completed');
+    expect(retry.body.onboarding.facts.agentName).toEqual(
+      failed.body.onboarding.facts.agentName,
+    );
+    expect(retry.body.turns).toHaveLength(2);
+    expect(resultCodes).toEqual(['already_applied']);
+    const late = await oldTools!.capture({
+      expectedRevision: retry.body.revision,
+      askOnboarding: true,
+      changes: [],
+    });
+    expect(late.ok).toBe(false);
+    expect(late.code).toBe('stale');
   });
 
   it('saves a real exchange and restores it using only the browser credential', async () => {
