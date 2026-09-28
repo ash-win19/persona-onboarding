@@ -135,6 +135,11 @@ describe('saved conversation API', () => {
     'uses the $label provider tool result before replying',
     async ({ name, evidence, answer, expectedName, question }) => {
       let receivedAuthoritativeState = false;
+      const providerReply = JSON.stringify({
+        answer:
+          answer + (question ? ' What is your name? What do you need?' : ''),
+        followUp: null,
+      });
       const provider = createServer(async (req, res) => {
         let body = '';
         for await (const chunk of req) body += chunk;
@@ -150,14 +155,7 @@ describe('saved conversation API', () => {
         res.end(
           JSON.stringify({
             id: toolOutput ? 'resp_reply' : 'resp_capture',
-            output_text: toolOutput
-              ? JSON.stringify({
-                  answer:
-                    answer +
-                    (question ? ' What is your name? What do you need?' : ''),
-                  followUp: null,
-                })
-              : '',
+            object: 'response',
             status: 'completed',
             output: toolOutput
               ? [
@@ -167,10 +165,7 @@ describe('saved conversation API', () => {
                     content: [
                       {
                         type: 'output_text',
-                        text: JSON.stringify({
-                          answer,
-                          followUp: null,
-                        }),
+                        text: providerReply,
                         annotations: [],
                       },
                     ],
@@ -283,12 +278,39 @@ describe('saved conversation API', () => {
     expect(ambiguous.body.turns.at(-1).content).toBe(
       'What name would you like me to use for you?',
     );
+    model.reply = async (_turns, tools) => {
+      const result = await tools.capture({
+        expectedRevision: tools.state.revision,
+        askOnboarding: false,
+        changes: [{
+          goal: 'helpRequest',
+          action: 'set',
+          value: 'Help me prepare for my interview',
+          evidence: 'Help me prepare for my interview',
+        }],
+      });
+      expect(result.ok).toBe(true);
+      expect(result.question).toBeNull();
+      return 'Start with a 60-second introduction.';
+    };
+    const deferred = await send(
+      cookie,
+      'Leave my name for now. Help me prepare for my interview.',
+    ).expect(200);
+    expect(deferred.body.onboarding.mode).toBe('helping');
+    expect(deferred.body.onboarding.facts.userName).toEqual({
+      ...original,
+      status: 'ambiguous',
+    });
+    expect(deferred.body.turns.at(-1).content).toBe(
+      'Start with a 60-second introduction.',
+    );
     capture('correct', 'Sam', 'Actually, call me Sam');
     const corrected = await send(cookie, 'Actually, call me Sam.').expect(200);
     expect(corrected.body.onboarding.facts.userName).toMatchObject({
       value: 'Sam',
       status: 'known',
-      sourceTurnId: corrected.body.turns[4].id,
+      sourceTurnId: corrected.body.turns[6].id,
     });
     expect(corrected.body.onboarding.facts.userName.revision).toBeGreaterThan(
       original.revision,

@@ -16,7 +16,7 @@ The command contains an expected conversation revision, an `askOnboarding` boole
 
 A conversation row lock serializes validation and commit. Accepted facts, the new revision, and a per-submission assessment receipt commit together. Retrying after a reply failure returns existing committed facts without changing their provenance. Superseded or completed generation attempts cannot mutate facts.
 
-The tool result returns authoritative state and at most one onboarding question chosen by the backend. A help request suppresses missing-name questions; ambiguity gets a focused clarification. The `askOnboarding` choice applies only to the current reply. Durable refusals and visit-based deferrals belong to AW-78.
+The tool result returns authoritative state and at most one onboarding question chosen by the backend. A help request suppresses missing-name questions. When `askOnboarding` is true, ambiguity gets a focused clarification. When false, the current reply skips onboarding questions, including clarification. This choice applies only to the current reply. Durable refusals and visit-based deferrals belong to AW-78.
 
 ## Model flow
 

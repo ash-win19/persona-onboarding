@@ -100,12 +100,13 @@ export function nextOnboardingQuestion(
   state: OnboardingState,
   ask: boolean,
 ): string | null {
+  if (!ask) return null;
   const ambiguous = goals.find(
     (goal) => state.facts[goal].status === 'ambiguous',
   );
   const goal =
     ambiguous ??
-    (ask && !state.graduated
+    (!state.graduated
       ? goals.find((key) => !state.facts[key].value)
       : undefined);
   if (!goal) return null;
