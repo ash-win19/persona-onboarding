@@ -21,6 +21,12 @@ type Snapshot = {
 type Pending = { submissionId: string; content: string };
 type Connection = "connecting" | "ready" | "unavailable";
 
+class RequestError extends Error {
+  constructor(readonly status: number) {
+    super(`REQUEST_${status}`);
+  }
+}
+
 async function api<T>(
   path: string,
   signal: AbortSignal,
@@ -34,7 +40,7 @@ async function api<T>(
     body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
   });
-  if (!response.ok) throw new Error(`REQUEST_${response.status}`);
+  if (!response.ok) throw new RequestError(response.status);
   return response.json();
 }
 
@@ -69,7 +75,11 @@ export default function Chat() {
   function accept(data: Snapshot) {
     setSnapshot(data);
     setConnection("ready");
-    if (data.operation?.status === "completed") setPending(null);
+    if (data.operation?.status === "completed") {
+      setPending((current) =>
+        current?.submissionId === data.operation?.id ? null : current,
+      );
+    }
     setNotice(
       data.operation?.status === "failed"
         ? "Your message is saved. The reply could not finish. You can try again."
@@ -148,7 +158,7 @@ export default function Chat() {
     active.current?.abort();
     const controller = new AbortController();
     active.current = controller;
-    setPending(payload);
+    setPending((current) => current ?? payload);
     setBusy(true);
     setNotice("");
     try {
@@ -156,7 +166,22 @@ export default function Chat() {
       if (controller.signal.aborted) return;
       accept(data);
       await waitForReply(data, controller.signal);
-    } catch {
+    } catch (error) {
+      if (
+        error instanceof RequestError &&
+        error.status === 409 &&
+        !controller.signal.aborted
+      ) {
+        try {
+          const current = await api<Snapshot>("session", controller.signal);
+          if (controller.signal.aborted) return;
+          accept(current);
+          await waitForReply(current, controller.signal);
+          return;
+        } catch {
+          /* Preserve the waiting input if reconciliation is also unavailable. */
+        }
+      }
       if (!controller.signal.aborted) {
         setConnection("unavailable");
         setNotice(
@@ -176,13 +201,18 @@ export default function Chat() {
             turn.submissionId === snapshot.operation?.id,
         )
       : undefined;
-  const retryPayload =
-    pending ??
-    (unresolved
-      ? { submissionId: unresolved.submissionId, content: unresolved.content }
-      : null);
+  const retryPayload = unresolved
+    ? { submissionId: unresolved.submissionId, content: unresolved.content }
+    : pending;
   const canSend =
     connection === "ready" && !busy && !retryPayload && !!draft.trim();
+  const visibleNotice =
+    notice ||
+    (pending &&
+    snapshot?.operation?.status === "completed" &&
+    pending.submissionId !== snapshot.operation.id
+      ? "The earlier reply is saved. Retry to send your waiting message."
+      : "");
   const shownPending =
     pending &&
     !snapshot?.turns.some(
@@ -295,9 +325,9 @@ export default function Chat() {
             </p>
           )}
         </div>
-        {notice && (
+        {visibleNotice && (
           <div className="notice" role="status">
-            <p>{notice}</p>
+            <p>{visibleNotice}</p>
             {!busy && (
               <button onClick={retry}>
                 {retryPayload ? "Retry message" : "Try connecting again"}

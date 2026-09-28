@@ -1,5 +1,169 @@
 import { test, expect } from "@playwright/test";
 
+test("a concurrent reply finishing during reconciliation keeps the waiting message retryable", async ({
+  page,
+}) => {
+  let conflicted = false;
+  let waitingId = "";
+  await page.route("**/api/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/ready"))
+      return route.fulfill({ json: { ready: true } });
+    if (path.endsWith("/session"))
+      return route.fulfill({
+        json: {
+          conversationId: "one",
+          revision: conflicted ? 2 : 0,
+          turns: conflicted
+            ? [
+                {
+                  id: "previous",
+                  submissionId: "previous",
+                  role: "assistant",
+                  content: "The concurrent reply finished.",
+                },
+              ]
+            : [],
+          operation: conflicted
+            ? { id: "previous", status: "completed" }
+            : null,
+        },
+      });
+    const body = route.request().postDataJSON();
+    if (!conflicted) {
+      conflicted = true;
+      waitingId = body.submissionId;
+      return route.fulfill({ status: 409, json: {} });
+    }
+    expect(body.submissionId).toBe(waitingId);
+    return route.fulfill({
+      json: {
+        conversationId: "one",
+        revision: 4,
+        turns: [
+          {
+            id: "waiting",
+            submissionId: waitingId,
+            role: "user",
+            content: body.content,
+          },
+          {
+            id: "reply",
+            submissionId: waitingId,
+            role: "assistant",
+            content: "Now your reply is saved.",
+          },
+        ],
+        operation: { id: waitingId, status: "completed" },
+      },
+    });
+  });
+  await page.goto("/");
+  await page
+    .getByRole("textbox", { name: "Message Persona" })
+    .fill("Keep my concurrent request.");
+  await page.getByRole("button", { name: "Send message" }).click();
+  await expect(page.getByText("The concurrent reply finished.")).toBeVisible();
+  await page
+    .getByRole("button", { name: "Retry message" })
+    .click({ timeout: 5000 });
+  await expect(page.getByText("Now your reply is saved.")).toBeVisible();
+});
+
+test("a stale tab recovers the saved operation without losing its waiting message", async ({
+  page,
+}) => {
+  let phase = "empty";
+  let waitingId = "";
+  const turns = [
+    {
+      id: "earlier",
+      submissionId: "earlier",
+      role: "user",
+      content: "The earlier request.",
+    },
+  ];
+  await page.route("**/api/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/ready"))
+      return route.fulfill({ json: { ready: true } });
+    if (path.endsWith("/session"))
+      return route.fulfill({
+        json: {
+          conversationId: "one",
+          revision: phase === "empty" ? 0 : 1,
+          turns: phase === "empty" ? [] : turns,
+          operation:
+            phase === "empty" ? null : { id: "earlier", status: "failed" },
+        },
+      });
+    const body = route.request().postDataJSON();
+    if (phase === "empty") {
+      waitingId = body.submissionId;
+      phase = "blocked";
+      return route.fulfill({ status: 409, json: { code: "REQUEST_REJECTED" } });
+    }
+    if (phase === "blocked") {
+      if (body.submissionId !== "earlier")
+        return route.fulfill({
+          status: 409,
+          json: { code: "REQUEST_REJECTED" },
+        });
+      phase = "recovered";
+      turns.push({
+        id: "reply",
+        submissionId: "earlier",
+        role: "assistant",
+        content: "The earlier reply.",
+      });
+    } else {
+      expect(body.submissionId).toBe(waitingId);
+      turns.push({
+        id: "waiting",
+        submissionId: waitingId,
+        role: "user",
+        content: body.content,
+      });
+      turns.push({
+        id: "new-reply",
+        submissionId: waitingId,
+        role: "assistant",
+        content: "The waiting reply.",
+      });
+    }
+    return route.fulfill({
+      json: {
+        conversationId: "one",
+        revision: turns.length,
+        turns,
+        operation: { id: body.submissionId, status: "completed" },
+      },
+    });
+  });
+  await page.goto("/");
+  await page
+    .getByRole("textbox", { name: "Message Persona" })
+    .fill("My waiting request.");
+  await page.getByRole("button", { name: "Send message" }).click();
+  await expect(
+    page.getByText("The earlier request.", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("My waiting request.", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Retry message" }).click();
+  await expect(
+    page.getByText("The earlier reply.", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Retry message" }).click();
+  await expect(
+    page.getByText("The waiting reply.", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("My waiting request.", { exact: true }),
+  ).toHaveCount(1);
+});
+
 test("a visitor sends a message and sees the committed reply", async ({
   page,
 }) => {
