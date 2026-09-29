@@ -6,6 +6,7 @@ import { OnboardingPolicy } from './onboarding-policy.js';
 import { OnboardingService } from './onboarding.js';
 import { MODEL, type ReplyModel } from './model.js';
 import { Authority, credentialHash, type Owner } from './authority.js';
+import { CONVERSATION_MEMORY, type ConversationMemory } from './memory.js';
 
 export type Turn = {
   role: 'user' | 'assistant';
@@ -32,6 +33,7 @@ export class ChatService {
     @Inject(OnboardingService) private readonly onboarding: OnboardingService,
     @Inject(Authority) private readonly authority: Authority,
     @Inject(OnboardingPolicy) private readonly policy: OnboardingPolicy,
+    @Inject(CONVERSATION_MEMORY) private readonly memory: ConversationMemory,
   ) {}
   async create(sql: Sql) {
     const id = randomUUID();
@@ -194,6 +196,7 @@ export class ChatService {
         [conversation.id],
       );
     });
+    void this.memory.observe(conversation.id);
     return this.read(credential);
   }
   async ready() {

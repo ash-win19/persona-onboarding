@@ -1,6 +1,7 @@
 import type { Database, Sql } from './database.js';
 import { removeConversation } from './reset.js';
 import { uuid } from './authority.js';
+import { DisabledMemory, type ConversationMemory } from './memory.js';
 async function active(sql: Sql, id: string, now: Date) {
   return (
     (
@@ -17,6 +18,7 @@ export class Cleanup {
   constructor(
     private readonly db: Database,
     private readonly now = () => Date.now(),
+    private readonly memory: ConversationMemory = new DisabledMemory(),
   ) {}
   async preview(before: Date, limit = 100) {
     if (
@@ -74,6 +76,7 @@ export class Cleanup {
           return 'removed' as const;
         });
         report[outcome]++;
+        if (outcome === 'removed') await this.memory.forget(id);
       } catch {
         report.failed++;
       }

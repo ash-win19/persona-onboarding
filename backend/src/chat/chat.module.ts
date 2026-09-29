@@ -13,12 +13,13 @@ import { OpenAIVoiceProvider, VOICE_PROVIDER } from './voice-provider.js';
 import { Module } from '@nestjs/common';
 import { ChatController } from './chat.controller.js';
 import { ChatService } from './chat.service.js';
-import { DATABASE, PostgresDatabase } from './database.js';
+import { DATABASE, PostgresDatabase, type Database } from './database.js';
 import { CHAT_CONFIG, chatConfig, required } from './config.js';
 import { MODEL, OpenAIReplyModel } from './model.js';
 import { FACT_REPAIR, OpenAIFactRepair } from './fact-repair.js';
 import { Accounts } from './accounts.js';
 import { AccountsController } from './accounts.controller.js';
+import { CONVERSATION_MEMORY, createConversationMemory } from './memory.js';
 
 @Module({
   controllers: [
@@ -63,6 +64,11 @@ import { AccountsController } from './accounts.controller.js';
           process.env.OPENAI_API_KEY ?? '',
           process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime-mini',
         ),
+    },
+    {
+      provide: CONVERSATION_MEMORY,
+      useFactory: (db: Database) => createConversationMemory(db),
+      inject: [DATABASE],
     },
     { provide: CLOCK, useValue: () => Date.now() },
     { provide: CHAT_CONFIG, useFactory: chatConfig },
