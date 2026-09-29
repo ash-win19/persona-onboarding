@@ -80,15 +80,17 @@ async function setup(page: Page, returning = false) {
     },
     release: async () => {
       await expect.poll(() => !!release).toBe(true);
+      hold = false;
       release!();
     },
   };
 }
 
-test("Persona opens once and refreshing restores the greeting without replaying the hero", async ({
+test("the hero holds for 2.5 seconds before fading into the greeting, without replaying on refresh", async ({
   page,
 }) => {
-  await setup(page);
+  const saved = await setup(page);
+  saved.hold();
   await page.addInitScript(() => {
     (window as unknown as { sawIntro: boolean }).sawIntro = false;
     new MutationObserver(() => {
@@ -97,6 +99,32 @@ test("Persona opens once and refreshing restores the greeting without replaying 
     }).observe(document, { childList: true, subtree: true, attributes: true });
   });
   await page.goto("/");
+  await expect(page.getByText("Opening your conversation…")).toBeVisible();
+  await page.clock.install();
+  await page.clock.pauseAt(new Date());
+  await saved.release();
+  const hero = page.locator(".welcome");
+  const greeting = page.getByText(
+    "Hi, I'm Persona. What would you like to call me?",
+    { exact: true },
+  );
+  await expect(hero).toBeVisible();
+  await expect(hero).toHaveCSS("opacity", "1");
+  await expect(greeting).toBeHidden();
+  await expect(page.getByRole("log", { name: "Messages" })).toHaveCount(0);
+  const initialPosition = await hero.boundingBox();
+  await page.clock.runFor(2499);
+  await expect(hero).toHaveCSS("opacity", "1");
+  expect(await hero.boundingBox()).toEqual(initialPosition);
+  await expect(greeting).toBeHidden();
+  await page.clock.runFor(1);
+  await expect(hero).toHaveCSS("animation-name", "welcome-leave");
+  await expect(page.locator(".opening-arriving")).toHaveCSS(
+    "animation-name",
+    "opening-arrive",
+  );
+  await page.clock.runFor(450);
+  await page.clock.resume();
   await expect(
     page.getByText("Hi, I'm Persona. What would you like to call me?", {
       exact: true,
