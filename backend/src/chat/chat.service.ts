@@ -47,7 +47,7 @@ export class ChatService {
     return id;
   }
   async open(credential: string | undefined) {
-    const introduction = await this.db.transaction(async (sql) => {
+    return this.db.transaction(async (sql) => {
       const conversation = await this.authority.authorize(
         credential,
         sql,
@@ -59,47 +59,50 @@ export class ChatService {
          AND NOT EXISTS(SELECT 1 FROM turns WHERE conversation_id=$1 AND kind<>'opening') RETURNING id`,
         [conversation.id],
       );
-      return claimed.rows.length > 0;
+      return {
+        ...(await this.snapshot(credential, sql)),
+        introduction: claimed.rows.length > 0,
+      };
     });
-    return { ...(await this.read(credential)), introduction };
   }
   async read(credential: string | undefined) {
     return this.db.transaction(async (sql) => {
       await sql.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
-      const conversation = await this.authority.authorize(credential, sql);
-      const result = await sql.query<Turn>(
-        'SELECT id, role, content, channel, delivery, kind, submission_id AS "submissionId", created_at AS "createdAt" FROM turns WHERE conversation_id = $1 ORDER BY sequence',
-        [conversation.id],
-      );
-      const latest = await sql.query<Operation>(
-        'SELECT * FROM submissions WHERE conversation_id = $1 ORDER BY created_at DESC LIMIT 1',
-        [conversation.id],
-      );
-      const operation = latest.rows[0];
-      const interrupted =
-        operation?.status === 'generating' &&
-        new Date(operation.lease_until).getTime() <= Date.now();
-      return {
-        control: this.authority.view(conversation),
-        onboarding: await this.onboarding.read(
-          sql,
-          conversation.id,
-          conversation.revision,
-        ),
-        conversationId: conversation.id,
-        revision: conversation.revision,
-        turns: result.rows,
-        operation: operation
-          ? {
-              id: operation.id,
-              status: interrupted ? 'failed' : operation.status,
-              errorCode: interrupted
-                ? 'REPLY_INTERRUPTED'
-                : operation.error_code,
-            }
-          : null,
-      };
+      return this.snapshot(credential, sql);
     });
+  }
+  private async snapshot(credential: string | undefined, sql: Sql) {
+    const conversation = await this.authority.authorize(credential, sql);
+    const result = await sql.query<Turn>(
+      'SELECT id, role, content, channel, delivery, kind, submission_id AS "submissionId", created_at AS "createdAt" FROM turns WHERE conversation_id = $1 ORDER BY sequence',
+      [conversation.id],
+    );
+    const latest = await sql.query<Operation>(
+      'SELECT * FROM submissions WHERE conversation_id = $1 ORDER BY created_at DESC LIMIT 1',
+      [conversation.id],
+    );
+    const operation = latest.rows[0];
+    const interrupted =
+      operation?.status === 'generating' &&
+      new Date(operation.lease_until).getTime() <= Date.now();
+    return {
+      control: this.authority.view(conversation),
+      onboarding: await this.onboarding.read(
+        sql,
+        conversation.id,
+        conversation.revision,
+      ),
+      conversationId: conversation.id,
+      revision: conversation.revision,
+      turns: result.rows,
+      operation: operation
+        ? {
+            id: operation.id,
+            status: interrupted ? 'failed' : operation.status,
+            errorCode: interrupted ? 'REPLY_INTERRUPTED' : operation.error_code,
+          }
+        : null,
+    };
   }
   async submit(
     credential: string | undefined,

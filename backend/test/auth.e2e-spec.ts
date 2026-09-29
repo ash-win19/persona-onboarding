@@ -169,6 +169,79 @@ describe('invite-only authentication', () => {
     );
   });
 
+  it('keeps an introduction attached to its conversation when another session resets before the response arrives', async () => {
+    const email = 'reset-opening@example.test';
+    await createAccount(db, email, 'unique-test-password');
+    const first = await login(email).expect(200);
+    const second = await login(email).expect(200);
+    const tabId = randomUUID();
+    const post = (cookie: string, path: string, body: object) =>
+      request(app.getHttpServer())
+        .post(path)
+        .set('Origin', origin)
+        .set('X-Persona-Client', 'web')
+        .set('Cookie', cookie)
+        .send(body);
+    const claim = await post(second.headers['set-cookie'][0], '/control', {
+      tabId,
+      takeover: false,
+    }).expect(200);
+    const original = db.transaction.bind(db);
+    let release!: () => void;
+    let committed!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const waiting = new Promise<void>((resolve) => {
+      committed = resolve;
+    });
+    let held = false;
+    db.transaction = async (work) => {
+      const result = await original(work);
+      if (!held) {
+        held = true;
+        committed();
+        await gate;
+      }
+      return result;
+    };
+    const opening = post(first.headers['set-cookie'][0], '/session', {}).then(
+      (result) => result,
+    );
+    try {
+      await waiting;
+      const reset = await post(second.headers['set-cookie'][0], '/reset', {
+        operationId: randomUUID(),
+      })
+        .set('X-Persona-Tab', tabId)
+        .set('X-Persona-Epoch', String(claim.body.control.epoch))
+        .expect(200);
+      release();
+      const response = await opening;
+      expect(response.body).toMatchObject({
+        conversationId: first.body.conversationId,
+        introduction: true,
+      });
+      const fresh = await post(
+        reset.headers['set-cookie'][0],
+        '/session',
+        {},
+      ).expect(201);
+      expect(fresh.body).toMatchObject({
+        conversationId: reset.body.conversationId,
+        introduction: true,
+      });
+      expect(
+        (await post(reset.headers['set-cookie'][0], '/session', {}).expect(201))
+          .body.introduction,
+      ).toBe(false);
+    } finally {
+      release();
+      db.transaction = original;
+      await opening;
+    }
+  });
+
   it('keeps two accounts isolated even with a supplied conversation ID', async () => {
     await createAccount(db, 'zach@example.test', 'unique-test-password');
     const tanay = await login('tanay@example.test').expect(200);

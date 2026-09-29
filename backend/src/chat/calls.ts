@@ -255,15 +255,15 @@ export class Calls implements OnModuleDestroy {
         return {
           call,
           direction: await this.onboarding.callOpening(sql, c.id, c.revision),
+          context: await this.context(call, sql),
         };
       });
       if (opening && !runtime.closing && runtime.connection?.healthy()) {
-        const context = await this.context(opening.call);
         this.response(
           runtime.connection,
           opening.call,
           undefined,
-          this.instructions(context) +
+          this.instructions(opening.context) +
             '\nThis is the first spoken turn after the browser connected. The server has already verified the saved context and selected the permitted opening. There is no new user input to capture. Do not call tools during this opening. Never ask for the assistant name. ' +
             opening.direction,
         );
@@ -470,21 +470,21 @@ export class Calls implements OnModuleDestroy {
     }
   }
 
-  private async context(call: Call) {
+  private async context(call: Call, sql: Sql = this.db) {
     const conversation = (
-      await this.db.query<{ revision: number }>(
+      await sql.query<{ revision: number }>(
         'SELECT revision FROM conversations WHERE id=$1',
         [call.conversation_id],
       )
     ).rows[0];
     if (!conversation) throw new Error('CONVERSATION_REMOVED');
     const state = await this.onboarding.read(
-      this.db,
+      sql,
       call.conversation_id,
       conversation.revision,
     );
     const turns = (
-      await this.db.query<{ role: string; content: string }>(
+      await sql.query<{ role: string; content: string }>(
         "SELECT role,content FROM turns WHERE conversation_id=$1 AND delivery IN ('text','played') ORDER BY sequence DESC LIMIT 30",
         [call.conversation_id],
       )

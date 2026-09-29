@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { apiFetch } from "@/lib/api";
 
 export type Control = {
   tabId: string | null;
@@ -188,7 +189,7 @@ export function useVoice(
               for (let retry = 0; retry < 2; retry++) {
                 if (attempt.current !== current) return;
                 try {
-                  const ready = await fetch("/api/calls/ready", {
+                  await apiFetch("calls/ready", {
                     method: "POST",
                     headers: current.headers,
                     credentials: "same-origin",
@@ -198,7 +199,6 @@ export function useVoice(
                       AbortSignal.timeout(8000),
                     ]),
                   });
-                  if (!ready.ok) throw new Error("OPENING_UNAVAILABLE");
                   return;
                 } catch {
                   if (retry === 1 && attempt.current === current)

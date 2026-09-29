@@ -23,6 +23,7 @@ describe('browser call API', () => {
   let now = Date.now();
   const origin = 'https://persona.example';
   let textContext: ModelTurn[] = [];
+  let failOpeningContext = false;
   const model: ReplyModel = { reply: async () => 'Ready to help in text.' };
   const repair: FactRepair = {
     interpret: async () => {
@@ -65,7 +66,21 @@ describe('browser call API', () => {
     postgres = new PGlite();
     const db: Database = {
       query: (s, v) => postgres.query(s, v),
-      transaction: (work) => postgres.transaction(work),
+      transaction: (work) =>
+        postgres.transaction((sql) =>
+          work({
+            query: (statement, values) => {
+              if (
+                failOpeningContext &&
+                statement.startsWith('SELECT role,content FROM turns')
+              ) {
+                failOpeningContext = false;
+                throw new Error('CONTEXT_UNAVAILABLE');
+              }
+              return sql.query(statement, values);
+            },
+          }),
+        ),
     };
     await migrate(db);
     const module = await Test.createTestingModule({ imports: [ChatModule] })
@@ -91,6 +106,7 @@ describe('browser call API', () => {
   });
   beforeEach(() => {
     now = Date.now();
+    failOpeningContext = false;
     repair.interpret = async () => {
       throw new Error('REPAIR_UNAVAILABLE');
     };
@@ -199,6 +215,133 @@ describe('browser call API', () => {
     expect(
       c.sent.filter((event) => event.type === 'response.create'),
     ).toHaveLength(0);
+    await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
+  });
+
+  it('retries a voice opening after its context lookup fails without consuming the question', async () => {
+    const s = await session();
+    const id = randomUUID();
+    await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
+    const c = connections.at(-1)!;
+    failOpeningContext = true;
+    await s.post('/calls/ready', { id }).expect(503);
+    expect(
+      c.sent.filter((event) => event.type === 'response.create'),
+    ).toHaveLength(0);
+    await s.post('/calls/ready', { id }).expect(200);
+    expect(
+      c.sent.filter((event) => event.type === 'response.create'),
+    ).toMatchObject([
+      {
+        response: {
+          instructions: expect.stringContaining(
+            'What name would you like me to use for you?',
+          ),
+        },
+      },
+    ]);
+    await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
+  });
+
+  it.each(['speech', 'typing', 'hangup'])(
+    'keeps an opening interrupted by %s out of heard context despite late events',
+    async (action) => {
+      const s = await session();
+      const id = randomUUID();
+      await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
+      await s.post('/calls/ready', { id }).expect(200);
+      const c = connections.at(-1)!;
+      await c.emit({
+        type: 'response.created',
+        response: {
+          id: 'opening-response',
+          status: 'in_progress',
+          metadata: { generation: '0', purpose: 'opening' },
+        },
+      });
+      if (action === 'speech')
+        await c.emit({
+          type: 'input_audio_buffer.speech_started',
+          item_id: 'interrupting-speech',
+        });
+      else if (action === 'typing')
+        await s
+          .post('/calls/turns', {
+            id,
+            submissionId: randomUUID(),
+            content: 'Help me with an interview instead.',
+          })
+          .expect(200);
+      else
+        await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
+      await c.emit({
+        type: 'response.output_audio_transcript.done',
+        item_id: 'opening-audio',
+        response_id: 'opening-response',
+        transcript: 'An opening that was interrupted.',
+      });
+      await c.emit({
+        type: 'output_audio_buffer.stopped',
+        response_id: 'opening-response',
+      });
+      const saved = await s.read();
+      expect(
+        saved.body.turns.find(
+          (turn: { content: string }) =>
+            turn.content === 'An opening that was interrupted.',
+        ),
+      ).toMatchObject({ delivery: 'interrupted', channel: 'voice' });
+      if (action !== 'hangup')
+        await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
+      await s
+        .post('/turns', {
+          submissionId: randomUUID(),
+          content: 'Continue here.',
+        })
+        .expect(200);
+      expect(
+        textContext.some(
+          (turn) => turn.content === 'An opening that was interrupted.',
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it('retains a played voice opening once without marking the call successful before the user participates', async () => {
+    const s = await session();
+    const id = randomUUID();
+    await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
+    await s.post('/calls/ready', { id }).expect(200);
+    const c = connections.at(-1)!;
+    await c.emit({
+      type: 'response.created',
+      response: {
+        id: 'opening-response',
+        status: 'in_progress',
+        metadata: { generation: '0', purpose: 'opening' },
+      },
+    });
+    for (let i = 0; i < 2; i++) {
+      await c.emit({
+        type: 'response.output_audio_transcript.done',
+        item_id: 'opening-audio',
+        response_id: 'opening-response',
+        transcript: 'What should I call you?',
+      });
+      await c.emit({
+        type: 'output_audio_buffer.stopped',
+        response_id: 'opening-response',
+      });
+    }
+    const saved = await s.read();
+    expect(
+      saved.body.turns.filter(
+        (turn: { channel: string }) => turn.channel === 'voice',
+      ),
+    ).toMatchObject([
+      { content: 'What should I call you?', delivery: 'played' },
+    ]);
+    expect(saved.body.onboarding.call).toBe('not_started');
     await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
   });
 
