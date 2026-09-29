@@ -108,6 +108,7 @@ summary svg {
   padding-bottom: 48px;
 }
 .welcome {
+  container-type: inline-size;
   text-align: center;
   width: 100%;
 }
@@ -131,7 +132,8 @@ h1 {
   line-height: 1.08;
 }
 .welcome > p {
-  font-size: 15px;
+  font-size: min(15px, 2.3cqi);
+  white-space: nowrap;
   line-height: 1.8;
   color: var(--muted);
   margin: 0;
@@ -562,9 +564,6 @@ h1 {
   .welcome-mark svg {
     width: 36px;
     height: 36px;
-  }
-  .welcome > p {
-    font-size: 13px;
   }
   .turns {
     gap: 26px;

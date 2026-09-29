@@ -451,9 +451,7 @@ export default function Chat() {
               </div>
               <h1>Where should we start?</h1>
               <p>
-                What would you like to call me?
-                <br />
-                Or jump right into something you need a hand with.
+                What would you like to call me? Or jump right into something you need a hand with.
               </p>
             </div>
           )}
