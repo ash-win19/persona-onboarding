@@ -420,7 +420,7 @@ export class OnboardingService {
       const changes: (Change & { source: Source })[] = [];
       for (const change of command.changes) {
         let match: (Change & { source: Source }) | undefined;
-        for (const candidate of sources) {
+        for (const candidate of sources.toReversed()) {
           const evidence = context.callId
             ? spokenQuote(candidate.content, change.evidence)
             : normalized(candidate.content).includes(

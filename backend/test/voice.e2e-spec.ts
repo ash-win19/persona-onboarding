@@ -819,9 +819,13 @@ describe('browser call API', () => {
     await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
     expect((await s.read()).body.onboarding.graduated).toBe(true);
   });
-  it.each([false, true])(
-    'resolves a split name and refusal in spoken order, refusal first: %s',
-    async (refusalFirst) => {
+  it.each([
+    { order: 'fact-first', outcome: 'declined', sourceIndex: 0 },
+    { order: 'refusal-first', outcome: 'open', sourceIndex: 1 },
+    { order: 'repeated-fact', outcome: 'open', sourceIndex: 2 },
+  ])(
+    'resolves a split name and refusal in spoken order: $order',
+    async ({ order, outcome, sourceIndex }) => {
       const s = await session(),
         id = randomUUID();
       await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
@@ -830,7 +834,9 @@ describe('browser call API', () => {
         ['name', 'Call me Sam.'],
         ['refusal', 'Do not ask my name again.'],
       ];
-      if (refusalFirst) inputs.reverse();
+      if (order === 'refusal-first') inputs.reverse();
+      if (order === 'repeated-fact')
+        inputs.push(['repeat', 'Actually, call me Sam.']);
       for (const [item, transcript] of inputs) {
         c.emit({ type: 'input_audio_buffer.committed', item_id: item });
         c.emit({
@@ -840,7 +846,7 @@ describe('browser call API', () => {
         });
       }
       await vi.waitFor(async () =>
-        expect((await s.read()).body.turns).toHaveLength(2),
+        expect((await s.read()).body.turns).toHaveLength(inputs.length),
       );
       const before = (await s.read()).body;
       c.emit({
@@ -848,7 +854,10 @@ describe('browser call API', () => {
         response: {
           id: 'ordered-response',
           status: 'in_progress',
-          metadata: { generation: '2', sourceItem: inputs[1][0] },
+          metadata: {
+            generation: String(inputs.length),
+            sourceItem: inputs.at(-1)![0],
+          },
         },
       });
       c.emit({
@@ -883,7 +892,10 @@ describe('browser call API', () => {
       );
       expect(
         (await s.read()).body.onboarding.policy.goals.userName.outcome,
-      ).toBe(refusalFirst ? 'open' : 'declined');
+      ).toBe(outcome);
+      expect((await s.read()).body.onboarding.facts.userName.sourceTurnId).toBe(
+        before.turns[sourceIndex].id,
+      );
       await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
     },
   );
