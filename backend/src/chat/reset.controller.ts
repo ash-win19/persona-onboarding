@@ -1,8 +1,8 @@
+import { browserWrite } from './http-policy.js';
 import {
   BadRequestException,
   Body,
   Controller,
-  ForbiddenException,
   HttpCode,
   Inject,
   Post,
@@ -12,7 +12,7 @@ import {
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { CHAT_CONFIG, type ChatConfig } from './config.js';
-import { ChatErrors, credential, owner } from './chat.controller.js';
+import { ChatErrors, credential } from './chat.controller.js';
 import { uuid } from './authority.js';
 import { Reset } from './reset.js';
 @Controller('reset')
@@ -29,21 +29,14 @@ export class ResetController {
     @Body() body: unknown,
     @Res({ passthrough: true }) res: Response,
   ) {
+    const control = browserWrite(req, this.config, true);
     if (
-      !this.config.origins.includes(req.headers.origin ?? '') ||
-      req.headers['x-persona-client'] !== 'web'
-    )
-      throw new ForbiddenException();
-    if (
-      !req.is('application/json') ||
       !body ||
       typeof body !== 'object' ||
       !('operationId' in body) ||
       !uuid(body.operationId)
     )
       throw new BadRequestException();
-    const control = owner(req);
-    if (!control) throw new ForbiddenException();
     const result = await this.reset.start(
       credential(req),
       control,

@@ -21,6 +21,7 @@ export function GmailConnection({
   const [gmail, setGmail] = useState<GmailStatus | null>(null);
   const [busy, setBusy] = useState(false),
     [notice, setNotice] = useState("");
+  const lifecycle = useRef(new AbortController());
   const popup = useRef<Window | null>(null),
     attempt = useRef<string | null>(null),
     headersRef = useRef(headers),
@@ -30,13 +31,16 @@ export function GmailConnection({
     changedRef.current = onChanged;
   }, [headers, onChanged]);
   const refresh = useCallback(async () => {
+    const life = lifecycle.current;
+    if (life.signal.aborted) return;
     const response = await fetch("/api/gmail/status", {
       cache: "no-store",
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.any([life.signal, AbortSignal.timeout(15000)]),
     });
     if (!response.ok) throw new Error("GMAIL_STATUS_UNAVAILABLE");
     const status: GmailStatus = await response.json();
     if (typeof status.available !== "boolean") return;
+    if (life.signal.aborted) return;
     setGmail(status);
     if (
       attempt.current &&
@@ -60,6 +64,7 @@ export function GmailConnection({
     }
   }, []);
   useEffect(() => {
+    lifecycle.current = new AbortController();
     let cancelled = false;
     const initial = setTimeout(() => {
       if (!cancelled) void refresh().catch(() => undefined);
@@ -70,6 +75,7 @@ export function GmailConnection({
     window.addEventListener("focus", focus);
     return () => {
       cancelled = true;
+      lifecycle.current.abort();
       clearTimeout(initial);
       window.removeEventListener("focus", focus);
       popup.current?.close();
@@ -105,6 +111,7 @@ export function GmailConnection({
     return () => clearInterval(timer);
   }, [busy, refresh]);
   async function connect() {
+    const life = lifecycle.current;
     setBusy(true);
     setNotice("");
     const opened = window.open(
@@ -119,15 +126,20 @@ export function GmailConnection({
         method: "POST",
         headers: headersRef.current(),
         body: "{}",
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.any([life.signal, AbortSignal.timeout(15000)]),
       });
       if (!response.ok) throw new Error("CONNECT_FAILED");
       const result: { attemptId: string; url: string } = await response.json();
+      if (life.signal.aborted) {
+        opened?.close();
+        return;
+      }
       attempt.current = result.attemptId;
       if (opened) opened.location.href = result.url;
       else window.location.assign(result.url);
     } catch {
       opened?.close();
+      if (life.signal.aborted) return;
       setBusy(false);
       setNotice("Gmail could not start connecting. Please try again.");
     }

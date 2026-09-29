@@ -1,3 +1,4 @@
+import { Gmail } from './gmail.js';
 import { Authority } from './authority.js';
 import { Inject, Injectable } from '@nestjs/common';
 import {
@@ -22,6 +23,7 @@ export type OnboardingState = {
   policy?: PolicyState;
   facts: Record<Goal, Fact>;
   gmail: 'connected' | 'not_connected';
+  gmailAvailable?: boolean;
   call: 'successful' | 'not_started';
   graduated: boolean;
   onboardingComplete: boolean;
@@ -142,33 +144,13 @@ function validCommand(value: unknown): value is Command {
   });
 }
 
-export function nextOnboardingQuestion(
-  state: OnboardingState,
-  ask: boolean,
-): string | null {
-  if (!ask) return null;
-  const ambiguous = goals.find(
-    (goal) => state.facts[goal].status === 'ambiguous',
-  );
-  const goal =
-    ambiguous ??
-    (!state.graduated
-      ? goals.find((key) => !state.facts[key].value)
-      : undefined);
-  if (!goal) return null;
-  return {
-    agentName: 'What would you like to call me?',
-    userName: 'What name would you like me to use for you?',
-    helpRequest: 'What would you like help with?',
-  }[goal];
-}
-
 @Injectable()
 export class OnboardingService {
   constructor(
     @Inject(DATABASE) private readonly db: Database,
     @Inject(OnboardingPolicy) private readonly policy: OnboardingPolicy,
     @Inject(Authority) private readonly authority: Authority,
+    @Inject(Gmail) private readonly gmail: Gmail,
   ) {}
 
   async read(
@@ -201,18 +183,35 @@ export class OnboardingService {
       await sql.query<{
         gmail_verified_at: Date | null;
         call_successful_at: Date | null;
+        call_active: boolean;
+        gmail_pending: boolean;
       }>(
-        'SELECT gmail_verified_at, call_successful_at FROM conversations WHERE id = $1',
-        [conversationId],
+        `SELECT gmail_verified_at,call_successful_at,
+          EXISTS(SELECT 1 FROM calls WHERE conversation_id=$1 AND status IN ('connecting','active')) AS call_active,
+          EXISTS(SELECT 1 FROM gmail_attempts WHERE conversation_id=$1 AND status IN ('pending','exchanging') AND expires_at>$2) AS gmail_pending
+          FROM conversations WHERE id=$1`,
+        [conversationId, new Date(this.authority.now())],
       )
     ).rows[0];
     const gmail = integration.gmail_verified_at ? 'connected' : 'not_connected';
     const graduated = !!facts.helpRequest.value;
+    const policy = await this.policy.read(sql, conversationId);
+    for (const goal of goals)
+      if (facts[goal].status === 'known') policy.goals[goal].eligible = false;
+    if (integration.call_active || integration.call_successful_at)
+      policy.goals.voice.eligible = false;
+    if (
+      gmail === 'connected' ||
+      integration.gmail_pending ||
+      !this.gmail.available()
+    )
+      policy.goals.gmail.eligible = false;
     return {
       revision,
-      policy: await this.policy.read(sql, conversationId),
+      policy,
       facts,
       gmail,
+      gmailAvailable: this.gmail.available(),
       call: integration.call_successful_at ? 'successful' : 'not_started',
       graduated,
       onboardingComplete:
@@ -247,11 +246,17 @@ export class OnboardingService {
         ? ['agentName' as const]
         : []),
       ...(!active && state.call !== 'successful' ? ['voice' as const] : []),
-      ...(!state.graduated ? goals.filter((g) => !state.facts[g].value) : []),
-      ...(state.gmail !== 'connected' ? ['gmail' as const] : []),
+      ...goals.filter(
+        (g) =>
+          !state.facts[g].value && (g !== 'helpRequest' || !state.graduated),
+      ),
+      ...(state.gmail !== 'connected' && state.gmailAvailable !== false
+        ? ['gmail' as const]
+        : []),
     ];
     for (const goal of candidates) {
       if (voice && goal === 'agentName') continue;
+      if (state.policy && !state.policy.goals[goal].eligible) continue;
       if (await this.policy.offer(sql, id, goal))
         return {
           agentName: 'What would you like to call me?',

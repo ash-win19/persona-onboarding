@@ -94,8 +94,9 @@ describe('saved conversation API', () => {
     const reopened = await send(cookie, 'connect Gmail').expect(200);
     expect(reopened.body.onboarding.policy.goals.gmail).toMatchObject({
       outcome: 'open',
-      eligible: true,
+      eligible: false,
     });
+    expect(reopened.body.onboarding.gmailAvailable).toBe(false);
   });
 
   it('keeps another tab read-only until explicit takeover and rejects stale writes', async () => {

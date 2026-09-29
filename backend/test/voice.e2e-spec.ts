@@ -5,7 +5,7 @@ import request from 'supertest';
 import { randomUUID } from 'node:crypto';
 import { ChatModule } from '../src/chat/chat.module.js';
 import { DATABASE, type Database } from '../src/chat/database.js';
-import { MODEL } from '../src/chat/model.js';
+import { MODEL, type ModelTurn } from '../src/chat/model.js';
 import { CHAT_CONFIG } from '../src/chat/config.js';
 import { CLOCK } from '../src/chat/authority.js';
 import { migrate } from '../src/chat/migration.js';
@@ -20,12 +20,14 @@ describe('browser call API', () => {
   let postgres: PGlite;
   let now = Date.now();
   const origin = 'https://persona.example';
+  let textContext: ModelTurn[] = [];
   const connections: {
     emit: (event: VoiceEvent) => void;
     disconnect: () => void;
     sent: Record<string, unknown>[];
     closed: boolean;
     stalled: boolean;
+    instructions: string;
   }[] = [];
   const provider: VoiceProvider = {
     connect: async (_sdp, _instructions, onEvent, onClose) => {
@@ -35,6 +37,7 @@ describe('browser call API', () => {
         sent: [] as Record<string, unknown>[],
         closed: false,
         stalled: false,
+        instructions: _instructions,
       };
       connections.push(c);
       return {
@@ -61,7 +64,12 @@ describe('browser call API', () => {
       .overrideProvider(DATABASE)
       .useValue(db)
       .overrideProvider(MODEL)
-      .useValue({ reply: async () => 'Ready to help in text.' })
+      .useValue({
+        reply: async (turns: ModelTurn[]) => {
+          textContext = turns;
+          return 'Ready to help in text.';
+        },
+      })
       .overrideProvider(CHAT_CONFIG)
       .useValue({ origins: [origin], secureCookies: true })
       .overrideProvider(CLOCK)
@@ -296,6 +304,17 @@ describe('browser call API', () => {
     };
     await s.post('/calls/turns', body).expect(200);
     await s.post('/calls/turns', body).expect(200);
+    const wireItem = c.sent.find(
+      (e) => e.type === 'conversation.item.create',
+    )?.item;
+    if (
+      !wireItem ||
+      typeof wireItem !== 'object' ||
+      !('id' in wireItem) ||
+      typeof wireItem.id !== 'string'
+    )
+      throw new Error('No provider user item');
+    expect(wireItem.id.length).toBeLessThanOrEqual(32);
     expect(c.sent.filter((e) => e.type === 'response.cancel')).toHaveLength(1);
     expect(
       c.sent.filter((e) => e.type === 'output_audio_buffer.clear'),
@@ -312,8 +331,30 @@ describe('browser call API', () => {
       ),
     ).toHaveLength(1);
     expect(saved.body.turns[0].delivery).toBe('interrupted');
+    c.emit({
+      type: 'response.done',
+      response: { id: 'old-response', status: 'cancelled' },
+    });
+    await vi.waitFor(() =>
+      expect(c.sent.some((e) => e.type === 'response.create')).toBe(true),
+    );
     expect((await s.status()).body.call.status).toBe('active');
     await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
+    await s
+      .post('/turns', {
+        submissionId: randomUUID(),
+        content: 'Continue in text.',
+      })
+      .expect(200);
+    expect(textContext.some((t) => t.content === 'An old long answer.')).toBe(
+      false,
+    );
+    const next = randomUUID();
+    await s.post('/calls/start', { id: next, sdp: 'v=0' }).expect(200);
+    expect(connections.at(-1)!.instructions).not.toContain(
+      'An old long answer.',
+    );
+    await s.post('/calls/end', { id: next, reason: 'user_hangup' }).expect(200);
   });
   it('commits spoken facts from the finalized source and rejects a superseded voice tool', async () => {
     const s = await session(),
@@ -399,6 +440,106 @@ describe('browser call API', () => {
     });
     await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
     expect((await s.read()).body.onboarding.facts.userName.value).toBe('Sam');
+  });
+  it('repairs rejected voice facts before replying and bounds malformed retries', async () => {
+    const s = await session(),
+      id = randomUUID();
+    await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
+    const c = connections.at(-1)!;
+    c.emit({ type: 'input_audio_buffer.committed', item_id: 'repair-source' });
+    c.emit({
+      type: 'conversation.item.input_audio_transcription.completed',
+      item_id: 'repair-source',
+      transcript: 'Call me Sam.',
+    });
+    await vi.waitFor(async () =>
+      expect((await s.read()).body.turns).toHaveLength(1),
+    );
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const responseId = `repair-response-${attempt}`;
+      c.emit({
+        type: 'response.created',
+        response: {
+          id: responseId,
+          status: 'in_progress',
+          metadata: { generation: '1', sourceItem: 'repair-source' },
+        },
+      });
+      c.emit({
+        type: 'response.function_call_arguments.done',
+        response_id: responseId,
+        call_id: `repair-tool-${attempt}`,
+        name: 'capture_onboarding',
+        arguments: JSON.stringify({ expectedRevision: 0, changes: [] }),
+      });
+      await vi.waitFor(() =>
+        expect(
+          c.sent.some(
+            (e) =>
+              e.type === 'conversation.item.create' &&
+              (e.item as { call_id?: string })?.call_id ===
+                `repair-tool-${attempt}`,
+          ),
+        ).toBe(true),
+      );
+      c.emit({
+        type: 'response.done',
+        response: { id: responseId, status: 'completed' },
+      });
+      await vi.waitFor(() => {
+        const responses = c.sent.filter((e) => e.type === 'response.create');
+        expect(responses).toHaveLength(attempt + 2);
+        const response = responses.at(-1)!.response as {
+          tool_choice?: string;
+          instructions?: string;
+        };
+        expect(response.tool_choice).toBe(attempt < 2 ? 'required' : undefined);
+        if (attempt < 2)
+          expect(response.instructions).toContain('Call me Sam.');
+      });
+    }
+    expect((await s.read()).body.onboarding.facts.userName.value).toBeNull();
+    await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
+  });
+  it('keeps malformed internal repair output out of chat and resumes dialogue', async () => {
+    const s = await session(),
+      id = randomUUID();
+    await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
+    const c = connections.at(-1)!;
+    c.emit({
+      type: 'response.created',
+      response: {
+        id: 'internal-repair',
+        status: 'in_progress',
+        metadata: { generation: '0', purpose: 'fact_repair' },
+      },
+    });
+    c.emit({
+      type: 'response.output_audio_transcript.done',
+      response_id: 'internal-repair',
+      item_id: 'bad-repair-output',
+      transcript: '{"expectedRevision":0}',
+    });
+    c.emit({
+      type: 'response.done',
+      response: {
+        id: 'internal-repair',
+        status: 'completed',
+        output: [
+          {
+            id: 'bad-repair-output',
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'text', text: '{"expectedRevision":0}' }],
+          },
+        ],
+      },
+    });
+    await vi.waitFor(() =>
+      expect(c.sent.some((e) => e.type === 'response.create')).toBe(true),
+    );
+    expect((await s.read()).body.turns).toHaveLength(0);
+    await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
   });
   it('reports lost sideband control and leaves committed chat usable', async () => {
     const s = await session();

@@ -277,6 +277,29 @@ describe('reset and operator cleanup', () => {
     expect(saved.body.turns).toHaveLength(0);
     expect(saved.body.onboarding.gmail).toBe('not_connected');
   });
+  it('allows cleanup of a crashed call after its deadline and owner lease expire', async () => {
+    const s = await session();
+    const id = randomUUID();
+    await db.query(
+      "INSERT INTO calls(id,conversation_id,owner_tab,owner_epoch,instance_id,status,created_at,deadline) VALUES($1,$2,$3,1,$4,'active',$5,$6)",
+      [
+        id,
+        s.id,
+        randomUUID(),
+        randomUUID(),
+        new Date(now),
+        new Date(now + 600000),
+      ],
+    );
+    now += 600001;
+    const cleanup = new Cleanup(db, () => now);
+    expect((await cleanup.preview(new Date(now))).selected).toContain(s.id);
+    expect(await cleanup.remove([s.id])).toMatchObject({
+      removed: 1,
+      failed: 0,
+    });
+    await absent(s.id);
+  });
   it('previews abandoned conversations, skips active owners, and purges only old diagnostics', async () => {
     const abandoned = await session(),
       active = await session();

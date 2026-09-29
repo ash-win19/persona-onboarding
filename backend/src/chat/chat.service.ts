@@ -10,6 +10,7 @@ import { Authority, credentialHash, type Owner } from './authority.js';
 export type Turn = {
   role: 'user' | 'assistant';
   content: string;
+  delivery: string;
   id: string;
   submissionId: string;
   createdAt: Date;
@@ -147,6 +148,11 @@ export class ChatService {
     try {
       reply = await this.model.reply(
         snapshot.turns
+          .filter(
+            (turn) =>
+              turn.role === 'user' ||
+              ['text', 'played'].includes(turn.delivery),
+          )
           .slice(-40)
           .map(({ role, content: text }) => ({ role, content: text })),
         {

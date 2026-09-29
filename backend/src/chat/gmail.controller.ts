@@ -1,8 +1,8 @@
+import { browserWrite } from './http-policy.js';
 import {
   BadRequestException,
   Body,
   Controller,
-  ForbiddenException,
   Get,
   HttpCode,
   Inject,
@@ -14,7 +14,7 @@ import {
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { CHAT_CONFIG, type ChatConfig } from './config.js';
-import { ChatErrors, credential, owner } from './chat.controller.js';
+import { ChatErrors, credential } from './chat.controller.js';
 import { uuid } from './authority.js';
 import { Gmail } from './gmail.js';
 import { Calls } from './calls.js';
@@ -26,17 +26,6 @@ export class GmailController {
     @Inject(CHAT_CONFIG) private readonly config: ChatConfig,
     @Inject(Calls) private readonly calls: Calls,
   ) {}
-  private write(req: Request) {
-    if (
-      !this.config.origins.includes(req.headers.origin ?? '') ||
-      req.headers['x-persona-client'] !== 'web'
-    )
-      throw new ForbiddenException();
-    if (!req.is('application/json')) throw new BadRequestException();
-    const control = owner(req);
-    if (!control) throw new ForbiddenException();
-    return control;
-  }
   @Get('status')
   status(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     res.set('Cache-Control', 'no-store');
@@ -45,12 +34,15 @@ export class GmailController {
   @Post('start')
   @HttpCode(200)
   start(@Req() req: Request) {
-    return this.gmail.start(credential(req), this.write(req));
+    return this.gmail.start(
+      credential(req),
+      browserWrite(req, this.config, true),
+    );
   }
   @Post('cancel')
   @HttpCode(200)
   cancel(@Req() req: Request, @Body() body: unknown) {
-    const control = this.write(req);
+    const control = browserWrite(req, this.config, true);
     if (!body || typeof body !== 'object' || !('id' in body) || !uuid(body.id))
       throw new BadRequestException();
     return this.gmail.cancel(credential(req), control, body.id);

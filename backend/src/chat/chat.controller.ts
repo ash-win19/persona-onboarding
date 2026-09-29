@@ -1,10 +1,10 @@
+import { browserWrite, owner } from './http-policy.js';
 import {
   BadRequestException,
   Body,
   Catch,
   Controller,
   ExceptionFilter,
-  ForbiddenException,
   Get,
   HttpCode,
   HttpException,
@@ -18,7 +18,7 @@ import {
 import type { Request, Response } from 'express';
 import { CHAT_CONFIG, type ChatConfig } from './config.js';
 import { ChatService } from './chat.service.js';
-import { Authority, uuid, type Owner } from './authority.js';
+import { Authority, uuid } from './authority.js';
 
 const COOKIE = 'persona_session';
 export const credential = (req: Request) =>
@@ -56,18 +56,10 @@ export class ChatController {
     @Inject(CHAT_CONFIG) private readonly config: ChatConfig,
     @Inject(Authority) private readonly authority: Authority,
   ) {}
-  private allowWrite(req: Request) {
-    if (
-      !this.config.origins.includes(req.headers.origin ?? '') ||
-      req.headers['x-persona-client'] !== 'web'
-    )
-      throw new ForbiddenException();
-    if (!req.is('application/json')) throw new BadRequestException();
-  }
   @Post('control')
   @HttpCode(200)
   control(@Req() req: Request, @Body() body: unknown) {
-    this.allowWrite(req);
+    browserWrite(req, this.config);
     if (
       !body ||
       typeof body !== 'object' ||
@@ -89,7 +81,7 @@ export class ChatController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
-    this.allowWrite(req);
+    browserWrite(req, this.config);
     res.set('Cache-Control', 'no-store');
     if (credential(req)) return this.chat.read(credential(req));
     const result = await this.chat.create();
@@ -114,7 +106,7 @@ export class ChatController {
     @Body() body: unknown,
     @Res({ passthrough: true }) res: Response,
   ) {
-    this.allowWrite(req);
+    browserWrite(req, this.config);
     res.set('Cache-Control', 'no-store');
     if (
       !body ||
@@ -137,14 +129,4 @@ export class ChatController {
       owner(req),
     );
   }
-}
-
-export function owner(req: Request): Owner | undefined {
-  const tabId = req.headers['x-persona-tab'];
-  const epoch = Number(req.headers['x-persona-epoch']);
-  if (tabId === undefined && req.headers['x-persona-epoch'] === undefined)
-    return undefined;
-  if (!uuid(tabId) || !Number.isSafeInteger(epoch) || epoch < 1)
-    throw new BadRequestException();
-  return { tabId, epoch };
 }

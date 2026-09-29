@@ -536,6 +536,7 @@ export default function Chat() {
         {snapshot?.control && (
           <>
             <GmailConnection
+              key={snapshot.conversationId}
               headers={headers}
               enabled={hasControl && connection === "ready" && !resetting}
               conversationId={snapshot.conversationId}
@@ -545,9 +546,9 @@ export default function Chat() {
               {confirmReset ? (
                 <div role="alertdialog" aria-label="Start over confirmation">
                   <p>
-                    Delete this app&apos;s saved conversation, names, preferences,
-                    and Gmail credentials? This does not delete data retained
-                    independently by providers.
+                    Delete this app&apos;s saved conversation, names,
+                    preferences, and Gmail credentials? This does not delete
+                    data retained independently by providers.
                   </p>
                   <button onClick={() => void startOver()}>
                     Delete saved conversation
