@@ -13,7 +13,9 @@ import {
 } from './memory.js';
 
 const CONTEXT_TIMEOUT = 2000;
-const OBSERVATION_TOKENS = 8000;
+// Lower it temporarily to see observations early when testing a deployment.
+const OBSERVATION_TOKENS =
+  Number(process.env.PERSONA_MEMORY_OBSERVE_TOKENS) || 8000;
 const workingMemorySchema = z.object({
   taskDetails: z.array(z.string()).optional(),
   deadlines: z.array(z.string()).optional(),
