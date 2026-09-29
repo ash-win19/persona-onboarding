@@ -337,3 +337,11 @@ textarea::placeholder {
   font-size: 11px;
   margin-top: 4px;
 }
+
+
+/* Conversation controls share the same visual weight as the message composer. */
+.conversation-controls { margin: 1.25rem 0; color: var(--muted, #64705d); font-size: .875rem; }
+.call-controls { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.conversation-controls button { border: 1px solid #c8cebf; border-radius: 999px; padding: .55rem 1rem; background: #f6f7f1; color: #405137; cursor: pointer; }
+.conversation-controls button:disabled { opacity: .5; cursor: default; }
+.conversation-controls p { margin: .75rem 0; }

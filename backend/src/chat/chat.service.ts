@@ -8,6 +8,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { DATABASE, type Database, type Sql } from './database.js';
 import { OnboardingService } from './onboarding.js';
 import { MODEL, type ReplyModel } from './model.js';
+import { Authority, type Owner } from './authority.js';
 
 type Conversation = { id: string; revision: number };
 export type Turn = {
@@ -34,6 +35,7 @@ export class ChatService {
     @Inject(DATABASE) private readonly db: Database,
     @Inject(MODEL) private readonly model: ReplyModel,
     @Inject(OnboardingService) private readonly onboarding: OnboardingService,
+    @Inject(Authority) private readonly authority: Authority,
   ) {}
   async create() {
     const credential = randomBytes(32).toString('base64url');
@@ -59,9 +61,9 @@ export class ChatService {
   async read(credential: string | undefined) {
     return this.db.transaction(async (sql) => {
       await sql.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
-      const conversation = await this.authorize(credential, sql);
+      const conversation = await this.authority.authorize(credential, sql);
       const result = await sql.query<Turn>(
-        'SELECT id, role, content, submission_id AS "submissionId", created_at AS "createdAt" FROM turns WHERE conversation_id = $1 ORDER BY sequence',
+        'SELECT id, role, content, channel, delivery, submission_id AS "submissionId", created_at AS "createdAt" FROM turns WHERE conversation_id = $1 ORDER BY sequence',
         [conversation.id],
       );
       const latest = await sql.query<Operation>(
@@ -73,6 +75,7 @@ export class ChatService {
         operation?.status === 'generating' &&
         new Date(operation.lease_until).getTime() <= Date.now();
       return {
+        control: this.authority.view(conversation),
         onboarding: await this.onboarding.read(
           sql,
           conversation.id,
@@ -97,13 +100,18 @@ export class ChatService {
     credential: string | undefined,
     submissionId: string,
     content: string,
+    owner?: Owner,
   ) {
     const conversation = await this.authorize(credential);
     const attempt = randomUUID();
     const claimed = await this.db.transaction(async (sql) => {
-      await sql.query('SELECT id FROM conversations WHERE id = $1 FOR UPDATE', [
-        conversation.id,
-      ]);
+      const controlled = await this.authority.authorize(credential, sql, true);
+      this.authority.assertOwner(controlled, owner);
+      const call = await sql.query(
+        "SELECT id FROM calls WHERE conversation_id=$1 AND status IN ('connecting','active')",
+        [conversation.id],
+      );
+      if (call.rows.length) throw new ConflictException('CALL_ACTIVE');
       const existing = (
         await sql.query<Operation>(
           'SELECT * FROM submissions WHERE conversation_id = $1 AND id = $2',
@@ -139,6 +147,10 @@ export class ChatService {
         ON CONFLICT(conversation_id, id) DO UPDATE SET status = 'generating', attempt = $4, lease_until = now() + interval '90 seconds', error_code = NULL`,
         [conversation.id, submissionId, content, attempt],
       );
+      await sql.query(
+        'UPDATE submissions SET owner_epoch=$3 WHERE conversation_id=$1 AND id=$2',
+        [conversation.id, submissionId, controlled.owner_epoch],
+      );
       return true;
     });
     if (!claimed) return this.read(credential);
@@ -167,6 +179,14 @@ export class ChatService {
       return this.read(credential);
     }
     await this.db.transaction(async (sql) => {
+      const current = await this.authority.authorize(credential, sql, true);
+      if (
+        owner &&
+        (current.owner_tab !== owner.tabId ||
+          current.owner_epoch !== owner.epoch)
+      )
+        return;
+      if (!owner && current.owner_tab) return;
       const accepted = await sql.query(
         "UPDATE submissions SET status = 'completed', error_code = NULL WHERE conversation_id = $1 AND id = $2 AND attempt = $3 AND status = 'generating' RETURNING id",
         [conversation.id, submissionId, attempt],

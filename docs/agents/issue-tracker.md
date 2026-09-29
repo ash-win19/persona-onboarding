@@ -2,8 +2,8 @@
 
 Persona uses Linear in Ashwin Workspace, team AW. Use the authenticated Linear CLI with `--workspace ashwinworkspace`.
 
-Checkpoint 2 implements AW-77. Its approved specification is saved in `docs/planning/persona-linear/issues/06-capture-facts-and-start-helping.md`. Checkpoint 1, AW-72 and AW-73, is already deployed. Read the current Linear descriptions when reviewing.
+The active release covers checkpoints 3–6: AW-74, AW-75, AW-79, AW-83; AW-76, AW-78; AW-80, AW-81, AW-82; AW-84, AW-85, AW-86. Approved specifications are under `docs/planning/persona-linear/issues/`. Read current Linear descriptions when reviewing.
 
-Test the public session/turn/readiness HTTP API and the user-facing browser flow. Test the bounded fact-tool contract through the authorized coordinator. Use the database and model-provider seams approved in the tickets to reproduce external failures. Keep production-provider smoke tests separate from deterministic tests.
+The agreed test seams are the public session, ownership, turn, call and OAuth HTTP APIs, provider adapters, controlled clock and browser UI. Use isolated databases and deterministic external-provider adapters for races. Report real-provider and production smoke checks separately. Reset and cleanup tests verify removed app data and credentials at the database boundary, as explicitly required by AW-84 and AW-85.
 
-Review this implementation against the starting main revision `82091f5616431b96ae04235e28eb400984c9fd89`. Do not modify unrelated issue states or projects.
+The release starts from deployed main `6c8d1455a6df2c261bbd4a3fc474cddde6ca7693`. Review each checkpoint against its preceding deployed revision. Do not modify unrelated issue states or projects.
