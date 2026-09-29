@@ -63,7 +63,7 @@ test("a timed-out request keeps its confirmed thinking orb until completion or f
       return route.abort("connectionreset");
     return route.fulfill({ json: snapshot() });
   });
-  await page.goto("/");
+  await page.goto("/onboarding");
   await page
     .getByRole("textbox", { name: "Message Persona" })
     .fill("Please take your time.");

@@ -36,6 +36,7 @@ export type OnboardingState = {
   onboardingComplete: boolean;
   mode: 'helping' | 'onboarding';
   missingGoals: string[];
+  mainExperience?: boolean;
 };
 export type CaptureResult = {
   ok: boolean;
@@ -218,8 +219,9 @@ export class OnboardingService {
         call_successful_at: Date | null;
         call_active: boolean;
         gmail_pending: boolean;
+        handoff_prepared_at: Date | null;
       }>(
-        `SELECT gmail_verified_at,call_successful_at,
+        `SELECT gmail_verified_at,call_successful_at,handoff_prepared_at,
           EXISTS(SELECT 1 FROM calls WHERE conversation_id=$1 AND status IN ('connecting','active')) AS call_active,
           EXISTS(SELECT 1 FROM gmail_attempts WHERE conversation_id=$1 AND status IN ('pending','exchanging') AND expires_at>$2) AS gmail_pending
           FROM conversations WHERE id=$1`,
@@ -247,6 +249,7 @@ export class OnboardingService {
       gmailAvailable: this.gmail.available(),
       call: integration.call_successful_at ? 'successful' : 'not_started',
       graduated,
+      mainExperience: !!integration.handoff_prepared_at,
       onboardingComplete:
         goals.every((goal) => facts[goal].status === 'known') &&
         gmail === 'connected',
@@ -260,6 +263,8 @@ export class OnboardingService {
 
   async callOpening(sql: Sql, id: string, revision: number) {
     const state = await this.read(sql, id, revision);
+    if (state.mainExperience && !state.facts.helpRequest.value)
+      return 'Welcome the user back to the same conversation. Let them bring a task when ready. Do not restart onboarding.';
     if (state.graduated)
       return 'Continue the existing help request using the saved conversation. Give one short useful next step or ask one focused task question. Do not restart onboarding.';
     const question = await this.question(sql, id, state, true, true);
@@ -275,7 +280,7 @@ export class OnboardingService {
     ask: boolean,
     voice = false,
   ): Promise<string | null> {
-    if (!ask) return null;
+    if (!ask || state.mainExperience) return null;
     const active =
       (
         await sql.query(

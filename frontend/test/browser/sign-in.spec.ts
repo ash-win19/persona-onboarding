@@ -39,7 +39,7 @@ test("a delayed anonymous focus check cannot undo a successful sign-in", async (
       json: signedIn ? snapshot : {},
     });
   });
-  await page.goto("/");
+  await page.goto("/sign-in");
   await page.getByLabel("Email", { exact: true }).fill("tanay@example.test");
   await page.getByLabel("Password", { exact: true }).fill("demo-password");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
@@ -93,7 +93,7 @@ test("invited users sign in, resume after refresh, and sign out", async ({
       json: signedIn ? snapshot : {},
     });
   });
-  await page.goto("/");
+  await page.goto("/sign-in");
   await expect(page.getByRole("heading", { name: "Sign in." })).toBeVisible();
   await expect(
     page.getByRole("textbox", { name: "Message Persona" }),
@@ -141,13 +141,13 @@ test("each page load asks for a fresh start, but a Gmail consent return does not
     });
   });
   const composer = page.getByRole("textbox", { name: "Message Persona" });
-  await page.goto("/");
+  await page.goto("/sign-in");
   await expect(composer).toBeVisible();
   expect(freshStarts).toBe(1);
   await page.reload();
   await expect(composer).toBeVisible();
   expect(freshStarts).toBe(2);
-  await page.goto("/?gmail=connected");
+  await page.goto("/onboarding?gmail=connected");
   await expect(composer).toBeVisible();
   expect(freshStarts).toBe(2);
 });
@@ -165,7 +165,7 @@ test("a revoked session clears the conversation and returns to sign-in", async (
       json: { conversationId: "one", revision: 0, turns: [], operation: null },
     });
   });
-  await page.goto("/");
+  await page.goto("/sign-in");
   await page
     .getByRole("textbox", { name: "Message Persona" })
     .fill("A private message");

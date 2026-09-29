@@ -60,7 +60,7 @@ test("a concurrent reply finishing during reconciliation keeps the waiting messa
       },
     });
   });
-  await page.goto("/");
+  await page.goto("/onboarding");
   await page
     .getByRole("textbox", { name: "Message Persona" })
     .fill("Keep my concurrent request.");
@@ -144,7 +144,7 @@ test("a stale tab recovers the saved operation without losing its waiting messag
       },
     });
   });
-  await page.goto("/");
+  await page.goto("/onboarding");
   await page
     .getByRole("textbox", { name: "Message Persona" })
     .fill("My waiting request.");
@@ -210,7 +210,7 @@ test("a visitor sends a message and sees the committed reply", async ({
       },
     });
   });
-  await page.goto("/");
+  await page.goto("/onboarding");
   await page
     .getByRole("textbox", { name: "Message Persona" })
     .fill("Help me prepare for an interview.");
@@ -276,7 +276,7 @@ test("retry keeps the same submission identifier after losing a committed respon
       },
     });
   });
-  await page.goto("/");
+  await page.goto("/onboarding");
   await page
     .getByRole("textbox", { name: "Message Persona" })
     .fill("Keep this message.");
@@ -306,7 +306,7 @@ test("readiness retries are bounded and a deliberate retry recovers", async ({
       json: { conversationId: "one", revision: 0, turns: [], operation: null },
     });
   });
-  await page.goto("/");
+  await page.goto("/onboarding");
   await expect(page.getByText("Opening your conversation…")).toBeVisible();
   await page
     .getByRole("textbox", { name: "Message Persona" })
@@ -353,7 +353,7 @@ test("database failure preserves both committed history and pending input", asyn
       json: { code: "SERVICE_UNAVAILABLE" },
     });
   });
-  await page.goto("/");
+  await page.goto("/onboarding");
   await page
     .getByRole("textbox", { name: "Message Persona" })
     .fill("My pending message.");
@@ -432,7 +432,7 @@ test("onboarding invites a name and restores corrected facts without a form", as
       },
     });
   });
-  await page.goto("/");
+  await page.goto("/onboarding");
   await expect(page.getByText(/what would you like to call me/i)).toBeVisible();
   await page
     .getByRole("textbox", { name: "Message Persona" })
@@ -516,7 +516,7 @@ test("declined microphone permission leaves the saved text conversation usable",
     }
     return route.fulfill({ json: { ...snapshot, control } });
   });
-  await page.goto("/");
+  await page.goto("/onboarding");
   await page.getByRole("button", { name: "Start a call" }).click();
   await expect(
     page.getByText("Microphone access was declined.", { exact: false }),

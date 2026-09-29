@@ -70,6 +70,10 @@ type LiveCall = {
   responding?: boolean;
   pendingResponse?: Call;
   pendingRepair?: string;
+  pendingOpening?: string;
+  pendingPurpose?: string;
+  handoffQueued?: boolean;
+  handoffRequested?: string;
   repairs: Map<number, number>;
   strictRepairs: Set<number>;
   interpreting: Set<number>;
@@ -289,11 +293,14 @@ export class Calls implements OnModuleDestroy {
     call: Call,
     repair?: string,
     opening?: string,
+    purpose?: string,
   ) {
     const runtime = this.live.get(call.id);
     if (!runtime || runtime.closing) return;
     runtime.pendingResponse = call;
     runtime.pendingRepair = repair;
+    runtime.pendingOpening = opening ?? runtime.pendingOpening;
+    runtime.pendingPurpose = purpose ?? runtime.pendingPurpose;
     if (
       runtime.responding ||
       runtime.interpreting.has(call.generation) ||
@@ -306,6 +313,10 @@ export class Calls implements OnModuleDestroy {
       return;
     runtime.pendingResponse = undefined;
     runtime.pendingRepair = undefined;
+    opening = runtime.pendingOpening;
+    purpose = runtime.pendingPurpose;
+    runtime.pendingOpening = undefined;
+    runtime.pendingPurpose = undefined;
     runtime.responding = true;
     connection.send({
       type: 'response.create',
@@ -332,7 +343,7 @@ export class Calls implements OnModuleDestroy {
           generation: String(call.generation),
           sourceItem: call.source_item_id ?? '',
           ...(repair ? { purpose: 'fact_repair' } : {}),
-          ...(opening ? { purpose: 'opening' } : {}),
+          ...(opening ? { purpose: purpose ?? 'opening' } : {}),
         },
       },
     });
@@ -465,6 +476,81 @@ export class Calls implements OnModuleDestroy {
       )
     ).rows[0];
     if (call) await this.refresh(call);
+  }
+
+  async handoff(credential: string | undefined, owner?: Owner) {
+    const c = await this.authority.authorize(credential);
+    this.authority.assertOwner(c, owner);
+    const call = (
+      await this.db.query<Call>(
+        "SELECT * FROM calls WHERE conversation_id=$1 AND status='active'",
+        [c.id],
+      )
+    ).rows[0];
+    const runtime = call && this.live.get(call.id);
+    if (!call || !runtime?.connection || runtime.closing) return;
+    const work = runtime.queue.then(async () => {
+      const current = await this.authority.authorize(credential);
+      this.authority.assertOwner(current, owner);
+      const latest = await this.get(this.db, call.id);
+      if (
+        !latest ||
+        latest.status !== 'active' ||
+        runtime.closing ||
+        runtime.handoffQueued
+      )
+        return;
+      const row = (
+        await this.db.query<{
+          handoff_message: string;
+          handoff_response_id: string | null;
+          handoff_delivery: string;
+        }>(
+          'SELECT handoff_message,handoff_response_id,handoff_delivery FROM conversations WHERE id=$1 AND handoff_prepared_at IS NOT NULL AND handoff_call_id=$2',
+          [c.id, call.id],
+        )
+      ).rows[0];
+      if (!row || row.handoff_response_id || row.handoff_delivery !== 'waiting')
+        return;
+      runtime.handoffRequested = row.handoff_message;
+      await this.dispatchHandoff(latest, runtime);
+    });
+    runtime.queue = work.then(
+      () => undefined,
+      () => undefined,
+    );
+    await work;
+  }
+
+  private async dispatchHandoff(call: Call, runtime: LiveCall) {
+    if (
+      !runtime.handoffRequested ||
+      runtime.handoffQueued ||
+      runtime.responding ||
+      runtime.interpreting.size ||
+      runtime.tools.size ||
+      !runtime.connection ||
+      runtime.closing ||
+      call.status !== 'active'
+    )
+      return;
+    const unplayed = await this.db.query(
+      `SELECT r.response_id FROM voice_responses r WHERE r.call_id=$1 AND r.generation=$2 AND NOT r.played AND NOT r.interrupted
+      AND (r.purpose IS NULL OR r.purpose <> 'fact_repair')
+      AND EXISTS(SELECT 1 FROM voice_items v WHERE v.call_id=r.call_id AND v.response_id=r.response_id AND v.role='assistant')`,
+      [call.id, call.generation],
+    );
+    if (unplayed.rows.length) return;
+    const message = runtime.handoffRequested;
+    runtime.handoffQueued = true;
+    runtime.handoffRequested = undefined;
+    this.response(
+      runtime.connection,
+      call,
+      undefined,
+      `Say exactly this short transition acknowledgement: ${JSON.stringify(message)}. Ask no question and add nothing else. The dashboard will open after a five-second countdown, and this same call will continue.`,
+      'onboarding_handoff',
+    );
   }
 
   private async refresh(call: Call) {
@@ -755,6 +841,8 @@ export class Calls implements OnModuleDestroy {
     let toolCall: PendingTool | undefined;
     let respond: Call | undefined;
     let responseRepair: string | undefined;
+    let responseOpening: string | undefined;
+    let responsePurpose: string | undefined;
     await this.db.transaction(async (sql) => {
       let call = await this.get(sql, id);
       if (!call) return;
@@ -813,15 +901,24 @@ export class Calls implements OnModuleDestroy {
         if (event.response.metadata?.purpose === 'fact_repair')
           runtime.repairResponses.set(event.response.id, generation);
         await sql.query(
-          'INSERT INTO voice_responses(call_id,response_id,generation,interrupted,source_item_id) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING',
+          'INSERT INTO voice_responses(call_id,response_id,generation,interrupted,source_item_id,purpose) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING',
           [
             id,
             event.response.id,
             generation,
             generation !== call.generation,
             event.response.metadata?.sourceItem ?? call.source_item_id,
+            event.response.metadata?.purpose ?? null,
           ],
         );
+        if (
+          event.response.metadata?.purpose === 'onboarding_handoff' &&
+          generation === call.generation
+        )
+          await sql.query(
+            'UPDATE conversations SET handoff_response_id=$2 WHERE id=$1 AND handoff_call_id=$3',
+            [call.conversation_id, event.response.id, id],
+          );
         if (generation !== call.generation)
           runtime.connection?.send({
             type: 'response.cancel',
@@ -871,8 +968,12 @@ export class Calls implements OnModuleDestroy {
           if (runtime.pendingResponse?.generation === call.generation)
             respond = runtime.pendingResponse;
           responseRepair = runtime.pendingRepair;
+          responseOpening = runtime.pendingOpening;
+          responsePurpose = runtime.pendingPurpose;
           runtime.pendingResponse = undefined;
           runtime.pendingRepair = undefined;
+          runtime.pendingOpening = undefined;
+          runtime.pendingPurpose = undefined;
           if (
             repairing &&
             runtime.repairResponses.get(event.response.id) ===
@@ -923,6 +1024,11 @@ export class Calls implements OnModuleDestroy {
           "UPDATE turns SET delivery='played' WHERE call_id=$1 AND delivery='generated' AND id IN (SELECT turn_id FROM voice_items WHERE call_id=$1 AND response_id=$2 AND NOT interrupted AND response_id IN (SELECT response_id FROM voice_responses WHERE call_id=$1 AND played AND NOT interrupted))",
           [id, event.response_id],
         );
+        await sql.query(
+          `UPDATE conversations SET handoff_delivery='played' WHERE id=$1 AND handoff_call_id=$2 AND handoff_response_id=$3
+          AND EXISTS(SELECT 1 FROM voice_responses WHERE call_id=$2 AND response_id=$3 AND purpose='onboarding_handoff' AND played AND NOT interrupted AND generation=$4)`,
+          [call.conversation_id, id, event.response_id, call.generation],
+        );
       }
       if (
         event.type === 'response.function_call_arguments.done' &&
@@ -955,7 +1061,13 @@ export class Calls implements OnModuleDestroy {
       }
     });
     if (respond && runtime?.connection && !runtime.closing)
-      this.response(runtime.connection, respond, responseRepair);
+      this.response(
+        runtime.connection,
+        respond,
+        responseRepair,
+        responseOpening,
+        responsePurpose,
+      );
     if (toolCall && runtime) {
       runtime.tools.set(toolCall.id, toolCall);
       const timer = setTimeout(() => {
@@ -966,6 +1078,8 @@ export class Calls implements OnModuleDestroy {
       timer.unref();
     }
     await this.flushTools(id);
+    const latest = await this.get(this.db, id);
+    if (latest && runtime) await this.dispatchHandoff(latest, runtime);
   }
   private async flushTools(id: string) {
     const runtime = this.live.get(id);

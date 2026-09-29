@@ -19,6 +19,7 @@ import type { Request, Response } from 'express';
 import { CHAT_CONFIG, type ChatConfig } from './config.js';
 import { ChatService } from './chat.service.js';
 import { Authority, uuid } from './authority.js';
+import { Calls } from './calls.js';
 
 const COOKIE = 'persona_session';
 export const credential = (req: Request) =>
@@ -55,6 +56,7 @@ export class ChatController {
     @Inject(ChatService) private readonly chat: ChatService,
     @Inject(CHAT_CONFIG) private readonly config: ChatConfig,
     @Inject(Authority) private readonly authority: Authority,
+    @Inject(Calls) private readonly calls: Calls,
   ) {}
   @Post('control')
   @HttpCode(200)
@@ -119,5 +121,30 @@ export class ChatController {
       body.content.trim(),
       owner(req),
     );
+  }
+
+  @Post('journey')
+  @HttpCode(200)
+  async journey(
+    @Req() req: Request,
+    @Body() body: unknown,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    browserWrite(req, this.config);
+    res.set('Cache-Control', 'no-store');
+    if (
+      !body ||
+      typeof body !== 'object' ||
+      !('action' in body) ||
+      !['prepare', 'skip', 'enter'].includes(String(body.action))
+    )
+      throw new BadRequestException();
+    const action = body.action as 'prepare' | 'skip' | 'enter';
+    const result = await this.chat.journey(credential(req), action, owner(req));
+    if (result.journey.delivery === 'waiting' && action !== 'enter')
+      await this.calls.handoff(credential(req), owner(req));
+    if (action === 'enter')
+      await this.calls.refreshContext(credential(req)).catch(() => undefined);
+    return result;
   }
 }

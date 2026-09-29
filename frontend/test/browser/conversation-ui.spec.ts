@@ -58,7 +58,7 @@ test("reading earlier messages survives polling and new replies until jumping to
   page,
 }) => {
   const saved = await conversation(page, true);
-  await page.goto("/");
+  await page.goto("/onboarding");
   const history = page.getByRole("region", {
     name: "Conversation",
     exact: true,
@@ -96,7 +96,7 @@ test("mobile has one usable composer for an uninterrupted conversation", async (
 }) => {
   await page.setViewportSize({ width: 375, height: 740 });
   await conversation(page);
-  await page.goto("/");
+  await page.goto("/onboarding");
   const input = page.getByRole("textbox", { name: "Message Persona" });
   await input.fill("Prepare for an interview");
   await expect(input).toHaveValue("Prepare for an interview");
@@ -129,7 +129,7 @@ test("a short viewport can scroll to Send with an expanded draft and a recovery 
         Promise.reject(new DOMException("Declined", "NotAllowedError")),
     });
   });
-  await page.goto("/");
+  await page.goto("/onboarding");
   await page.getByRole("button", { name: "Start a call" }).click();
   await expect(page.getByText(/Microphone access was declined/)).toBeVisible();
   await page

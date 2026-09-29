@@ -98,7 +98,7 @@ test("the hero holds for 2.5 seconds before fading into the greeting, without re
         (window as unknown as { sawIntro: boolean }).sawIntro = true;
     }).observe(document, { childList: true, subtree: true, attributes: true });
   });
-  await page.goto("/");
+  await page.goto("/onboarding");
   await expect(page.getByText("Opening your conversation…")).toBeVisible();
   await page.clock.install();
   await page.clock.pauseAt(new Date());
@@ -176,7 +176,7 @@ test("typing during the entrance cancels it without replacing the composer or it
       ).originalComposer = input;
     }).observe(document, { childList: true, subtree: true, attributes: true });
   });
-  await page.goto("/");
+  await page.goto("/onboarding");
   const input = page.getByRole("textbox", { name: "Message Persona" });
   await expect(input).toHaveValue("Help me with my interview");
   await expect(page.locator(".welcome")).toHaveCount(0);
@@ -199,7 +199,7 @@ test("loading preserves a draft and returning history never flashes the new-user
 }) => {
   const saved = await setup(page, true);
   saved.hold();
-  await page.goto("/");
+  await page.goto("/onboarding");
   await expect(page.getByText("Opening your conversation…")).toBeVisible();
   const input = page.getByRole("textbox", { name: "Message Persona" });
   await input.fill("Keep this draft");
@@ -217,7 +217,7 @@ test("reduced motion presents the saved opening immediately and Gmail appears on
 }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   const saved = await setup(page);
-  await page.goto("/");
+  await page.goto("/onboarding");
   await expect(
     page.getByRole("button", { name: "Start a call" }),
   ).toBeEnabled();
