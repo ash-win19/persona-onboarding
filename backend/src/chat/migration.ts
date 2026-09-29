@@ -164,6 +164,23 @@ export async function migrate(db: Database) {
     await sql.query(
       'ALTER TABLE accounts ADD COLUMN IF NOT EXISTS fresh_start boolean NOT NULL DEFAULT false',
     );
+    const existingPhase = await sql.query(
+      "SELECT 1 FROM information_schema.columns WHERE table_name='conversations' AND column_name='graduated_at'",
+    );
+    await sql.query(
+      'ALTER TABLE conversations ADD COLUMN IF NOT EXISTS graduated_at timestamptz',
+    );
+    if (!existingPhase.rows.length)
+      await sql.query(`UPDATE conversations c SET graduated_at=now() WHERE EXISTS(
+        SELECT 1 FROM onboarding_facts f WHERE f.conversation_id=c.id AND f.goal='helpRequest' AND f.status='known')`);
+    await sql.query(`ALTER TABLE onboarding_assessments ADD COLUMN IF NOT EXISTS permitted_goal text,
+      ADD COLUMN IF NOT EXISTS visit_id uuid, ADD COLUMN IF NOT EXISTS delivered boolean NOT NULL DEFAULT false,
+      ADD COLUMN IF NOT EXISTS exit_evidence text`);
+    await sql.query(
+      `ALTER TABLE calls ADD COLUMN IF NOT EXISTS opening_goal text, ADD COLUMN IF NOT EXISTS opening_visit uuid`,
+    );
+    await sql.query(`ALTER TABLE voice_responses ADD COLUMN IF NOT EXISTS onboarding_goal text,
+      ADD COLUMN IF NOT EXISTS onboarding_visit uuid, ADD COLUMN IF NOT EXISTS invitation_delivered boolean NOT NULL DEFAULT false`);
     const empty = await sql.query<{ id: string }>(
       `SELECT id FROM conversations c WHERE NOT EXISTS(SELECT 1 FROM turns WHERE conversation_id=c.id)
        AND NOT EXISTS(SELECT 1 FROM calls WHERE conversation_id=c.id) FOR UPDATE`,

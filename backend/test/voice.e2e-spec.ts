@@ -285,6 +285,9 @@ describe('browser call API', () => {
         response_id: 'opening-response',
       });
       const saved = await s.read();
+      expect(saved.body.onboarding.policy.goals.userName.introduced).toBe(
+        false,
+      );
       expect(
         saved.body.turns.find(
           (turn: { content: string }) =>
@@ -342,7 +345,63 @@ describe('browser call API', () => {
       { content: 'What should I call you?', delivery: 'played' },
     ]);
     expect(saved.body.onboarding.call).toBe('not_started');
+    expect(saved.body.onboarding.policy.goals.userName.introduced).toBe(true);
     await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
+  });
+
+  it('commits an explicit spoken exit and switches the live call to main instructions', async () => {
+    const s = await session();
+    const id = randomUUID();
+    await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
+    const c = connections.at(-1)!;
+    await c.emit({
+      type: 'input_audio_buffer.speech_started',
+      item_id: 'exit-source',
+    });
+    await c.emit({
+      type: 'conversation.item.input_audio_transcription.completed',
+      item_id: 'exit-source',
+      transcript: 'Skip setup. I do not need help yet.',
+    });
+    const before = (await s.read()).body;
+    await c.emit({
+      type: 'response.created',
+      response: {
+        id: 'exit-response',
+        status: 'in_progress',
+        metadata: { generation: '1', sourceItem: 'exit-source' },
+      },
+    });
+    await c.emit({
+      type: 'response.function_call_arguments.done',
+      response_id: 'exit-response',
+      call_id: 'exit-tool',
+      name: 'capture_onboarding',
+      arguments: JSON.stringify({
+        expectedRevision: before.revision,
+        askOnboarding: false,
+        exitEvidence: 'Skip setup',
+        changes: [],
+        preferences: [],
+        memory: [],
+      }),
+    });
+    await vi.waitFor(async () =>
+      expect((await s.read()).body.onboarding.mode).toBe('helping'),
+    );
+    expect((await s.read()).body.onboarding.facts.helpRequest.value).toBeNull();
+    expect(c.closed).toBe(false);
+    expect(
+      c.sent.some(
+        (event) =>
+          event.type === 'session.update' &&
+          (event.session as { instructions: string }).instructions.includes(
+            'continuing the same conversation after onboarding',
+          ),
+      ),
+    ).toBe(true);
+    await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
+    expect((await s.read()).body.onboarding.mode).toBe('helping');
   });
 
   it('continues a known task when opening a call rather than asking for missing names', async () => {
@@ -351,6 +410,7 @@ describe('browser call API', () => {
       await tools.capture({
         expectedRevision: tools.state.revision,
         askOnboarding: false,
+        exitEvidence: 'Skip setup',
         changes: [
           {
             goal: 'helpRequest',
@@ -366,7 +426,7 @@ describe('browser call API', () => {
     await s
       .post('/turns', {
         submissionId: randomUUID(),
-        content: 'Prepare for an interview',
+        content: 'Skip setup. Prepare for an interview',
       })
       .expect(200);
     const id = randomUUID();
@@ -377,9 +437,7 @@ describe('browser call API', () => {
       .sent.find((event) => event.type === 'response.create');
     expect(response).toMatchObject({
       response: {
-        instructions: expect.stringContaining(
-          'Continue the existing help request',
-        ),
+        instructions: expect.stringContaining('Continue the saved first task'),
       },
     });
     await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
@@ -1085,7 +1143,7 @@ describe('browser call API', () => {
       (await s.read()).body.onboarding.facts.helpRequest.sourceTurnId,
     ).toBe(before.turns[2].id);
     await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
-    expect((await s.read()).body.onboarding.graduated).toBe(true);
+    expect((await s.read()).body.onboarding.graduated).toBe(false);
   });
   it.each([
     { order: 'fact-first', outcome: 'declined', sourceIndex: 0 },
