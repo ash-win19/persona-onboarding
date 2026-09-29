@@ -60,6 +60,13 @@ export class AccountsController {
     const account = await this.accounts.read(credential(req));
     return { id: account.id, email: account.email };
   }
+  @Post('fresh-start')
+  @HttpCode(200)
+  freshStart(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    browserWrite(req, this.config);
+    res.set('Cache-Control', 'no-store');
+    return this.accounts.freshStart(credential(req));
+  }
   @Post('logout')
   @HttpCode(200)
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {

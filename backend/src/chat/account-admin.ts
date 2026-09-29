@@ -9,16 +9,19 @@ export function normalizeEmail(email: string) {
   return value;
 }
 
+// A fresh-start account is for testing onboarding as a new user: every page
+// load discards its conversation, memory and Gmail connection.
 export async function createAccount(
   db: Database,
   email: string,
   password: string,
+  { freshStart = false } = {},
 ) {
   const normalized = normalizeEmail(email);
   const hash = await hashPassword(password);
   await db.query(
-    'INSERT INTO accounts(id,email,password_hash) VALUES($1,$2,$3)',
-    [randomUUID(), normalized, hash],
+    'INSERT INTO accounts(id,email,password_hash,fresh_start) VALUES($1,$2,$3,$4)',
+    [randomUUID(), normalized, hash, freshStart],
   );
 }
 

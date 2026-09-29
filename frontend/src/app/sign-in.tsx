@@ -13,9 +13,27 @@ export default function SignIn() {
 
   useEffect(() => {
     const controller = new AbortController();
-    const check = async () => {
+    const check = async (pageLoad = false) => {
       const attempt = generation.current;
       try {
+        // Fresh-start test accounts begin a new conversation on every page load.
+        // Gmail's consent window returns to this page and must keep the current one.
+        if (
+          pageLoad &&
+          !new URLSearchParams(window.location.search).has("gmail")
+        )
+          await fetch("/api/auth/fresh-start", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Persona-Client": "web",
+            },
+            body: "{}",
+            signal: AbortSignal.any([
+              controller.signal,
+              AbortSignal.timeout(65000),
+            ]),
+          }).catch(() => undefined);
         const response = await fetch("/api/session", {
           cache: "no-store",
           signal: AbortSignal.any([
@@ -46,7 +64,7 @@ export default function SignIn() {
     const focus = () => {
       void check();
     };
-    void check();
+    void check(true);
     window.addEventListener("persona:unauthorized", signedOut);
     window.addEventListener("focus", focus);
     return () => {

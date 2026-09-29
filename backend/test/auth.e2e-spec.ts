@@ -274,6 +274,56 @@ describe('invite-only authentication', () => {
     expect(after.body.turns).toHaveLength(3);
   });
 
+  it('starts a fresh-start test account over on every page load and sign-in', async () => {
+    const freshStart = (cookie?: string) => {
+      const req = request(app.getHttpServer())
+        .post('/auth/fresh-start')
+        .set('Origin', origin)
+        .set('X-Persona-Client', 'web');
+      return (cookie ? req.set('Cookie', cookie) : req).send({});
+    };
+    await freshStart().expect(401);
+
+    const ordinary = await login('tanay@example.test').expect(200);
+    const kept = await freshStart(ordinary.headers['set-cookie'][0]).expect(
+      200,
+    );
+    expect(kept.body).toEqual({
+      conversationId: ordinary.body.conversationId,
+    });
+
+    const email = 'fresh-start@example.test';
+    await createAccount(db, email, 'unique-test-password', {
+      freshStart: true,
+    });
+    const first = await login(email).expect(200);
+    const cookie = first.headers['set-cookie'][0];
+    await request(app.getHttpServer())
+      .post('/turns')
+      .set('Origin', origin)
+      .set('X-Persona-Client', 'web')
+      .set('Cookie', cookie)
+      .send({ submissionId: randomUUID(), content: 'Remember me' })
+      .expect(200);
+
+    const reloaded = await freshStart(cookie).expect(200);
+    expect(reloaded.body.conversationId).not.toBe(first.body.conversationId);
+    const session = await request(app.getHttpServer())
+      .get('/session')
+      .set('Cookie', cookie)
+      .expect(200);
+    expect(session.body.conversationId).toBe(reloaded.body.conversationId);
+    expect(session.body.turns).toMatchObject([{ kind: 'opening' }]);
+    const old = await db.query('SELECT id FROM conversations WHERE id=$1', [
+      first.body.conversationId,
+    ]);
+    expect(old.rows).toHaveLength(0);
+
+    const again = await login(email).expect(200);
+    expect(again.body.conversationId).not.toBe(reloaded.body.conversationId);
+    expect(again.body.turns).toMatchObject([{ kind: 'opening' }]);
+  });
+
   it('rejects legacy anonymous cookies', async () => {
     const token = randomBytes(32).toString('base64url');
     await db.query(
