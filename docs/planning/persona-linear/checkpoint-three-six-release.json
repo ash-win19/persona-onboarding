@@ -1,0 +1,174 @@
+{
+  "recordedAt": "2026-09-29T18:49:29.112509+00:00",
+  "completeTrialReady": true,
+  "production": {
+    "commit": "51e74ef23c7145131394cb0c9c6075bd6f8d7576",
+    "url": "https://usepersona.vercel.app",
+    "pullRequest": "https://github.com/ash-win19/persona-onboarding/pull/13",
+    "render": {
+      "account": "ashwinshan2001@gmail.com",
+      "workspace": "tea-d731qrp9fqoc73cc7ehg",
+      "service": "srv-datekju0tbcc73aeq1h0",
+      "deployment": "dep-dau0c2id0e5s73dp8jf0",
+      "status": "live"
+    },
+    "vercel": {
+      "deployment": "dpl_DEe9pVwRUxMa7FVugUQAyidoqoQV",
+      "status": "READY"
+    }
+  },
+  "automated": {
+    "implementationCommit": "522f9c11de3f1de9eccac7e20fd78094e05fcbd1",
+    "ci": "https://github.com/ash-win19/persona-onboarding/actions/runs/36511130613",
+    "conclusion": "success",
+    "apiTests": 58,
+    "backendUnitTests": 4,
+    "browserTests": 13,
+    "frontendChecks": "passed",
+    "standardsFindings": 0,
+    "specFindings": 0
+  },
+  "productionChecks": [
+    {
+      "name": "Real voice task, spoken overlap, later name correction, hangup and refresh",
+      "commit": "51e74ef23c7145131394cb0c9c6075bd6f8d7576",
+      "result": "passed",
+      "savedNameAfterRefresh": "Jordan",
+      "helpRequestRetained": true,
+      "graduated": true,
+      "gmailPreferenceUnchanged": true,
+      "evidence": "/private/tmp/persona-canonical-retry-production.json",
+      "timings": {
+        "measurement": "Browser receipt timestamps for provider events; one production run with synthetic microphone audio, not acoustic output measurements or percentile estimates.",
+        "speechStoppedToOutputAudioStartedMs": [
+          7963,
+          4172
+        ],
+        "speechStartedToOutputAudioClearedMs": 0,
+        "interruptionNote": "Speech-started and output-cleared events arrived in the same millisecond. This does not measure microphone-to-speaker interruption latency."
+      }
+    },
+    {
+      "name": "Explicit names/task plus name-question refusal, Gmail refusal and voice deferral persist after refresh",
+      "commit": "26e7e86aa3c13abbfd74fb5b0c7a4d485cbcea7d",
+      "result": "passed",
+      "evidence": "/private/tmp/persona-final-preferences-production.json"
+    },
+    {
+      "name": "Real ten-minute deadline with one-minute warning",
+      "commit": "c58f4e58f9c7d3fd61c4af9a836ea7cf6ba0e159",
+      "result": "passed",
+      "finalReason": "time_limit",
+      "evidence": "/private/tmp/persona-final-deadline-fixed-production.json"
+    },
+    {
+      "name": "Mixed voice and typed interruption",
+      "commit": "eb39c11aeed14056f6e5c05f4673e5c7b0c6e908",
+      "result": "passed",
+      "evidence": "/private/tmp/persona-final-production-evidence.json",
+      "note": "Reset portion of this earlier driver was replaced by its separate check."
+    },
+    {
+      "name": "Reset and old-tab fencing",
+      "commit": "eb39c11aeed14056f6e5c05f4673e5c7b0c6e908",
+      "result": "passed",
+      "evidence": "/private/tmp/persona-final-reset-evidence.json"
+    },
+    {
+      "name": "Personal Render restart recovery",
+      "commit": "eb39c11aeed14056f6e5c05f4673e5c7b0c6e908",
+      "result": "passed",
+      "recoveryMs": 31690,
+      "finalCallReason": "backend_restart",
+      "evidence": "/private/tmp/persona-final-restart.json"
+    },
+    {
+      "name": "Natural Free Render cold wake",
+      "commit": "5758b80080a9014a438b9af6c2d8bb43ca2dc776",
+      "result": "passed",
+      "firstUsableMs": 34639,
+      "evidence": "/private/tmp/persona-final-readiness.json"
+    },
+    {
+      "name": "Real Google consent cancellation preserves the saved conversation and offers retry",
+      "commit": "51e74ef23c7145131394cb0c9c6075bd6f8d7576",
+      "renderDeployment": "dep-dau0c2id0e5s73dp8jf0",
+      "result": "passed",
+      "verificationMethod": "Observed production browser accessibility state after the real OAuth callback and refresh."
+    },
+    {
+      "name": "Real Google grant, verified profile address and refresh persistence",
+      "commit": "51e74ef23c7145131394cb0c9c6075bd6f8d7576",
+      "renderDeployment": "dep-dau0c2id0e5s73dp8jf0",
+      "result": "passed",
+      "existingConversationPreserved": true,
+      "acknowledgementCount": 1,
+      "verificationMethod": "Observed production browser accessibility state after the real OAuth callback and refresh."
+    }
+  ],
+  "localRealProvider": {
+    "name": "Injected malformed Realtime capture recovered through canonical interpretation",
+    "implementationCommit": "4d1ce2efc9d183e0a950ed3ba2452650f650e549",
+    "result": "passed",
+    "spokenCorrectionAfterRefresh": "Jordan",
+    "helpRequestRetained": true,
+    "evidence": "/private/tmp/persona-canonical-retry-local.json",
+    "note": "Subsequent scheduling changes were covered by deterministic tests and latest production voice check."
+  },
+  "google": {
+    "account": "ashwinshan2001@gmail.com",
+    "projectId": "persona-onboarding-510100",
+    "projectName": "Persona Onboarding",
+    "consentScreenCreated": true,
+    "oauthClientCreated": true,
+    "realConsentVerified": true,
+    "awaiting": null,
+    "publishingStatus": "Testing",
+    "audience": "External",
+    "testUsers": [
+      "ashwinshan2001@gmail.com"
+    ],
+    "gmailApiEnabled": true,
+    "configuredScopes": [
+      "https://www.googleapis.com/auth/gmail.metadata"
+    ],
+    "clientName": "Persona production web",
+    "credentialsConfiguredLocally": true,
+    "credentialsConfiguredOnRender": true,
+    "realDenialVerified": true,
+    "consentScreenReady": true,
+    "clientCreationEvidence": "/private/tmp/persona-google-client-created.png",
+    "grantReviewEvidence": "/private/tmp/persona-gmail-grant-review.png",
+    "refreshPersistenceVerified": true,
+    "existingConversationPreserved": true,
+    "connectedAccount": "ashwinshan2001@gmail.com",
+    "redirectUri": "https://usepersona.vercel.app/api/gmail/callback",
+    "scope": "https://www.googleapis.com/auth/gmail.metadata",
+    "connectionVerification": "Production UI showed Gmail connected: ashwinshan2001@gmail.com after refresh, with one saved acknowledgement and the prior conversation intact."
+  },
+  "remainingIssues": [],
+  "remainingWork": [],
+  "notes": [
+    "Checks on earlier deployed revisions are scoped explicitly; they are not presented as rerun on the newest deployment.",
+    "Synthetic browser microphone audio exercises real OpenAI transport and tools without capturing the user microphone.",
+    "Raw evidence remains local. Voice artifacts use synthetic test content; Google screenshots show the authorized personal account and its existing conversation. The summaries here are the durable release record.",
+    "Google expiry, revocation, callback races and live-call integration use controlled tests; the real Google checks are listed separately.",
+    "The saved connection screenshot did not show the connected state and is not used as proof. A fresh screenshot was unavailable because broad browser inspection was blocked while another signed-in page was active, and direct tab access failed. Google results above rely on the earlier observed production UI state."
+  ],
+  "verificationBoundaries": {
+    "realGoogle": [
+      "Allowlisted personal account grant",
+      "Verified Gmail profile address",
+      "Consent denial and retry",
+      "Connection and transcript persistence after refresh"
+    ],
+    "controlledGoogle": [
+      "Token expiry and revocation",
+      "Duplicate and session-mismatched callbacks",
+      "Late exchange after a newer connection",
+      "Reset and ownership races",
+      "Live-call context updates"
+    ],
+    "realVoice": "Verified separately with synthetic microphone audio and real OpenAI; Google consent used the personal browser conversation."
+  }
+}

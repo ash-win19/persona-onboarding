@@ -21,6 +21,8 @@ Use a Google Cloud project owned by the personal account. Enable the Gmail API a
 
 `https://usepersona.vercel.app/api/gmail/callback`
 
+Production uses the personal project `persona-onboarding-510100`, consent app `Persona`, and web client `Persona production web`. The Gmail API is enabled and `ashwinshan2001@gmail.com` is allowlisted. The client credentials are configured on the personal `persona-api` Render service. Real consent, denial, and persistence after refresh were verified on September 29, 2026. Add other evaluator addresses to the Google testing audience before they try connecting.
+
 Request only `https://www.googleapis.com/auth/gmail.metadata`. This is a restricted Gmail scope. Testing access is limited to allowlisted users; refresh tokens for this external testing setup normally expire after seven days. The app handles invalid grants by requiring reconnect while preserving the conversation. It does not request inbox bodies or sending permissions.
 
 The backend needs `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, and `GMAIL_TOKEN_KEY`. The last value is 32 random bytes encoded as base64, stored outside Postgres. Do not rotate it without handling existing encrypted credentials. Local values belong in ignored `backend/.env`; downloaded clients may be kept as ignored `backend/google-oauth-client.json`. Never paste credentials into tickets, chat, or logs. Only NestJS exchanges codes, refreshes tokens, and calls `users.getProfile?fields=emailAddress`.
@@ -57,6 +59,8 @@ Diagnostics older than seven days can be purged separately. This never ages out 
 Automated tests use isolated databases and controlled provider adapters. They cover session and owner authorization, retry deduplication, cancellation ordering, sideband loss, deadline transitions, typed interruptions, final spoken fact provenance, refusal/visit policy, OAuth replay and stale exchanges, revocation, actual credential deletion, reset races, and active-session exclusion from cleanup.
 
 Real-provider checks are recorded separately with the deployed commit. Mocked OAuth tests do not count as a real Google consent pass. Browser fake microphone audio tests exercise real OpenAI speech, transport and tools without capturing the evaluator's microphone.
+
+On production revision `51e74ef`, one real voice run took 7.963 seconds from the provider speech-stopped event to its playback-start event for the initial response, then 4.172 seconds after a spoken correction. During interruption, speech-started and output-cleared events arrived in the same millisecond. These are browser receipt times for provider events, not acoustic measurements or latency guarantees. Expect several seconds of silence while a fact-changing turn is processed.
 
 For backend restart verification, first save a synthetic conversation and start its call. Restart only `srv-datekju0tbcc73aeq1h0` in the personal workspace. Confirm voice stops and committed history returns after readiness recovers. For cold-start verification, let the Free service idle naturally, then record readiness and first usable chat time through the Vercel URL. Never alter the production database to simulate an outage; use the isolated failure adapter and bounded Neon timeout probe described in deployment documentation.
 
