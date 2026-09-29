@@ -16,7 +16,8 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
     var(--font-inter), "Helvetica Neue", Arial, sans-serif;
 }
 * {
@@ -29,8 +30,97 @@ body {
   font-family: var(--font-sans);
 }
 button,
+input,
 textarea {
   font: inherit;
+}
+.sign-in-shell {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 64px 24px;
+}
+.sign-in-content {
+  width: min(360px, 100%);
+  padding-bottom: 48px;
+}
+.sign-in-logo {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 48px;
+}
+.sign-in-logo svg {
+  width: 136px;
+  height: 27px;
+}
+.sign-in-content h1 {
+  text-align: center;
+  font-size: 36px;
+  margin-bottom: 36px;
+}
+.sign-in-form {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.sign-in-field {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.sign-in-field label {
+  font-size: 14px;
+  font-weight: 500;
+}
+.sign-in-field input {
+  width: 100%;
+  min-height: 52px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--background);
+  color: var(--foreground);
+  padding: 13px 16px;
+  font-size: 16px;
+  outline-offset: 3px;
+}
+.sign-in-field input::placeholder {
+  color: var(--subtle);
+}
+.sign-in-field input:focus-visible {
+  outline: 2px solid var(--accent);
+}
+.sign-in-submit {
+  min-height: 52px;
+  padding: 14px 24px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--foreground);
+  color: var(--background);
+  font-size: 15px;
+  font-weight: 500;
+  margin-top: 6px;
+}
+.sign-in-submit:hover:not(:disabled) {
+  background: #333336;
+}
+.sign-in-submit:disabled {
+  opacity: 0.55;
+}
+.sign-in-error {
+  margin: 0;
+  color: #a32929;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.sign-out {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 10px 0 10px 16px;
+  font-size: 13px;
+}
+.sign-out:hover {
+  color: var(--foreground);
 }
 button,
 summary {

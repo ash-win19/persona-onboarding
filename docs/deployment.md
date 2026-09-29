@@ -2,6 +2,8 @@
 
 The public entry point is the Vercel `usepersona` project. Next.js proxies `/api/*` to the Render service through its build-time `BACKEND_URL`. The backend authenticates session cookies itself and checks `Origin` plus the custom client header on every write.
 
+The application now requires operator-created email/password accounts. Follow [invite-only sign-in](./sign-in.md) for provisioning and password resets. `/session` no longer creates anonymous sessions; old anonymous cookies are rejected. Provision at least the owner's account before releasing the login page. During the host rollout, the old frontend may ask users to reconnect until Vercel finishes deploying the sign-in page.
+
 ## Account selection
 
 Use the personal Render workspace `My Personal Workspace`, ID `tea-d731qrp9fqoc73cc7ehg`. The backend service is `persona-api`, ID `srv-datekju0tbcc73aeq1h0`, at `https://persona-api-ngfi.onrender.com`. Before a deployment mutation, run `render whoami` and `render workspace current` and verify the personal account and this workspace. Do not reuse an unrelated work account's credentials.

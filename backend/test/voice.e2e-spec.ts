@@ -1,3 +1,4 @@
+import { invitedAccount } from './invited-account.js';
 import { PGlite } from '@electric-sql/pglite';
 import { Test } from '@nestjs/testing';
 import type { INestApplication } from '@nestjs/common';
@@ -100,11 +101,11 @@ describe('browser call API', () => {
   });
   async function session() {
     const created = await request(app.getHttpServer())
-      .post('/session')
+      .post('/auth/login')
       .set('Origin', origin)
       .set('X-Persona-Client', 'web')
-      .send({})
-      .expect(201);
+      .send(await invitedAccount(app))
+      .expect(200);
     const cookie = created.headers['set-cookie'][0];
     const tabId = randomUUID();
     const claim = await request(app.getHttpServer())

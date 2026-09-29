@@ -57,6 +57,12 @@ export class Reset {
               .digest('base64url');
       const current = await this.authority.authorize(credential, sql, true);
       this.authority.assertOwner(current, owner);
+      const account = (
+        await sql.query<{ id: string }>(
+          'SELECT id FROM accounts WHERE conversation_id=$1',
+          [current.id],
+        )
+      ).rows[0];
       const newCredential = createHmac('sha256', credential)
           .update('persona-reset:' + operationId)
           .digest('base64url'),
@@ -74,6 +80,14 @@ export class Reset {
       );
       await this.policy.activity(sql, id);
       await this.policy.offer(sql, id, 'agentName');
+      await sql.query('UPDATE accounts SET conversation_id=$2 WHERE id=$1', [
+        account.id,
+        id,
+      ]);
+      await sql.query(
+        'UPDATE account_sessions SET token_hash=$2 WHERE token_hash=$1',
+        [oldHash, credentialHash(newCredential)],
+      );
       await sql.query(
         'INSERT INTO reset_receipts(old_hash,new_hash,operation_id,new_conversation_id) VALUES($1,$2,$3,$4)',
         [oldHash, credentialHash(newCredential), operationId, id],

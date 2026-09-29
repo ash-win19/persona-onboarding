@@ -121,5 +121,20 @@ export async function migrate(db: Database) {
     await sql.query(
       'ALTER TABLE conversations ALTER COLUMN onboarding_revision SET DEFAULT 0, ALTER COLUMN onboarding_revision SET NOT NULL',
     );
+    await sql.query(`CREATE TABLE IF NOT EXISTS accounts (
+      id uuid PRIMARY KEY, email text NOT NULL UNIQUE, password_hash text NOT NULL,
+      conversation_id uuid UNIQUE REFERENCES conversations(id) ON DELETE SET NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )`);
+    await sql.query(`CREATE TABLE IF NOT EXISTS account_sessions (
+      token_hash text PRIMARY KEY, account_id uuid NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      expires_at timestamptz NOT NULL
+    )`);
+    await sql.query(
+      'CREATE INDEX IF NOT EXISTS account_sessions_owner ON account_sessions(account_id)',
+    );
+    await sql.query(`CREATE TABLE IF NOT EXISTS login_limits (
+      key text PRIMARY KEY, attempts integer NOT NULL, window_start timestamptz NOT NULL
+    )`);
   });
 }

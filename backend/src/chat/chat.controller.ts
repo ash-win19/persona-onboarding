@@ -83,16 +83,7 @@ export class ChatController {
   ) {
     browserWrite(req, this.config);
     res.set('Cache-Control', 'no-store');
-    if (credential(req)) return this.chat.read(credential(req));
-    const result = await this.chat.create();
-    res.cookie(COOKIE, result.credential, {
-      httpOnly: true,
-      secure: this.config.secureCookies,
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 180 * 86400 * 1000,
-    });
-    return result.snapshot;
+    return this.chat.read(credential(req));
   }
   @Get('session')
   read(@Req() req: Request, @Res({ passthrough: true }) res: Response) {

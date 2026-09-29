@@ -1,7 +1,7 @@
 import { Diagnostics } from './diagnostics.js';
 import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { DATABASE, type Database } from './database.js';
+import { DATABASE, type Database, type Sql } from './database.js';
 import { OnboardingPolicy } from './onboarding-policy.js';
 import { OnboardingService } from './onboarding.js';
 import { MODEL, type ReplyModel } from './model.js';
@@ -33,18 +33,15 @@ export class ChatService {
     @Inject(Authority) private readonly authority: Authority,
     @Inject(OnboardingPolicy) private readonly policy: OnboardingPolicy,
   ) {}
-  async create() {
-    const credential = randomBytes(32).toString('base64url');
-    await this.db.transaction(async (sql) => {
-      const id = randomUUID();
-      await sql.query(
-        'INSERT INTO conversations(id,credential_hash) VALUES($1,$2)',
-        [id, credentialHash(credential)],
-      );
-      await this.policy.activity(sql, id);
-      await this.policy.offer(sql, id, 'agentName');
-    });
-    return { credential, snapshot: await this.read(credential) };
+  async create(sql: Sql) {
+    const id = randomUUID();
+    await sql.query(
+      'INSERT INTO conversations(id,credential_hash) VALUES($1,$2)',
+      [id, credentialHash(randomBytes(32).toString('base64url'))],
+    );
+    await this.policy.activity(sql, id);
+    await this.policy.offer(sql, id, 'agentName');
+    return id;
   }
   async read(credential: string | undefined) {
     return this.db.transaction(async (sql) => {

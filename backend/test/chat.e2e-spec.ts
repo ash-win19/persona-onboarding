@@ -1,3 +1,4 @@
+import { invitedAccount } from './invited-account.js';
 import { PGlite } from '@electric-sql/pglite';
 import { Test } from '@nestjs/testing';
 import type { INestApplication } from '@nestjs/common';
@@ -164,11 +165,11 @@ describe('saved conversation API', () => {
       return 'Ashwin, start by explaining how you would design an API.';
     };
     const session = await request(app.getHttpServer())
-      .post('/session')
+      .post('/auth/login')
       .set('Origin', origin)
       .set('X-Persona-Client', 'web')
-      .send({})
-      .expect(201);
+      .send(await invitedAccount(app))
+      .expect(200);
     const cookie = session.headers['set-cookie'][0];
     await request(app.getHttpServer())
       .post('/turns')
@@ -292,10 +293,10 @@ describe('saved conversation API', () => {
       model.reply = realAdapter.reply.bind(realAdapter);
       try {
         const session = await request(app.getHttpServer())
-          .post('/session')
+          .post('/auth/login')
           .set('Origin', origin)
           .set('X-Persona-Client', 'web')
-          .send({});
+          .send(await invitedAccount(app));
         const reply = await request(app.getHttpServer())
           .post('/turns')
           .set('Origin', origin)
@@ -318,11 +319,11 @@ describe('saved conversation API', () => {
 
   async function newSession() {
     const response = await request(app.getHttpServer())
-      .post('/session')
+      .post('/auth/login')
       .set('Origin', origin)
       .set('X-Persona-Client', 'web')
-      .send({})
-      .expect(201);
+      .send(await invitedAccount(app))
+      .expect(200);
     return response.headers['set-cookie'][0];
   }
   function send(cookie: string, content: string, submissionId = randomUUID()) {
@@ -550,11 +551,11 @@ describe('saved conversation API', () => {
 
   it('saves a real exchange and restores it using only the browser credential', async () => {
     const session = await request(app.getHttpServer())
-      .post('/session')
+      .post('/auth/login')
       .set('Origin', origin)
       .set('X-Persona-Client', 'web')
-      .send({})
-      .expect(201);
+      .send(await invitedAccount(app))
+      .expect(200);
     const cookie = session.headers['set-cookie'][0];
     expect(cookie).toContain('HttpOnly');
     expect(cookie).toContain('Secure');
@@ -581,10 +582,10 @@ describe('saved conversation API', () => {
 
   it('replays a committed submission after a lost acknowledgement without generating another reply', async () => {
     const session = await request(app.getHttpServer())
-      .post('/session')
+      .post('/auth/login')
       .set('Origin', origin)
       .set('X-Persona-Client', 'web')
-      .send({});
+      .send(await invitedAccount(app));
     const cookie = session.headers['set-cookie'][0];
     const payload = { submissionId: randomUUID(), content: 'Help me prepare.' };
     const send = () =>
@@ -607,10 +608,10 @@ describe('saved conversation API', () => {
 
   it('keeps a failed reply retryable without duplicating the saved user message', async () => {
     const session = await request(app.getHttpServer())
-      .post('/session')
+      .post('/auth/login')
       .set('Origin', origin)
       .set('X-Persona-Client', 'web')
-      .send({});
+      .send(await invitedAccount(app));
     const cookie = session.headers['set-cookie'][0];
     const payload = { submissionId: randomUUID(), content: 'Prepare me.' };
     const send = () =>
@@ -635,10 +636,10 @@ describe('saved conversation API', () => {
 
   it('serializes concurrent submissions and rejects conflicting reuse of an identifier', async () => {
     const session = await request(app.getHttpServer())
-      .post('/session')
+      .post('/auth/login')
       .set('Origin', origin)
       .set('X-Persona-Client', 'web')
-      .send({});
+      .send(await invitedAccount(app));
     const cookie = session.headers['set-cookie'][0];
     const payload = { submissionId: randomUUID(), content: 'One request.' };
     let finish!: (reply: string) => void;
@@ -685,12 +686,12 @@ describe('saved conversation API', () => {
       .set('Origin', origin)
       .send({})
       .expect(403);
-    const create = () =>
+    const create = async () =>
       request(app.getHttpServer())
-        .post('/session')
+        .post('/auth/login')
         .set('Origin', origin)
         .set('X-Persona-Client', 'web')
-        .send({});
+        .send(await invitedAccount(app));
     const first = await create();
     await request(app.getHttpServer())
       .post('/turns')
@@ -714,10 +715,10 @@ describe('saved conversation API', () => {
 
   it('reports database outages without acknowledging a message as saved', async () => {
     const session = await request(app.getHttpServer())
-      .post('/session')
+      .post('/auth/login')
       .set('Origin', origin)
       .set('X-Persona-Client', 'web')
-      .send({});
+      .send(await invitedAccount(app));
     const query = db.query.bind(db);
     db.query = async () => {
       throw new Error('Database unavailable with sensitive connection details');
