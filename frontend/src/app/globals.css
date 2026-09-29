@@ -159,44 +159,15 @@ h1 {
   padding: 14px 19px;
   border-radius: 20px 20px 5px 20px;
 }
-.turn.user .turn-label {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-}
-.turn.user:has(.delivery) .turn-label {
-  position: static;
-  width: auto;
-  height: auto;
-  clip-path: none;
-}
 .turn.assistant {
   padding-right: 24px;
 }
-.message-mark {
-  width: 24px;
-  height: 24px;
-  flex-shrink: 0;
-  color: var(--foreground);
-  margin-top: 1px;
-}
-.turn-label {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-bottom: 9px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--foreground);
-  line-height: 1.6;
-}
-.turn-label .delivery {
+.delivery-note {
+  display: block;
+  margin-top: 6px;
   color: var(--muted);
   font-size: 10px;
-  font-weight: 400;
+  line-height: 1.6;
 }
 .turn p {
   font-size: 15px;
@@ -580,10 +551,6 @@ h1 {
   }
   .turn p {
     font-size: 14px;
-  }
-  .message-mark {
-    width: 21px;
-    height: 21px;
   }
   .composer-area {
     padding: 9px 12px max(13px, env(safe-area-inset-bottom));

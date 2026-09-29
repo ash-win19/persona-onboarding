@@ -463,39 +463,21 @@ export default function Chat() {
             aria-relevant="additions text"
           >
             {snapshot?.turns.map((turn) => (
-              <article key={turn.id} className={`turn ${turn.role}`}>
-                {turn.role === "assistant" && (
-                  <PersonaMark className="message-mark" />
-                )}
+              <article
+                key={turn.id}
+                className={`turn ${turn.role}`}
+                aria-label={turn.role === "user" ? "You" : agentName}
+              >
                 <div className="turn-body">
-                  <div className="turn-label">
-                    {turn.role === "user" ? "You" : agentName}
-                    <span
-                      className={
-                        turn.channel === "voice" ||
-                        turn.delivery === "interrupted"
-                          ? "delivery"
-                          : "sr-only"
-                      }
-                    >
-                      {turn.delivery === "interrupted"
-                        ? "Saved transcript · interrupted"
-                        : turn.channel === "voice"
-                          ? "Saved transcript"
-                          : "Saved"}
-                    </span>
-                  </div>
                   <p>{turn.content}</p>
                 </div>
               </article>
             ))}
             {shownPending && (
-              <article className="turn user pending">
+              <article className="turn user pending" aria-label="You">
                 <div className="turn-body">
-                  <div className="turn-label">
-                    You<span className="delivery">Not yet confirmed</span>
-                  </div>
                   <p>{pending.content}</p>
+                  <span className="delivery-note">Not yet confirmed</span>
                 </div>
               </article>
             )}
