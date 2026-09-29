@@ -125,7 +125,11 @@ describe('memory in prompts', () => {
   it('replaces observed turns with notes but keeps the latest ten verbatim', async () => {
     const s = await session();
     for (let i = 0; i < 7; i++) await s.say(`Earlier message ${i}.`);
-    expect(received!.turns).toHaveLength(13);
+    expect(received!.turns).toHaveLength(14);
+    expect(received!.turns[0]).toMatchObject({
+      role: 'assistant',
+      content: "Hi, I'm Persona. What would you like to call me?",
+    });
     expect(received!.memory).toBeNull();
 
     stored = { ...notes, lastObservedAt: new Date(Date.now() + 1000) };

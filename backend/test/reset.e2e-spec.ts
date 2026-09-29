@@ -204,7 +204,7 @@ describe('reset and operator cleanup', () => {
     const fresh = await s.post('/reset', { operationId }).expect(200);
     const cookie = fresh.headers['set-cookie'][0];
     expect(fresh.body.conversationId).not.toBe(s.id);
-    expect(fresh.body.turns).toHaveLength(0);
+    expect(fresh.body.turns).toHaveLength(1);
     expect(fresh.body.onboarding.facts.userName.value).toBeNull();
     expect(closed).toBe(true);
     await absent(s.id);
@@ -238,7 +238,7 @@ describe('reset and operator cleanup', () => {
         fresh.body.control.epoch,
       )
       .expect(200);
-    expect(next.body.turns).toHaveLength(2);
+    expect(next.body.turns).toHaveLength(3);
   });
   it('fences a delayed model completion after reset', async () => {
     const s = await session();
@@ -264,7 +264,7 @@ describe('reset and operator cleanup', () => {
     await absent(s.id);
     expect(
       (await s.get('/session', fresh.headers['set-cookie'][0])).body.turns,
-    ).toHaveLength(0);
+    ).toHaveLength(1);
   });
   it('fences a Gmail exchange that finishes after reset', async () => {
     const s = await session();
@@ -285,7 +285,7 @@ describe('reset and operator cleanup', () => {
     await callback;
     await absent(s.id);
     const saved = await s.get('/session', fresh.headers['set-cookie'][0]);
-    expect(saved.body.turns).toHaveLength(0);
+    expect(saved.body.turns).toHaveLength(1);
     expect(saved.body.onboarding.gmail).toBe('not_connected');
   });
   it('allows cleanup of a crashed call after its deadline and owner lease expire', async () => {

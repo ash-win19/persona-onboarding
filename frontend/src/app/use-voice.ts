@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { apiFetch } from "@/lib/api";
 
 export type Control = {
   tabId: string | null;
@@ -22,6 +23,7 @@ type Attempt = {
   abort: AbortController;
   dispatched: boolean;
   accepted: boolean;
+  openingDispatched?: boolean;
   peer?: RTCPeerConnection;
   stream?: MediaStream;
   audio?: HTMLAudioElement;
@@ -179,7 +181,35 @@ export function useVoice(
       };
       peer.onconnectionstatechange = () => {
         if (attempt.current !== current) return;
-        if (peer.connectionState === "connected") setState("active");
+        if (peer.connectionState === "connected") {
+          setState("active");
+          if (!current.openingDispatched) {
+            current.openingDispatched = true;
+            void (async () => {
+              for (let retry = 0; retry < 2; retry++) {
+                if (attempt.current !== current) return;
+                try {
+                  await apiFetch("calls/ready", {
+                    method: "POST",
+                    headers: current.headers,
+                    credentials: "same-origin",
+                    body: JSON.stringify({ id: current.id }),
+                    signal: AbortSignal.any([
+                      current.abort.signal,
+                      AbortSignal.timeout(8000),
+                    ]),
+                  });
+                  return;
+                } catch {
+                  if (retry === 1 && attempt.current === current)
+                    setNotice(
+                      "You're connected. You can start speaking whenever you're ready.",
+                    );
+                }
+              }
+            })();
+          }
+        }
         if (["failed", "disconnected", "closed"].includes(peer.connectionState))
           void end("connection_lost");
       };

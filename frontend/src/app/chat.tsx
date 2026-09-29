@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { GmailConnection } from "./gmail-connection";
 import { useVoice, type Control, type CallState } from "./use-voice";
@@ -14,6 +14,7 @@ type Turn = {
   content: string;
   channel?: string;
   delivery?: string;
+  kind?: "opening" | "message";
 };
 type SavedFact = {
   value: string | null;
@@ -24,6 +25,7 @@ type Onboarding = {
   gmail: "connected" | "not_connected";
   graduated: boolean;
   onboardingComplete: boolean;
+  policy?: { goals: { gmail: { introduced: boolean } } };
 };
 type Snapshot = {
   control?: Control;
@@ -31,6 +33,7 @@ type Snapshot = {
   conversationId: string;
   revision: number;
   turns: Turn[];
+  introduction?: boolean;
   operation: {
     id: string;
     status: "generating" | "completed" | "failed";
@@ -95,9 +98,13 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState<Pending | null>(null);
   const [busy, setBusy] = useState(true);
-  const [notice, setNotice] = useState(
-    "Connecting to your conversation. This may take a moment.",
-  );
+  const [notice, setNotice] = useState("");
+  const [introducing, setIntroducing] = useState(false);
+  const introDismissed = useRef(false);
+  const finishIntroduction = useCallback(() => {
+    introDismissed.current = true;
+    setIntroducing(false);
+  }, []);
   const active = useRef<AbortController | null>(null);
   const scrollArea = useRef<HTMLElement>(null);
   const followLatest = useRef(true);
@@ -156,11 +163,21 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
     ) {
       setPending(null);
       setDraft("");
+      introDismissed.current = false;
+      setIntroducing(false);
       voiceRef.current.controlLost();
     }
     conversationRef.current = data.conversationId;
     if (data.control?.tabId) control(data.control);
     setSnapshot(data);
+    if (
+      data.introduction &&
+      data.turns.length === 1 &&
+      data.turns[0].kind === "opening" &&
+      !introDismissed.current &&
+      !window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    )
+      setIntroducing(true);
     setConnection("ready");
     if (data.operation?.status === "completed") {
       setPending((current) =>
@@ -173,6 +190,20 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
         : "",
     );
   }
+
+  useEffect(() => {
+    if (!introducing) return;
+    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const changed = () => {
+      if (motion.matches) finishIntroduction();
+    };
+    motion.addEventListener("change", changed);
+    const timer = setTimeout(finishIntroduction, 450);
+    return () => {
+      clearTimeout(timer);
+      motion.removeEventListener("change", changed);
+    };
+  }, [introducing, finishIntroduction]);
 
   async function waitForReply(data: Snapshot, signal: AbortSignal) {
     let current = data;
@@ -399,7 +430,7 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
     }
     setConnection("connecting");
     setBusy(true);
-    setNotice("Connecting to your conversation. This may take a moment.");
+    setNotice("");
     active.current?.abort();
     const controller = new AbortController();
     active.current = controller;
@@ -408,6 +439,7 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
 
   function sendDraft() {
     if (!canSend) return;
+    finishIntroduction();
     const payload = {
       submissionId: crypto.randomUUID(),
       content: draft.trim(),
@@ -418,7 +450,12 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
     void submit(payload);
   }
 
-  const empty = !snapshot?.turns.length && !pending;
+  const gmailIntroduced =
+    snapshot?.onboarding?.policy?.goals.gmail.introduced ||
+    snapshot?.onboarding?.gmail === "connected" ||
+    snapshot?.turns.some(
+      (turn) => turn.role === "assistant" && /\bgmail\b/i.test(turn.content),
+    );
   const callStatus =
     voice.state === "permission"
       ? "Waiting for microphone permission"
@@ -441,7 +478,9 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
   }
 
   return (
-    <main className={`chat-shell ${empty ? "is-empty" : "has-messages"}`}>
+    <main
+      className={`chat-shell ${introducing ? "is-introducing" : "has-messages"}`}
+    >
       <header className="chat-header">
         <Link className="wordmark" href="/" aria-label="Persona home">
           <PersonaLogo />
@@ -468,8 +507,13 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
         }}
       >
         <div className="conversation-content">
-          {empty && (
-            <div className="welcome">
+          {!snapshot && connection === "connecting" && (
+            <p className="conversation-loading" role="status">
+              Opening your conversation…
+            </p>
+          )}
+          {introducing && (
+            <div className="welcome welcome-leaving" aria-hidden="true">
               <div className="welcome-mark">
                 <PersonaMark />
               </div>
@@ -490,7 +534,7 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
             {snapshot?.turns.map((turn) => (
               <article
                 key={turn.id}
-                className={`turn ${turn.role}`}
+                className={`turn ${turn.role}${introducing && turn.kind === "opening" ? " opening-arriving" : ""}`}
                 aria-label={turn.role === "user" ? "You" : agentName}
               >
                 <div className="turn-body">
@@ -518,6 +562,19 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
               </div>
             )}
           </div>
+          {snapshot?.control && (
+            <div className="conversation-tools">
+              <GmailConnection
+                key={snapshot.conversationId}
+                headers={headers}
+                enabled={hasControl && connection === "ready"}
+                introduced={!!gmailIntroduced}
+                conversationId={snapshot.conversationId}
+                onChanged={refresh}
+                onNotice={setGmailNotice}
+              />
+            </div>
+          )}
         </div>
       </section>
 
@@ -627,7 +684,10 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
                 ? "Type to join the conversation…"
                 : "What's on your mind?"
             }
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => {
+              finishIntroduction();
+              setDraft(event.target.value);
+            }}
             onKeyDown={(event) => {
               if (
                 event.key === "Enter" &&
@@ -640,18 +700,7 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
             }}
           />
           <div className="composer-toolbar">
-            <div className="composer-tools">
-              {snapshot?.control && (
-                <GmailConnection
-                  key={snapshot.conversationId}
-                  headers={headers}
-                  enabled={hasControl && connection === "ready"}
-                  conversationId={snapshot.conversationId}
-                  onChanged={refresh}
-                  onNotice={setGmailNotice}
-                />
-              )}
-            </div>
+            <div className="composer-tools" />
             <div className="send-tools">
               {snapshot?.control && !voice.active && (
                 <button
@@ -663,7 +712,10 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
                     busy ||
                     !!retryPayload
                   }
-                  onClick={() => void voice.start()}
+                  onClick={() => {
+                    finishIntroduction();
+                    void voice.start();
+                  }}
                 >
                   <ChatIcon name="headphones" /> Start a call
                 </button>

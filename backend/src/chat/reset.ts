@@ -7,6 +7,7 @@ import { ChatService } from './chat.service.js';
 import { OnboardingPolicy } from './onboarding-policy.js';
 import { Calls } from './calls.js';
 import { lockSession } from './account-sessions.js';
+import { saveOpening } from './opening.js';
 import { CONVERSATION_MEMORY, type ConversationMemory } from './memory.js';
 
 export async function removeConversation(sql: Sql, id: string) {
@@ -87,6 +88,7 @@ export class Reset {
       );
       await this.policy.activity(sql, id);
       await this.policy.offer(sql, id, 'agentName');
+      await saveOpening(sql, id);
       await sql.query('UPDATE accounts SET conversation_id=$2 WHERE id=$1', [
         account.id,
         id,

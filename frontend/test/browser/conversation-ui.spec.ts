@@ -106,7 +106,7 @@ test("mobile has one usable composer for an uninterrupted conversation", async (
   ).toBeInViewport();
   await expect(
     page.getByRole("button", { name: "Connect Gmail", exact: true }),
-  ).toBeInViewport();
+  ).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "Send message" }),
   ).toBeInViewport();

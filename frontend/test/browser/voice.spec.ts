@@ -20,6 +20,8 @@ async function voicePage(page: Page) {
       async setLocalDescription() {}
       async setRemoteDescription() {
         this.connectionState = "connected";
+        (window as unknown as { voiceConnected: boolean }).voiceConnected =
+          true;
         this.onconnectionstatechange?.();
       }
       close() {
@@ -43,6 +45,7 @@ async function voicePage(page: Page) {
   let conversationId = "voice-race";
   const ended: string[] = [];
   const started: string[] = [];
+  const ready: string[] = [];
   let holdFirst: (() => Promise<void>) | undefined;
   await page.route("**/api/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
@@ -74,6 +77,16 @@ async function voicePage(page: Page) {
         call = { ...call, status: "ended", controlReady: false };
       return route.fulfill({ json: { call, control } });
     }
+    if (path === "/api/calls/ready") {
+      expect(
+        await page.evaluate(
+          () =>
+            (window as unknown as { voiceConnected: boolean }).voiceConnected,
+        ),
+      ).toBe(true);
+      ready.push(route.request().postDataJSON().id);
+      return route.fulfill({ json: { ready: true } });
+    }
     if (path === "/api/calls/turns") {
       const body = route.request().postDataJSON();
       if (!turns.some((t) => t.submissionId === body.submissionId))
@@ -101,6 +114,7 @@ async function voicePage(page: Page) {
   });
   return {
     started,
+    ready,
     ended,
     reset: () => {
       turns.length = 0;
@@ -113,6 +127,18 @@ async function voicePage(page: Page) {
     },
   };
 }
+
+test("requests Persona's opening after the peer connects without waiting for user input", async ({
+  page,
+}) => {
+  const voice = await voicePage(page);
+  await page.goto("/");
+  expect(voice.ready).toHaveLength(0);
+  await page.getByRole("button", { name: "Start a call" }).click();
+  await expect.poll(() => voice.ready).toEqual(voice.started);
+  expect(voice.ready).toHaveLength(1);
+  await page.getByRole("button", { name: "End call" }).click();
+});
 
 test("a lost setup response cancels the reserved attempt and permits another call", async ({
   page,

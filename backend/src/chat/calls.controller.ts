@@ -71,6 +71,14 @@ export class CallsController {
       body.content.trim(),
     );
   }
+  @Post('ready')
+  @HttpCode(200)
+  ready(@Req() req: Request, @Body() body: unknown) {
+    const controller = browserWrite(req, this.config, true);
+    if (!body || typeof body !== 'object' || !('id' in body) || !uuid(body.id))
+      throw new BadRequestException();
+    return this.calls.ready(credential(req), controller, body.id);
+  }
   @Post('end')
   @HttpCode(200)
   end(@Req() req: Request, @Body() body: unknown) {

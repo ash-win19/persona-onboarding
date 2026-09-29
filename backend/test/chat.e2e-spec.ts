@@ -127,7 +127,7 @@ describe('saved conversation API', () => {
       .set('X-Persona-Tab', b)
       .set('X-Persona-Epoch', String(taken.body.control.epoch))
       .expect(200);
-    expect(reply.body.turns).toHaveLength(2);
+    expect(reply.body.turns).toHaveLength(3);
   });
 
   it('commits all volunteered facts before the reply and restores early graduation', async () => {
@@ -194,9 +194,9 @@ describe('saved conversation API', () => {
       },
     });
     expect(restored.body.onboarding.facts.userName.sourceTurnId).toBe(
-      restored.body.turns[0].id,
+      restored.body.turns[1].id,
     );
-    expect(restored.body.turns).toHaveLength(2);
+    expect(restored.body.turns).toHaveLength(3);
   });
 
   it.each([
@@ -305,7 +305,7 @@ describe('saved conversation API', () => {
           .send({ submissionId: randomUUID(), content: 'Call yourself Nova.' })
           .expect(200);
         expect(receivedAuthoritativeState).toBe(true);
-        expect(reply.body.turns[1].content).toBe(
+        expect(reply.body.turns[2].content).toBe(
           [answer, question].filter(Boolean).join('\n\n'),
         );
         expect(reply.body.onboarding.facts.agentName.value).toBe(expectedName);
@@ -398,7 +398,7 @@ describe('saved conversation API', () => {
     expect(corrected.body.onboarding.facts.userName).toMatchObject({
       value: 'Sam',
       status: 'known',
-      sourceTurnId: corrected.body.turns[6].id,
+      sourceTurnId: corrected.body.turns[7].id,
     });
     expect(corrected.body.onboarding.facts.userName.revision).toBeGreaterThan(
       original.revision,
@@ -486,7 +486,7 @@ describe('saved conversation API', () => {
       call: 'not_started',
       missingGoals: ['agentName', 'userName', 'gmail'],
     });
-    expect(reply.body.turns[1].content).toContain('60-second introduction');
+    expect(reply.body.turns[2].content).toContain('60-second introduction');
   });
 
   it('retries a failed reply without changing committed fact provenance and rejects late tools', async () => {
@@ -538,7 +538,7 @@ describe('saved conversation API', () => {
     expect(retry.body.onboarding.facts.agentName).toEqual(
       failed.body.onboarding.facts.agentName,
     );
-    expect(retry.body.turns).toHaveLength(2);
+    expect(retry.body.turns).toHaveLength(3);
     expect(resultCodes).toEqual(['already_applied']);
     const late = await oldTools!.capture({
       expectedRevision: retry.body.revision,
@@ -574,6 +574,7 @@ describe('saved conversation API', () => {
     expect(
       restored.body.turns.map((turn: { content: string }) => turn.content),
     ).toEqual([
+      "Hi, I'm Persona. What would you like to call me?",
       'Help me prepare for an interview.',
       'Let us practice your introduction.',
     ]);
@@ -602,7 +603,7 @@ describe('saved conversation API', () => {
     const replay = await send().expect(200);
     expect(
       replay.body.turns.map((turn: { role: string }) => turn.role),
-    ).toEqual(['user', 'assistant']);
+    ).toEqual(['assistant', 'user', 'assistant']);
     expect(replay.body.operation.status).toBe('completed');
   });
 
@@ -626,12 +627,16 @@ describe('saved conversation API', () => {
     };
     const failed = await send().expect(200);
     expect(failed.body.operation.status).toBe('failed');
-    expect(failed.body.turns).toHaveLength(1);
+    expect(failed.body.turns).toHaveLength(2);
     model.reply = async () => 'We can try again.';
     const retried = await send().expect(200);
     expect(
       retried.body.turns.map((t: { content: string }) => t.content),
-    ).toEqual(['Prepare me.', 'We can try again.']);
+    ).toEqual([
+      "Hi, I'm Persona. What would you like to call me?",
+      'Prepare me.',
+      'We can try again.',
+    ]);
   });
 
   it('serializes concurrent submissions and rejects conflicting reuse of an identifier', async () => {
@@ -664,14 +669,14 @@ describe('saved conversation API', () => {
     await isStarted;
     const duplicate = await send(payload).expect(200);
     expect(duplicate.body.operation.status).toBe('generating');
-    expect(duplicate.body.turns).toHaveLength(1);
+    expect(duplicate.body.turns).toHaveLength(2);
     await send({ ...payload, content: 'Different request.' }).expect(409);
     await send({
       submissionId: randomUUID(),
       content: 'A second request.',
     }).expect(409);
     finish('One reply.');
-    expect((await first).body.turns).toHaveLength(2);
+    expect((await first).body.turns).toHaveLength(3);
   });
 
   it('rejects cross-origin writes and credentials from another conversation', async () => {
@@ -706,7 +711,7 @@ describe('saved conversation API', () => {
       .set('Cookie', second.headers['set-cookie'][0])
       .query({ conversationId: first.body.conversationId })
       .expect(200);
-    expect(isolated.body.turns).toEqual([]);
+    expect(isolated.body.turns).toMatchObject([{ kind: 'opening' }]);
     await request(app.getHttpServer())
       .get('/session')
       .set('Cookie', 'persona_session=invalid')
@@ -744,6 +749,6 @@ describe('saved conversation API', () => {
       .get('/ready')
       .expect(200)
       .expect({ ready: true });
-    expect((await send().expect(200)).body.turns).toHaveLength(2);
+    expect((await send().expect(200)).body.turns).toHaveLength(3);
   });
 });

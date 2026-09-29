@@ -67,16 +67,16 @@ test("a delayed Gmail status cannot restore account details after a server-side 
   await expect.poll(() => reads).toBe(2);
   conversationId = "new-conversation";
   control = { ...control, epoch: 2 };
-  await expect(
-    page.getByRole("button", { name: "Connect Gmail", exact: true }),
-  ).toBeVisible();
+  await expect(page.getByText("Gmail connected", { exact: true })).toHaveCount(
+    0,
+  );
   releaseOld();
   await expect(page.getByText("Gmail connected: old@example.test")).toHaveCount(
     0,
   );
   await expect(
     page.getByRole("button", { name: "Connect Gmail", exact: true }),
-  ).toBeVisible();
+  ).toHaveCount(0);
 });
 
 test("reset during Gmail polling cannot publish an old error into the fresh conversation", async ({
@@ -135,7 +135,17 @@ test("reset during Gmail polling cannot publish an old error into the fresh conv
         conversationId,
         control,
         revision: 0,
-        turns: [],
+        turns:
+          conversationId === "before-reset"
+            ? [
+                {
+                  id: "gmail",
+                  submissionId: "gmail",
+                  role: "assistant",
+                  content: "Would you like to connect Gmail?",
+                },
+              ]
+            : [],
         operation: null,
       },
     });
@@ -149,10 +159,10 @@ test("reset during Gmail polling cannot publish an old error into the fresh conv
   control = { ...control, epoch: 2 };
   await expect(
     page.getByRole("button", { name: "Connect Gmail", exact: true }),
-  ).toBeVisible();
+  ).toHaveCount(0);
   release();
   await expect(
     page.getByRole("button", { name: "Connect Gmail", exact: true }),
-  ).toBeVisible();
+  ).toHaveCount(0);
   await expect(page.getByText(/Could not check Gmail yet/)).toHaveCount(0);
 });

@@ -39,6 +39,7 @@ type Call = Record<string, unknown> & {
   tool_acknowledged: boolean;
   generation: number;
   source_item_id: string | null;
+  opening_started: boolean;
 };
 type Item = Record<string, unknown> & {
   item_id: string;
@@ -236,7 +237,59 @@ export class Calls implements OnModuleDestroy {
     }
   }
 
-  private response(connection: VoiceConnection, call: Call, repair?: string) {
+  async ready(credential: string | undefined, owner: Owner, id: string) {
+    const runtime = this.live.get(id);
+    if (!runtime || runtime.closing || !runtime.connection?.healthy())
+      throw new ConflictException('CALL_NOT_ACTIVE');
+    const work = runtime.queue.then(async () => {
+      const opening = await this.db.transaction(async (sql) => {
+        const c = await this.authority.authorize(credential, sql, true);
+        this.authority.assertOwner(c, owner);
+        const call = await this.get(sql, id);
+        if (
+          !call ||
+          call.conversation_id !== c.id ||
+          call.owner_epoch !== owner.epoch ||
+          call.status !== 'active'
+        )
+          throw new ConflictException('CALL_NOT_CURRENT');
+        if (call.opening_started) return null;
+        await sql.query('UPDATE calls SET opening_started=true WHERE id=$1', [
+          id,
+        ]);
+        // Speech or typing that arrived before readiness takes precedence.
+        if (call.generation !== 0 || runtime.responding) return null;
+        return {
+          call,
+          direction: await this.onboarding.callOpening(sql, c.id, c.revision),
+          context: await this.context(call, sql),
+        };
+      });
+      if (opening && !runtime.closing && runtime.connection?.healthy()) {
+        this.response(
+          runtime.connection,
+          opening.call,
+          undefined,
+          this.instructions(opening.context) +
+            '\nThis is the first spoken turn after the browser connected. The server has already verified the saved context and selected the permitted opening. There is no new user input to capture. Do not call tools during this opening. Never ask for the assistant name. ' +
+            opening.direction,
+        );
+      }
+      return { ready: true };
+    });
+    runtime.queue = work.then(
+      () => undefined,
+      () => undefined,
+    );
+    return work;
+  }
+
+  private response(
+    connection: VoiceConnection,
+    call: Call,
+    repair?: string,
+    opening?: string,
+  ) {
     const runtime = this.live.get(call.id);
     if (!runtime || runtime.closing) return;
     runtime.pendingResponse = call;
@@ -257,6 +310,9 @@ export class Calls implements OnModuleDestroy {
     connection.send({
       type: 'response.create',
       response: {
+        ...(opening
+          ? { instructions: opening, tools: [], tool_choice: 'none' }
+          : {}),
         ...(repair
           ? {
               tool_choice: 'required',
@@ -276,6 +332,7 @@ export class Calls implements OnModuleDestroy {
           generation: String(call.generation),
           sourceItem: call.source_item_id ?? '',
           ...(repair ? { purpose: 'fact_repair' } : {}),
+          ...(opening ? { purpose: 'opening' } : {}),
         },
       },
     });
@@ -423,21 +480,21 @@ export class Calls implements OnModuleDestroy {
     }
   }
 
-  private async context(call: Call) {
+  private async context(call: Call, sql: Sql = this.db) {
     const conversation = (
-      await this.db.query<{ revision: number }>(
+      await sql.query<{ revision: number }>(
         'SELECT revision FROM conversations WHERE id=$1',
         [call.conversation_id],
       )
     ).rows[0];
     if (!conversation) throw new Error('CONVERSATION_REMOVED');
     const state = await this.onboarding.read(
-      this.db,
+      sql,
       call.conversation_id,
       conversation.revision,
     );
     const recent = (
-      await this.db.query<{
+      await sql.query<{
         id: string;
         role: string;
         content: string;

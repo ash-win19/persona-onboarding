@@ -6,6 +6,7 @@ import { OnboardingPolicy } from './onboarding-policy.js';
 import { OnboardingService } from './onboarding.js';
 import { MODEL, type ReplyModel } from './model.js';
 import { Authority, credentialHash, type Owner } from './authority.js';
+import { saveOpening } from './opening.js';
 import {
   CONVERSATION_MEMORY,
   memoryWindow,
@@ -19,6 +20,7 @@ export type Turn = {
   id: string;
   submissionId: string;
   createdAt: Date;
+  kind: 'opening' | 'message';
 };
 type Operation = {
   id: string;
@@ -47,45 +49,66 @@ export class ChatService {
     );
     await this.policy.activity(sql, id);
     await this.policy.offer(sql, id, 'agentName');
+    await saveOpening(sql, id);
     return id;
+  }
+  async open(credential: string | undefined) {
+    return this.db.transaction(async (sql) => {
+      const conversation = await this.authority.authorize(
+        credential,
+        sql,
+        true,
+      );
+      const claimed = await sql.query(
+        `UPDATE conversations SET introduced_at=now() WHERE id=$1 AND introduced_at IS NULL
+         AND EXISTS(SELECT 1 FROM turns WHERE conversation_id=$1 AND kind='opening')
+         AND NOT EXISTS(SELECT 1 FROM turns WHERE conversation_id=$1 AND kind<>'opening') RETURNING id`,
+        [conversation.id],
+      );
+      return {
+        ...(await this.snapshot(credential, sql)),
+        introduction: claimed.rows.length > 0,
+      };
+    });
   }
   async read(credential: string | undefined) {
     return this.db.transaction(async (sql) => {
       await sql.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
-      const conversation = await this.authority.authorize(credential, sql);
-      const result = await sql.query<Turn>(
-        'SELECT id, role, content, channel, delivery, submission_id AS "submissionId", created_at AS "createdAt" FROM turns WHERE conversation_id = $1 ORDER BY sequence',
-        [conversation.id],
-      );
-      const latest = await sql.query<Operation>(
-        'SELECT * FROM submissions WHERE conversation_id = $1 ORDER BY created_at DESC LIMIT 1',
-        [conversation.id],
-      );
-      const operation = latest.rows[0];
-      const interrupted =
-        operation?.status === 'generating' &&
-        new Date(operation.lease_until).getTime() <= Date.now();
-      return {
-        control: this.authority.view(conversation),
-        onboarding: await this.onboarding.read(
-          sql,
-          conversation.id,
-          conversation.revision,
-        ),
-        conversationId: conversation.id,
-        revision: conversation.revision,
-        turns: result.rows,
-        operation: operation
-          ? {
-              id: operation.id,
-              status: interrupted ? 'failed' : operation.status,
-              errorCode: interrupted
-                ? 'REPLY_INTERRUPTED'
-                : operation.error_code,
-            }
-          : null,
-      };
+      return this.snapshot(credential, sql);
     });
+  }
+  private async snapshot(credential: string | undefined, sql: Sql) {
+    const conversation = await this.authority.authorize(credential, sql);
+    const result = await sql.query<Turn>(
+      'SELECT id, role, content, channel, delivery, kind, submission_id AS "submissionId", created_at AS "createdAt" FROM turns WHERE conversation_id = $1 ORDER BY sequence',
+      [conversation.id],
+    );
+    const latest = await sql.query<Operation>(
+      'SELECT * FROM submissions WHERE conversation_id = $1 ORDER BY created_at DESC LIMIT 1',
+      [conversation.id],
+    );
+    const operation = latest.rows[0];
+    const interrupted =
+      operation?.status === 'generating' &&
+      new Date(operation.lease_until).getTime() <= Date.now();
+    return {
+      control: this.authority.view(conversation),
+      onboarding: await this.onboarding.read(
+        sql,
+        conversation.id,
+        conversation.revision,
+      ),
+      conversationId: conversation.id,
+      revision: conversation.revision,
+      turns: result.rows,
+      operation: operation
+        ? {
+            id: operation.id,
+            status: interrupted ? 'failed' : operation.status,
+            errorCode: interrupted ? 'REPLY_INTERRUPTED' : operation.error_code,
+          }
+        : null,
+    };
   }
   async submit(
     credential: string | undefined,
@@ -98,6 +121,12 @@ export class ChatService {
     const claimed = await this.db.transaction(async (sql) => {
       const controlled = await this.authority.authorize(credential, sql, true);
       this.authority.assertOwner(controlled, owner);
+      const opening = await sql.query(
+        "SELECT id FROM turns WHERE conversation_id=$1 AND submission_id=$2 AND kind='opening'",
+        [conversation.id, submissionId],
+      );
+      if (opening.rows.length)
+        throw new ConflictException('SUBMISSION_CONFLICT');
       const call = await sql.query(
         "SELECT id FROM calls WHERE conversation_id=$1 AND status IN ('connecting','active')",
         [conversation.id],

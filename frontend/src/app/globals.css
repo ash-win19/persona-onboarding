@@ -175,6 +175,7 @@ summary svg {
   height: 23px;
 }
 .conversation {
+  position: relative;
   min-height: 0;
   flex: 1;
   overflow-y: auto;
@@ -187,15 +188,46 @@ summary svg {
   margin: 0 auto;
   padding: 34px 24px 48px;
 }
-.is-empty .conversation {
-  display: flex;
+.conversation-loading {
+  color: var(--muted);
+  font-size: 14px;
+  text-align: center;
+  margin: 32px 0;
 }
-.is-empty .conversation-content {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  padding-top: 20px;
-  padding-bottom: 48px;
+.welcome-leaving {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(732px, calc(100% - 48px));
+  pointer-events: none;
+  animation: welcome-leave 450ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.opening-arriving {
+  animation: opening-arrive 450ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.conversation-tools:not(:empty) {
+  margin-top: 24px;
+}
+@keyframes welcome-leave {
+  from {
+    opacity: 1;
+    transform: translate(-50%, -50%);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% - 48px)) scale(0.97);
+  }
+}
+@keyframes opening-arrive {
+  0%,
+  25% {
+    opacity: 0;
+    transform: translateY(28px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 .welcome {
   container-type: inline-size;

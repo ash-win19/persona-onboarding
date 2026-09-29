@@ -83,7 +83,7 @@ export class ChatController {
   ) {
     browserWrite(req, this.config);
     res.set('Cache-Control', 'no-store');
-    return this.chat.read(credential(req));
+    return this.chat.open(credential(req));
   }
   @Get('session')
   read(@Req() req: Request, @Res({ passthrough: true }) res: Response) {

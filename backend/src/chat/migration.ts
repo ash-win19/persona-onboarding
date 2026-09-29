@@ -1,4 +1,5 @@
 import type { Database } from './database.js';
+import { saveOpening } from './opening.js';
 
 export async function migrate(db: Database) {
   await db.transaction(async (sql) => {
@@ -148,5 +149,23 @@ export async function migrate(db: Database) {
     await sql.query(`CREATE TABLE IF NOT EXISTS login_limits (
       key text PRIMARY KEY, attempts integer NOT NULL, window_start timestamptz NOT NULL
     )`);
+    await sql.query(
+      "ALTER TABLE turns ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'message'",
+    );
+    await sql.query(
+      "CREATE UNIQUE INDEX IF NOT EXISTS one_opening ON turns(conversation_id) WHERE kind='opening'",
+    );
+    await sql.query(
+      'ALTER TABLE conversations ADD COLUMN IF NOT EXISTS introduced_at timestamptz',
+    );
+    await sql.query(
+      'ALTER TABLE calls ADD COLUMN IF NOT EXISTS opening_started boolean NOT NULL DEFAULT false',
+    );
+    const empty = await sql.query<{ id: string }>(
+      `SELECT id FROM conversations c WHERE NOT EXISTS(SELECT 1 FROM turns WHERE conversation_id=c.id)
+       AND NOT EXISTS(SELECT 1 FROM calls WHERE conversation_id=c.id) FOR UPDATE`,
+    );
+    for (const conversation of empty.rows)
+      await saveOpening(sql, conversation.id);
   });
 }

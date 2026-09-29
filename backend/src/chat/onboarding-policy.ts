@@ -20,7 +20,11 @@ export type PolicyState = {
   visitId: string;
   goals: Record<
     PolicyGoal,
-    { outcome: 'open' | 'declined' | 'deferred'; eligible: boolean }
+    {
+      outcome: 'open' | 'declined' | 'deferred';
+      eligible: boolean;
+      introduced: boolean;
+    }
   >;
 };
 type Row = {
@@ -75,6 +79,7 @@ export class OnboardingPolicy {
       const row = rows.find((r) => r.goal === goal);
       goals[goal] = {
         outcome: row?.outcome ?? 'open',
+        introduced: !!row?.offered_visit,
         eligible:
           row?.outcome !== 'declined' &&
           row?.offered_visit !== c.visit_id &&
