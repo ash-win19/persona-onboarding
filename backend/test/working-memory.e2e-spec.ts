@@ -8,6 +8,7 @@ import { ChatModule } from '../src/chat/chat.module.js';
 import { DATABASE, type Database } from '../src/chat/database.js';
 import { MODEL, type ReplyModel } from '../src/chat/model.js';
 import { CHAT_CONFIG } from '../src/chat/config.js';
+import { CLOCK } from '../src/chat/authority.js';
 import { migrate } from '../src/chat/migration.js';
 import type { CaptureResult } from '../src/chat/onboarding.js';
 import {
@@ -23,6 +24,7 @@ import {
 
 describe('working memory through capture_onboarding', () => {
   let app: INestApplication, pg: PGlite;
+  let now = Date.now();
   const origin = 'https://persona.example';
   const model: ReplyModel = { reply: async () => 'Saved reply.' };
   let remembered: [string, MemoryNote[]][] = [];
@@ -68,6 +70,8 @@ describe('working memory through capture_onboarding', () => {
       .useValue(model)
       .overrideProvider(CHAT_CONFIG)
       .useValue({ origins: [origin], secureCookies: true })
+      .overrideProvider(CLOCK)
+      .useValue(() => now)
       .overrideProvider(CONVERSATION_MEMORY)
       .useValue(memory)
       .overrideProvider(VOICE_PROVIDER)
@@ -81,6 +85,7 @@ describe('working memory through capture_onboarding', () => {
     await pg?.close();
   });
   beforeEach(() => {
+    now = Date.now();
     remembered = [];
   });
 
