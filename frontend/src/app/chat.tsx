@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { GmailConnection } from "./gmail-connection";
 import { useVoice, type Control, type CallState } from "./use-voice";
 
 type Turn = {
@@ -101,6 +102,10 @@ export default function Chat() {
     undefined,
   );
   const [hasControl, setHasControl] = useState(true);
+  const conversationRef = useRef<string | null>(null);
+  const resetAttempt = useRef<string | null>(null);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const headers = () => ({
     "Content-Type": "application/json",
     "X-Persona-Client": "web",
@@ -140,6 +145,15 @@ export default function Chat() {
   }
 
   function accept(data: Snapshot) {
+    if (
+      conversationRef.current &&
+      conversationRef.current !== data.conversationId
+    ) {
+      setPending(null);
+      setDraft("");
+      voiceRef.current.controlLost();
+    }
+    conversationRef.current = data.conversationId;
     if (data.control?.tabId) control(data.control);
     setSnapshot(data);
     setConnection("ready");
@@ -287,12 +301,22 @@ export default function Chat() {
     setBusy(true);
     setNotice("");
     try {
-      const data = await api<Snapshot>(
-        "turns",
-        controller.signal,
-        payload,
-        ownerRef.current,
-      );
+      let data: Snapshot;
+      if (voice.active && voice.call?.status === "active") {
+        await api(
+          "calls/turns",
+          controller.signal,
+          { ...payload, id: voice.call.id },
+          ownerRef.current,
+        );
+        data = await api<Snapshot>("session", controller.signal);
+      } else
+        data = await api<Snapshot>(
+          "turns",
+          controller.signal,
+          payload,
+          ownerRef.current,
+        );
       if (controller.signal.aborted) return;
       accept(data);
       await waitForReply(data, controller.signal);
@@ -323,6 +347,35 @@ export default function Chat() {
     }
   }
 
+  async function startOver() {
+    if (resetting) return;
+    setResetting(true);
+    setConfirmReset(false);
+    resetAttempt.current ??= crypto.randomUUID();
+    active.current?.abort();
+    voiceRef.current.controlLost();
+    try {
+      const data = await api<Snapshot>(
+        "reset",
+        new AbortController().signal,
+        { operationId: resetAttempt.current },
+        ownerRef.current,
+      );
+      accept(data);
+      setPending(null);
+      setDraft("");
+      setNotice("A fresh conversation is ready.");
+      resetAttempt.current = null;
+    } catch {
+      setNotice(
+        "Start over could not be confirmed. Use Start over again to retry safely.",
+      );
+    } finally {
+      setResetting(false);
+      setBusy(false);
+    }
+  }
+
   const agentName = snapshot?.onboarding?.facts.agentName.value || "Persona";
   const unresolved =
     snapshot?.operation && snapshot.operation.status !== "completed"
@@ -338,7 +391,8 @@ export default function Chat() {
   const canSend =
     connection === "ready" &&
     hasControl &&
-    !voice.active &&
+    (!voice.active || voice.state === "active") &&
+    !resetting &&
     !busy &&
     !retryPayload &&
     !!draft.trim();
@@ -478,6 +532,40 @@ export default function Chat() {
               </p>
             )}
           </div>
+        )}
+        {snapshot?.control && (
+          <>
+            <GmailConnection
+              headers={headers}
+              enabled={hasControl && connection === "ready" && !resetting}
+              conversationId={snapshot.conversationId}
+              onChanged={refresh}
+            />
+            <div className="reset-controls">
+              {confirmReset ? (
+                <div role="alertdialog" aria-label="Start over confirmation">
+                  <p>
+                    Delete this app&apos;s saved conversation, names, preferences,
+                    and Gmail credentials? This does not delete data retained
+                    independently by providers.
+                  </p>
+                  <button onClick={() => void startOver()}>
+                    Delete saved conversation
+                  </button>
+                  <button onClick={() => setConfirmReset(false)}>
+                    Keep conversation
+                  </button>
+                </div>
+              ) : (
+                <button
+                  disabled={!hasControl || resetting}
+                  onClick={() => setConfirmReset(true)}
+                >
+                  {resetting ? "Starting over…" : "Start over"}
+                </button>
+              )}
+            </div>
+          </>
         )}
         {snapshot?.onboarding && snapshot.turns.length > 0 && (
           <details className="memory" aria-label="Saved details">

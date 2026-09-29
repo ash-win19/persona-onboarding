@@ -267,6 +267,139 @@ describe('browser call API', () => {
       })
       .expect(200);
   });
+  it('typing during speech interrupts old output, deduplicates input and keeps the call open', async () => {
+    const s = await session();
+    const id = randomUUID();
+    await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
+    const c = connections.at(-1)!;
+    c.emit({
+      type: 'response.created',
+      response: {
+        id: 'old-response',
+        status: 'in_progress',
+        metadata: { generation: '0' },
+      },
+    });
+    c.emit({
+      type: 'response.output_audio_transcript.done',
+      item_id: 'old-output',
+      response_id: 'old-response',
+      transcript: 'An old long answer.',
+    });
+    await vi.waitFor(async () =>
+      expect((await s.read()).body.turns).toHaveLength(1),
+    );
+    const body = {
+      id,
+      submissionId: randomUUID(),
+      content: 'Actually, use the corrected example.',
+    };
+    await s.post('/calls/turns', body).expect(200);
+    await s.post('/calls/turns', body).expect(200);
+    expect(c.sent.filter((e) => e.type === 'response.cancel')).toHaveLength(1);
+    expect(
+      c.sent.filter((e) => e.type === 'output_audio_buffer.clear'),
+    ).toHaveLength(1);
+    expect(c.closed).toBe(false);
+    c.emit({
+      type: 'output_audio_buffer.stopped',
+      response_id: 'old-response',
+    });
+    const saved = await s.read();
+    expect(
+      saved.body.turns.filter(
+        (t: { content: string }) => t.content === body.content,
+      ),
+    ).toHaveLength(1);
+    expect(saved.body.turns[0].delivery).toBe('interrupted');
+    expect((await s.status()).body.call.status).toBe('active');
+    await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
+  });
+  it('commits spoken facts from the finalized source and rejects a superseded voice tool', async () => {
+    const s = await session(),
+      id = randomUUID();
+    await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
+    const c = connections.at(-1)!;
+    c.emit({
+      type: 'input_audio_buffer.speech_started',
+      item_id: 'fact-source',
+    });
+    c.emit({ type: 'input_audio_buffer.committed', item_id: 'fact-source' });
+    c.emit({
+      type: 'conversation.item.input_audio_transcription.completed',
+      item_id: 'fact-source',
+      transcript: 'Call me Sam. Help me prepare for an interview.',
+    });
+    await vi.waitFor(async () =>
+      expect((await s.read()).body.turns).toHaveLength(1),
+    );
+    const before = await s.read();
+    c.emit({
+      type: 'response.created',
+      response: {
+        id: 'facts-response',
+        status: 'in_progress',
+        metadata: { generation: '1', sourceItem: 'fact-source' },
+      },
+    });
+    c.emit({
+      type: 'response.function_call_arguments.done',
+      response_id: 'facts-response',
+      call_id: 'facts-tool',
+      name: 'capture_onboarding',
+      arguments: JSON.stringify({
+        expectedRevision: before.body.revision,
+        askOnboarding: false,
+        preferences: [],
+        changes: [
+          {
+            goal: 'userName',
+            action: 'set',
+            value: 'Sam',
+            evidence: 'Call me Sam',
+          },
+          {
+            goal: 'helpRequest',
+            action: 'set',
+            value: 'prepare for an interview',
+            evidence: 'Help me prepare for an interview',
+          },
+        ],
+      }),
+    });
+    await vi.waitFor(async () =>
+      expect((await s.read()).body.onboarding.facts.userName.value).toBe('Sam'),
+    );
+    expect((await s.read()).body.onboarding.graduated).toBe(true);
+    await s
+      .post('/calls/turns', {
+        id,
+        submissionId: randomUUID(),
+        content: 'Focus on the introduction.',
+      })
+      .expect(200);
+    c.emit({
+      type: 'response.function_call_arguments.done',
+      response_id: 'facts-response',
+      call_id: 'late-facts',
+      name: 'capture_onboarding',
+      arguments: JSON.stringify({
+        expectedRevision: (await s.read()).body.revision,
+        askOnboarding: false,
+        preferences: [],
+        changes: [
+          {
+            goal: 'userName',
+            action: 'correct',
+            value: 'Invented',
+            evidence: 'Invented',
+          },
+        ],
+      }),
+    });
+    await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
+    expect((await s.read()).body.onboarding.facts.userName.value).toBe('Sam');
+  });
   it('reports lost sideband control and leaves committed chat usable', async () => {
     const s = await session();
     const id = randomUUID();

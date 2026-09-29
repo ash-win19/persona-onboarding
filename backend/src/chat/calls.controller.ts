@@ -57,6 +57,31 @@ export class CallsController {
       throw new BadRequestException();
     return this.calls.start(credential(req), controller, body.id, body.sdp);
   }
+  @Post('turns')
+  @HttpCode(200)
+  type(@Req() req: Request, @Body() body: unknown) {
+    const controller = this.access(req);
+    if (
+      !body ||
+      typeof body !== 'object' ||
+      !('id' in body) ||
+      !uuid(body.id) ||
+      !('submissionId' in body) ||
+      !uuid(body.submissionId) ||
+      !('content' in body) ||
+      typeof body.content !== 'string' ||
+      !body.content.trim() ||
+      body.content.length > 8000
+    )
+      throw new BadRequestException();
+    return this.calls.type(
+      credential(req),
+      controller,
+      body.id,
+      body.submissionId,
+      body.content.trim(),
+    );
+  }
   @Post('end')
   @HttpCode(200)
   end(@Req() req: Request, @Body() body: unknown) {

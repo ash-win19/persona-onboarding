@@ -1,6 +1,8 @@
+import { Diagnostics } from './diagnostics.js';
 import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { DATABASE, type Database } from './database.js';
+import { OnboardingPolicy } from './onboarding-policy.js';
 import { OnboardingService } from './onboarding.js';
 import { MODEL, type ReplyModel } from './model.js';
 import { Authority, credentialHash, type Owner } from './authority.js';
@@ -23,17 +25,24 @@ type Operation = {
 @Injectable()
 export class ChatService {
   constructor(
+    @Inject(Diagnostics) private readonly diagnostics: Diagnostics,
     @Inject(DATABASE) private readonly db: Database,
     @Inject(MODEL) private readonly model: ReplyModel,
     @Inject(OnboardingService) private readonly onboarding: OnboardingService,
     @Inject(Authority) private readonly authority: Authority,
+    @Inject(OnboardingPolicy) private readonly policy: OnboardingPolicy,
   ) {}
   async create() {
     const credential = randomBytes(32).toString('base64url');
-    await this.db.query(
-      'INSERT INTO conversations(id, credential_hash) VALUES ($1, $2)',
-      [randomUUID(), credentialHash(credential)],
-    );
+    await this.db.transaction(async (sql) => {
+      const id = randomUUID();
+      await sql.query(
+        'INSERT INTO conversations(id,credential_hash) VALUES($1,$2)',
+        [id, credentialHash(credential)],
+      );
+      await this.policy.activity(sql, id);
+      await this.policy.offer(sql, id, 'agentName');
+    });
     return { credential, snapshot: await this.read(credential) };
   }
   async read(credential: string | undefined) {
@@ -110,6 +119,7 @@ export class ChatService {
       );
       if (unresolved.rows.length) throw new ConflictException('REPLY_PENDING');
       if (!existing) {
+        await this.policy.activity(sql, conversation.id);
         await sql.query(
           'INSERT INTO turns(id, conversation_id, submission_id, role, content) VALUES ($1, $2, $3, $4, $5)',
           [randomUUID(), conversation.id, submissionId, 'user', content],
@@ -153,7 +163,7 @@ export class ChatService {
         "UPDATE submissions SET status = 'failed', error_code = 'REPLY_UNAVAILABLE' WHERE conversation_id = $1 AND id = $2 AND attempt = $3",
         [conversation.id, submissionId, attempt],
       );
-      console.warn(JSON.stringify({ code: 'REPLY_UNAVAILABLE', submissionId }));
+      void this.diagnostics.record('REPLY_UNAVAILABLE', submissionId);
       return this.read(credential);
     }
     await this.db.transaction(async (sql) => {
@@ -161,7 +171,9 @@ export class ChatService {
       if (
         owner &&
         (current.owner_tab !== owner.tabId ||
-          current.owner_epoch !== owner.epoch)
+          current.owner_epoch !== owner.epoch ||
+          !current.owner_until ||
+          new Date(current.owner_until).getTime() <= this.authority.now())
       )
         return;
       if (!owner && current.owner_tab) return;

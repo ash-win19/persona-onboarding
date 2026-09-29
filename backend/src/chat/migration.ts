@@ -62,5 +62,55 @@ export async function migrate(db: Database) {
     )`);
     await sql.query(`ALTER TABLE turns ADD COLUMN IF NOT EXISTS channel text NOT NULL DEFAULT 'text',
       ADD COLUMN IF NOT EXISTS delivery text NOT NULL DEFAULT 'text', ADD COLUMN IF NOT EXISTS call_id uuid`);
+    await sql.query(`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS visit_id uuid,
+      ADD COLUMN IF NOT EXISTS last_activity timestamptz`);
+    await sql.query(`CREATE TABLE IF NOT EXISTS onboarding_policy (
+      conversation_id uuid NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      goal text NOT NULL, outcome text NOT NULL CHECK(outcome IN ('open','declined','deferred')),
+      offered_visit uuid, deferred_visit uuid, PRIMARY KEY(conversation_id,goal)
+    )`);
+    await sql.query(
+      'ALTER TABLE onboarding_assessments ADD COLUMN IF NOT EXISTS question text',
+    );
+    await sql.query(`ALTER TABLE calls ADD COLUMN IF NOT EXISTS generation integer NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS source_item_id text`);
+    await sql.query(
+      'ALTER TABLE voice_items ADD COLUMN IF NOT EXISTS generation integer NOT NULL DEFAULT 0',
+    );
+    await sql.query(`CREATE TABLE IF NOT EXISTS voice_responses (
+      call_id uuid NOT NULL REFERENCES calls(id) ON DELETE CASCADE, response_id text NOT NULL,
+      generation integer NOT NULL, interrupted boolean NOT NULL DEFAULT false, played boolean NOT NULL DEFAULT false,
+      PRIMARY KEY(call_id,response_id)
+    )`);
+    await sql.query(
+      'ALTER TABLE conversations ADD COLUMN IF NOT EXISTS gmail_generation integer NOT NULL DEFAULT 0',
+    );
+    await sql.query(`CREATE TABLE IF NOT EXISTS gmail_attempts (
+      id uuid PRIMARY KEY, conversation_id uuid NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      generation integer NOT NULL, state_hash text NOT NULL UNIQUE, verifier text, status text NOT NULL,
+      expires_at timestamptz NOT NULL, UNIQUE(conversation_id,generation)
+    )`);
+    await sql.query(`CREATE TABLE IF NOT EXISTS gmail_connections (
+      conversation_id uuid PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
+      generation integer NOT NULL, email text NOT NULL, tokens text NOT NULL, expires_at timestamptz NOT NULL,
+      checked_at timestamptz NOT NULL, status text NOT NULL
+    )`);
+    await sql.query(
+      'ALTER TABLE onboarding_assessments DROP CONSTRAINT IF EXISTS onboarding_assessments_conversation_id_submission_id_fkey',
+    );
+    await sql.query(
+      'ALTER TABLE voice_responses ADD COLUMN IF NOT EXISTS source_item_id text',
+    );
+    await sql.query(`CREATE TABLE IF NOT EXISTS reset_receipts (
+      old_hash text PRIMARY KEY, new_hash text NOT NULL, operation_id uuid NOT NULL,
+      new_conversation_id uuid NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )`);
+    await sql.query(`CREATE TABLE IF NOT EXISTS operational_events (
+      id uuid PRIMARY KEY, at timestamptz NOT NULL, code text NOT NULL, subject_id uuid NOT NULL,duration_ms integer
+    )`);
+    await sql.query(
+      'CREATE INDEX IF NOT EXISTS operational_retention ON operational_events(at)',
+    );
   });
 }

@@ -345,3 +345,6 @@ textarea::placeholder {
 .conversation-controls button { border: 1px solid #c8cebf; border-radius: 999px; padding: .55rem 1rem; background: #f6f7f1; color: #405137; cursor: pointer; }
 .conversation-controls button:disabled { opacity: .5; cursor: default; }
 .conversation-controls p { margin: .75rem 0; }
+
+.gmail-controls,.reset-controls{padding:0.7rem 1rem;border-top:1px solid var(--line,#e7e4df);font-size:0.82rem;line-height:1.5;color:var(--muted,#666)}
+.gmail-controls p,.reset-controls p{margin:0.4rem 0}.gmail-controls button,.reset-controls button{border:1px solid #d9d5cf;border-radius:0.6rem;background:transparent;padding:0.45rem 0.75rem;cursor:pointer;margin-right:0.5rem}.gmail-controls button:disabled,.reset-controls button:disabled{opacity:.55;cursor:default}
