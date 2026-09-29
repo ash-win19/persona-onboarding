@@ -445,23 +445,19 @@ export class OnboardingService {
         if (!match) return reject('invalid');
         changes.push(match);
       }
-      if (
-        (command.preferences ?? []).some(
-          (p) =>
-            !sources.some((candidate) =>
-              context.callId
-                ? spokenQuote(candidate.content, p.evidence) !== undefined
-                : normalized(candidate.content).includes(
-                    normalized(p.evidence),
-                  ),
-            ),
-        )
-      )
-        return reject('invalid');
+      const preferences = (command.preferences ?? []).map((p) => ({
+        ...p,
+        sourceIndex: sources.findLastIndex((candidate) =>
+          context.callId
+            ? spokenQuote(candidate.content, p.evidence) !== undefined
+            : normalized(candidate.content).includes(normalized(p.evidence)),
+        ),
+      }));
+      if (preferences.some((p) => p.sourceIndex < 0)) return reject('invalid');
       await this.policy.apply(
         sql,
         context.conversationId,
-        command.preferences ?? [],
+        preferences.toSorted((a, b) => a.sourceIndex - b.sourceIndex),
       );
       {
         const revision = conversation.revision + 1;
@@ -493,12 +489,21 @@ export class OnboardingService {
         );
         state = await this.read(sql, context.conversationId, revision);
       }
-      // Volunteering a fact explicitly reopens that goal, but never unrelated ones.
+      // Volunteering a fact reopens its goal unless the user also declined or
+      // deferred it in the same source or a later part of this spoken answer.
       await this.policy.apply(
         sql,
         context.conversationId,
-        command.changes
-          .filter((c) => c.action !== 'clarify')
+        changes
+          .filter(
+            (c) =>
+              c.action !== 'clarify' &&
+              !preferences.some(
+                (p) =>
+                  p.goal === c.goal &&
+                  p.sourceIndex >= sources.indexOf(c.source),
+              ),
+          )
           .map((c) => ({
             goal: c.goal,
             outcome: 'open',

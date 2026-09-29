@@ -819,6 +819,74 @@ describe('browser call API', () => {
     await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
     expect((await s.read()).body.onboarding.graduated).toBe(true);
   });
+  it.each([false, true])(
+    'resolves a split name and refusal in spoken order, refusal first: %s',
+    async (refusalFirst) => {
+      const s = await session(),
+        id = randomUUID();
+      await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
+      const c = connections.at(-1)!;
+      const inputs = [
+        ['name', 'Call me Sam.'],
+        ['refusal', 'Do not ask my name again.'],
+      ];
+      if (refusalFirst) inputs.reverse();
+      for (const [item, transcript] of inputs) {
+        c.emit({ type: 'input_audio_buffer.committed', item_id: item });
+        c.emit({
+          type: 'conversation.item.input_audio_transcription.completed',
+          item_id: item,
+          transcript,
+        });
+      }
+      await vi.waitFor(async () =>
+        expect((await s.read()).body.turns).toHaveLength(2),
+      );
+      const before = (await s.read()).body;
+      c.emit({
+        type: 'response.created',
+        response: {
+          id: 'ordered-response',
+          status: 'in_progress',
+          metadata: { generation: '2', sourceItem: inputs[1][0] },
+        },
+      });
+      c.emit({
+        type: 'response.function_call_arguments.done',
+        response_id: 'ordered-response',
+        call_id: 'ordered-tool',
+        name: 'capture_onboarding',
+        arguments: JSON.stringify({
+          expectedRevision: before.revision,
+          askOnboarding: false,
+          preferences: [
+            {
+              goal: 'userName',
+              outcome: 'declined',
+              evidence: 'Do not ask my name again',
+            },
+          ],
+          changes: [
+            {
+              goal: 'userName',
+              action: 'set',
+              value: 'Sam',
+              evidence: 'Call me Sam',
+            },
+          ],
+        }),
+      });
+      await vi.waitFor(async () =>
+        expect((await s.read()).body.onboarding.facts.userName.value).toBe(
+          'Sam',
+        ),
+      );
+      expect(
+        (await s.read()).body.onboarding.policy.goals.userName.outcome,
+      ).toBe(refusalFirst ? 'open' : 'declined');
+      await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
+    },
+  );
   it('repairs rejected voice facts before replying and bounds malformed retries', async () => {
     const s = await session(),
       id = randomUUID();
