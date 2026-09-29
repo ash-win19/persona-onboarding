@@ -204,7 +204,7 @@ test("typing interrupts an active call and reset opens a fresh conversation", as
     page.getByText("Actually, use the shorter example.", { exact: true }),
   ).toHaveCount(1);
   await expect(page.getByRole("button", { name: "End call" })).toBeVisible();
-  await page.getByRole("button", { name: "What I remember" }).click();
+  await page.getByRole("button", { name: "Conversation settings" }).click();
   await page.getByRole("button", { name: "Start over", exact: true }).click();
   await page.getByRole("button", { name: "Delete saved conversation" }).click();
   await expect(

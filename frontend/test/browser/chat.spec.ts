@@ -431,7 +431,7 @@ test("onboarding invites a name and restores corrected facts without a form", as
   await expect(
     page.getByText("Sam, start with a short introduction."),
   ).toBeVisible();
-  await page.getByText("What I remember", { exact: true }).click();
+  await page.getByText("Conversation settings", { exact: true }).click();
   const memory = page.getByRole("group", { name: "Saved details" });
   await expect(memory.getByText("Sam", { exact: true })).toBeVisible();
   await expect(memory.getByText("Nova", { exact: true })).toBeVisible();
@@ -439,7 +439,7 @@ test("onboarding invites a name and restores corrected facts without a form", as
     memory.getByText("Not connected", { exact: true }),
   ).toBeVisible();
   await page.reload();
-  await page.getByText("What I remember", { exact: true }).click();
+  await page.getByText("Conversation settings", { exact: true }).click();
   await expect(memory.getByText("Sam", { exact: true })).toBeVisible();
 });
 test("declined microphone permission leaves the saved text conversation usable", async ({

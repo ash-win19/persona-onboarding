@@ -115,7 +115,7 @@ test("mobile has one usable composer and details close without losing a draft", 
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
-  await page.getByRole("button", { name: "What I remember" }).click();
+  await page.getByRole("button", { name: "Conversation settings" }).click();
   await expect(
     page.getByRole("dialog", { name: "Your conversation" }),
   ).toBeVisible();
@@ -127,7 +127,7 @@ test("mobile has one usable composer and details close without losing a draft", 
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await expect(
-    page.getByRole("button", { name: "What I remember" }),
+    page.getByRole("button", { name: "Conversation settings" }),
   ).toBeFocused();
   await expect(input).toHaveValue("Prepare for an interview");
   await expect(page.getByRole("textbox")).toHaveCount(1);
@@ -143,7 +143,7 @@ test("a failed reset explains recovery inside the dialog and retries the same re
     return route.fulfill({ status: 503, json: {} });
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "What I remember" }).click();
+  await page.getByRole("button", { name: "Conversation settings" }).click();
   await page.getByRole("button", { name: "Start over", exact: true }).click();
   await page.getByRole("button", { name: "Delete saved conversation" }).click();
   const dialog = page.getByRole("dialog", { name: "Your conversation" });

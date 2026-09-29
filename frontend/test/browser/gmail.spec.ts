@@ -69,7 +69,7 @@ test("a delayed Gmail status cannot restore account details after Start over", a
   ).toBeVisible();
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect.poll(() => reads).toBe(2);
-  await page.getByRole("button", { name: "What I remember" }).click();
+  await page.getByRole("button", { name: "Conversation settings" }).click();
   await page.getByRole("button", { name: "Start over", exact: true }).click();
   await page.getByRole("button", { name: "Delete saved conversation" }).click();
   await expect(
@@ -154,7 +154,7 @@ test("reset during Gmail polling cannot publish an old error into the fresh conv
     .getByRole("button", { name: "Connect Gmail", exact: true })
     .click();
   await expect.poll(() => held).toBe(true);
-  await page.getByRole("button", { name: "What I remember" }).click();
+  await page.getByRole("button", { name: "Conversation settings" }).click();
   await page.getByRole("button", { name: "Start over", exact: true }).click();
   await page.getByRole("button", { name: "Delete saved conversation" }).click();
   release();

@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { GmailConnection } from "./gmail-connection";
 import { useVoice, type Control, type CallState } from "./use-voice";
-import { ChatIcon, PersonaMark } from "./chat-icons";
+import { ChatIcon } from "./chat-icons";
+import { PersonaLogo, PersonaMark } from "./persona-logo";
 import { ConversationDialog } from "./conversation-dialog";
 
 type Turn = {
@@ -467,27 +468,8 @@ export default function Chat() {
     <main className={`chat-shell ${empty ? "is-empty" : "has-messages"}`}>
       <header className="chat-header">
         <Link className="wordmark" href="/" aria-label="Persona home">
-          <PersonaMark />
-          persona
+          <PersonaLogo />
         </Link>
-        <div className="header-actions">
-          <div className={`connection ${connection}`} role="status">
-            <span aria-hidden="true" />
-            {connection === "ready"
-              ? "Connected"
-              : connection === "connecting"
-                ? "Connecting"
-                : "Connection interrupted"}
-          </div>
-          <button
-            className="details-button"
-            type="button"
-            onClick={() => setDetailsOpen(true)}
-          >
-            <ChatIcon name="memory" />
-            <span>What I remember</span>
-          </button>
-        </div>
       </header>
 
       <section
@@ -769,6 +751,13 @@ export default function Chat() {
         </form>
         <p className="privacy-note">
           <span>One conversation. Pick up where you left off.</span>
+          <button
+            className="settings-link"
+            type="button"
+            onClick={() => setDetailsOpen(true)}
+          >
+            Conversation settings
+          </button>
           <span className="keyboard-hint">Shift + Enter for a new line</span>
         </p>
       </footer>
