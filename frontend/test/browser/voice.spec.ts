@@ -2,6 +2,23 @@ import { test, expect, type Page } from "@playwright/test";
 
 async function voicePage(page: Page) {
   await page.addInitScript(() => {
+    const events: Array<(event: Record<string, unknown>) => void> = [];
+    Object.defineProperty(window, "voiceEvents", { value: events });
+    class CallAudio {
+      autoplay = false;
+      srcObject: MediaStream | null = null;
+      onplaying?: () => void;
+      onpause?: () => void;
+      async play() {
+        if ((window as unknown as { blockCallAudio?: boolean }).blockCallAudio)
+          throw new DOMException("Blocked", "NotAllowedError");
+        this.onplaying?.();
+      }
+      pause() {
+        this.onpause?.();
+      }
+    }
+    Object.defineProperty(window, "Audio", { value: CallAudio });
     Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
       value: async () => new MediaStream(),
     });
@@ -10,8 +27,16 @@ async function voicePage(page: Page) {
       connectionState = "new";
       localDescription = { sdp: "v=0" };
       onconnectionstatechange?: () => void;
+      ontrack?: (event: { streams: MediaStream[] }) => void;
       createDataChannel() {
-        return { close() {} };
+        const channel: {
+          onmessage?: ((event: { data: string }) => void) | null;
+          close: () => void;
+        } = { close() {} };
+        events.push((event) =>
+          channel.onmessage?.({ data: JSON.stringify(event) }),
+        );
+        return channel;
       }
       addTrack() {}
       async createOffer() {
@@ -23,6 +48,7 @@ async function voicePage(page: Page) {
         (window as unknown as { voiceConnected: boolean }).voiceConnected =
           true;
         this.onconnectionstatechange?.();
+        this.ontrack?.({ streams: [new MediaStream()] });
       }
       close() {
         this.connectionState = "closed";
@@ -152,7 +178,7 @@ test("a lost setup response cancels the reserved attempt and permits another cal
   ).toBeVisible();
   expect(voice.ended).toContain(voice.started[0]);
   await page.getByRole("button", { name: "Start a call" }).click();
-  await expect(page.getByText("Call active", { exact: false })).toBeVisible();
+  await expect(page.getByText("Listening", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "End call" }).click();
 });
 
@@ -172,7 +198,7 @@ test("a cancelled setup failing late cannot end the newer call", async ({
   await expect.poll(() => voice.started.length).toBe(1);
   await page.getByRole("button", { name: "End call" }).click();
   await page.getByRole("button", { name: "Start a call" }).click();
-  await expect(page.getByText("Call active", { exact: false })).toBeVisible();
+  await expect(page.getByText("Listening", { exact: false })).toBeVisible();
   failOld();
   await expect.poll(() => voice.ended.includes(voice.started[0])).toBe(true);
   await expect(page.getByRole("button", { name: "End call" })).toBeVisible();
@@ -212,7 +238,7 @@ test("typing interrupts an active call and a server reset clears the conversatio
   const voice = await voicePage(page);
   await page.goto("/");
   await page.getByRole("button", { name: "Start a call" }).click();
-  await expect(page.getByText("Call active", { exact: true })).toBeVisible();
+  await expect(page.getByText("Listening", { exact: true })).toBeVisible();
   await page
     .getByRole("textbox", { name: "Message Persona" })
     .fill("Actually, use the shorter example.");
@@ -228,4 +254,214 @@ test("typing interrupts an active call and a server reset clears the conversatio
   await expect(
     page.getByRole("button", { name: "Start a call" }),
   ).toBeVisible();
+});
+
+async function providerEvent(
+  page: Page,
+  event: Record<string, unknown>,
+  attempt = 0,
+) {
+  await page.evaluate(
+    ({ event, attempt }) => {
+      (
+        window as unknown as {
+          voiceEvents: Array<(event: Record<string, unknown>) => void>;
+        }
+      ).voiceEvents[attempt](event);
+    },
+    { event, attempt },
+  );
+}
+
+test("voice visuals follow speech, generation, playback and interruption without changing the composer", async ({
+  page,
+}) => {
+  await voicePage(page);
+  await page.goto("/");
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.getByRole("button", { name: "Start a call" }).click();
+  const banner = page.locator(".call-banner");
+  await expect(banner).toContainText("Listening");
+  await providerEvent(page, { type: "input_audio_buffer.speech_started" });
+  await expect(banner).toContainText("Listening");
+  await providerEvent(page, { type: "input_audio_buffer.committed" });
+  await expect(banner).toContainText("Persona is thinking");
+  await expect(banner.locator("[data-processing]")).toBeAttached();
+  await expect
+    .poll(() =>
+      banner.locator("[data-voice-beam]").evaluate((element) => {
+        const id = element.getAttribute("data-voice-beam");
+        return parseFloat(
+          (element as HTMLElement).style.getPropertyValue(`--vb-glow-${id}`),
+        );
+      }),
+    )
+    .toBeGreaterThan(0.1);
+  await expect
+    .poll(() =>
+      banner.locator("[data-voice-beam]").evaluate((element) => {
+        const id = element.getAttribute("data-voice-beam");
+        return parseFloat(
+          getComputedStyle(element).getPropertyValue(`--vb-opacity-${id}`),
+        );
+      }),
+    )
+    .toBeGreaterThan(0.99);
+  await page.screenshot({ path: test.info().outputPath("voice-thinking.png") });
+  await providerEvent(page, {
+    type: "response.created",
+    response: { id: "old" },
+  });
+  await providerEvent(page, {
+    type: "output_audio_buffer.started",
+    response_id: "old",
+  });
+  await expect(banner).toContainText("Persona is speaking");
+  await providerEvent(page, {
+    type: "response.done",
+    response: {
+      id: "old",
+      status: "completed",
+      output: [{ type: "message", content: [{ type: "audio" }] }],
+    },
+  });
+  await expect(banner).toContainText("Persona is speaking");
+  await providerEvent(page, { type: "input_audio_buffer.speech_started" });
+  await expect(banner).toContainText("Listening");
+  await providerEvent(page, { type: "input_audio_buffer.committed" });
+  await providerEvent(page, {
+    type: "response.created",
+    response: { id: "new" },
+  });
+  await providerEvent(page, {
+    type: "output_audio_buffer.cleared",
+    response_id: "old",
+  });
+  await expect(banner).toContainText("Persona is thinking");
+  await providerEvent(page, {
+    type: "output_audio_buffer.started",
+    response_id: "new",
+  });
+  await expect(banner).toContainText("Persona is speaking");
+  await page
+    .getByRole("textbox", { name: "Message Persona" })
+    .fill("A shorter answer please.");
+  await page.getByRole("button", { name: "Send message" }).click();
+  await expect(banner).toContainText("Persona is thinking");
+  await providerEvent(page, {
+    type: "output_audio_buffer.started",
+    response_id: "new",
+  });
+  await expect(banner).toContainText("Persona is thinking");
+  await page.getByRole("button", { name: "End call" }).click();
+  await expect(banner).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test("blocked playback never shows speaking, and a successful retry clears the notice", async ({
+  page,
+}) => {
+  await voicePage(page);
+  await page.goto("/");
+  await page.evaluate(() => {
+    (window as unknown as { blockCallAudio: boolean }).blockCallAudio = true;
+  });
+  await page.getByRole("button", { name: "Start a call" }).click();
+  await expect(
+    page.getByRole("button", { name: "Play call audio" }),
+  ).toBeVisible();
+  await providerEvent(page, {
+    type: "response.created",
+    response: { id: "reply" },
+  });
+  await providerEvent(page, {
+    type: "output_audio_buffer.started",
+    response_id: "reply",
+  });
+  await expect(page.locator(".call-banner")).toContainText(
+    "Call audio is paused",
+  );
+  await expect(page.locator("[data-voice-beam]")).toHaveCount(0);
+  await page.getByRole("button", { name: "Play call audio" }).click();
+  await expect(
+    page.getByRole("button", { name: "Play call audio" }),
+  ).toBeVisible();
+  await page.evaluate(() => {
+    (window as unknown as { blockCallAudio: boolean }).blockCallAudio = false;
+  });
+  await page.getByRole("button", { name: "Play call audio" }).click();
+  await expect(page.locator(".call-banner")).toContainText(
+    "Persona is speaking",
+  );
+  await expect(
+    page.getByRole("button", { name: "Play call audio" }),
+  ).toHaveCount(0);
+  await providerEvent(page, {
+    type: "output_audio_buffer.stopped",
+    response_id: "reply",
+  });
+  await expect(page.locator(".call-banner")).toContainText("Listening");
+});
+
+test("reduced motion stays static while voice status updates and old attempts stay detached", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 375, height: 600 });
+  await voicePage(page);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Start a call" }).click();
+  await expect(page.locator(".call-animation-static")).toBeVisible();
+  await expect(page.locator(".call-banner")).toContainText("Listening");
+  await page.screenshot({
+    path: test.info().outputPath("voice-mobile-reduced-motion.png"),
+  });
+  await providerEvent(page, {
+    type: "response.created",
+    response: { id: "old" },
+  });
+  await expect(page.locator(".call-banner")).toContainText(
+    "Persona is thinking",
+  );
+  await expect(page.locator("[data-voice-beam]")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "End call" })).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
+    375,
+  );
+  await page.getByRole("button", { name: "End call" }).click();
+  await page.getByRole("button", { name: "Start a call" }).click();
+  await expect(page.locator(".call-banner")).toContainText("Listening");
+  await providerEvent(page, {
+    type: "output_audio_buffer.started",
+    response_id: "old",
+  });
+  await expect(page.locator(".call-banner")).toContainText("Listening");
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await expect(page.locator("[data-voice-beam]")).toBeAttached();
+  await page.evaluate(() => {
+    Object.defineProperty(document, "hidden", {
+      configurable: true,
+      value: true,
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect(page.locator("[data-voice-beam]")).toHaveCount(0);
+  await providerEvent(
+    page,
+    { type: "response.created", response: { id: "background" } },
+    1,
+  );
+  await expect(page.getByRole("button", { name: "End call" })).toBeVisible();
+  await page.evaluate(() => {
+    Object.defineProperty(document, "hidden", {
+      configurable: true,
+      value: false,
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect(page.locator(".call-banner")).toContainText(
+    "Persona is thinking",
+  );
+  await expect(page.locator("[data-processing]")).toBeAttached();
 });

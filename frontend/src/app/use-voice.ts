@@ -2,6 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import {
+  initialVoiceActivity,
+  interruptVoice,
+  receiveVoiceEvent,
+  type VoiceActivity,
+} from "@/lib/voice-activity";
+import { createVoiceMeter } from "@/lib/voice-meter";
 
 export type Control = {
   tabId: string | null;
@@ -28,6 +35,9 @@ type Attempt = {
   stream?: MediaStream;
   audio?: HTMLAudioElement;
   events?: RTCDataChannel;
+  activity: VoiceActivity;
+  playback: "waiting" | "playing" | "blocked";
+  meter: ReturnType<typeof createVoiceMeter>;
 };
 export function useVoice(
   controlHeaders: () => Record<string, string>,
@@ -38,6 +48,8 @@ export function useVoice(
     "idle" | "permission" | "connecting" | "active"
   >("idle");
   const [notice, setNotice] = useState("");
+  const [activity, setActivity] = useState<VoiceActivity>(initialVoiceActivity);
+  const [playback, setPlayback] = useState<Attempt["playback"]>("waiting");
   const [call, setCall] = useState<CallState | null>(null);
   const headersRef = useRef(controlHeaders);
   const refreshRef = useRef(refresh);
@@ -50,12 +62,23 @@ export function useVoice(
     if (attempt.current === current) {
       attempt.current = null;
       setState("idle");
+      setActivity(initialVoiceActivity());
+      setPlayback("waiting");
     }
     current.abort.abort();
+    current.meter.close();
     current.stream?.getTracks().forEach((t) => t.stop());
     if (current.audio) {
+      current.audio.onplaying = null;
+      current.audio.onpause = null;
+      current.audio.onwaiting = null;
       current.audio.pause();
       current.audio.srcObject = null;
+    }
+    if (current.events) {
+      current.events.onmessage = null;
+      current.events.onclose = null;
+      current.events.onerror = null;
     }
     current.events?.close();
     current.peer?.close();
@@ -141,6 +164,25 @@ export function useVoice(
     }
   }, [cancel]);
 
+  const playAudio = useCallback(async (current: Attempt) => {
+    if (attempt.current !== current || !current.audio) return;
+    current.meter.resume();
+    try {
+      await current.audio.play();
+      if (attempt.current !== current) return;
+      current.playback = "playing";
+      setPlayback("playing");
+      setNotice((previous) =>
+        previous.startsWith("Audio playback was blocked.") ? "" : previous,
+      );
+    } catch {
+      if (attempt.current !== current) return;
+      current.playback = "blocked";
+      setPlayback("blocked");
+      setNotice("Audio playback was blocked. Use Play call audio to listen.");
+    }
+  }, []);
+
   const start = useCallback(async () => {
     if (attempt.current) return;
     const current: Attempt = {
@@ -149,9 +191,14 @@ export function useVoice(
       abort: new AbortController(),
       dispatched: false,
       accepted: false,
+      activity: initialVoiceActivity(),
+      playback: "waiting",
+      meter: createVoiceMeter(),
     };
     attempt.current = current;
     setNotice("");
+    setActivity(current.activity);
+    setPlayback("waiting");
     setState("permission");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -163,21 +210,66 @@ export function useVoice(
         release(current);
         return;
       }
+      current.meter.input(stream);
       setState("connecting");
       const peer = (current.peer = new RTCPeerConnection());
       const audio = (current.audio = new Audio());
       audio.autoplay = true;
       current.events = peer.createDataChannel("oai-events");
+      current.events.onmessage = (message) => {
+        if (attempt.current !== current || typeof message.data !== "string")
+          return;
+        try {
+          const event: unknown = JSON.parse(message.data);
+          const next = receiveVoiceEvent(current.activity, event);
+          if (next !== current.activity) {
+            if (
+              typeof event === "object" &&
+              event !== null &&
+              "type" in event &&
+              (event.type === "error" ||
+                (event.type === "response.done" &&
+                  "response" in event &&
+                  typeof event.response === "object" &&
+                  event.response !== null &&
+                  "status" in event.response &&
+                  event.response.status === "failed"))
+            ) {
+              setNotice(
+                "The voice reply could not finish. You can speak again or keep typing.",
+              );
+            }
+            current.activity = next;
+            setActivity(next);
+          }
+        } catch {
+          // An unrelated or malformed event must not interrupt the call.
+        }
+      };
+      const eventsLost = () => {
+        if (attempt.current === current) void end("connection_lost");
+      };
+      current.events.onclose = eventsLost;
+      current.events.onerror = eventsLost;
+      audio.onplaying = () => {
+        if (attempt.current !== current) return;
+        current.playback = "playing";
+        setPlayback("playing");
+      };
+      const playbackWaiting = () => {
+        if (attempt.current !== current || current.playback === "blocked")
+          return;
+        current.playback = "waiting";
+        setPlayback("waiting");
+      };
+      audio.onpause = playbackWaiting;
+      audio.onwaiting = playbackWaiting;
       for (const track of stream.getAudioTracks()) peer.addTrack(track, stream);
       peer.ontrack = (event) => {
         if (attempt.current !== current) return;
         audio.srcObject = event.streams[0] ?? new MediaStream([event.track]);
-        void audio.play().catch(() => {
-          if (attempt.current === current)
-            setNotice(
-              "Audio playback was blocked. Use Play call audio to listen.",
-            );
-        });
+        current.meter.output(audio.srcObject);
+        void playAudio(current);
       };
       peer.onconnectionstatechange = () => {
         if (attempt.current !== current) return;
@@ -275,15 +367,20 @@ export function useVoice(
         );
       }
     }
-  }, [cancel, end, release]);
+  }, [cancel, end, release, playAudio]);
 
   useEffect(() => {
     const leave = () => {
       void end("page_exit");
     };
+    const visible = () => {
+      if (!document.hidden) attempt.current?.meter.resume();
+    };
     window.addEventListener("pagehide", leave);
+    document.addEventListener("visibilitychange", visible);
     return () => {
       window.removeEventListener("pagehide", leave);
+      document.removeEventListener("visibilitychange", visible);
       if (attempt.current) void cancel(attempt.current, "page_exit");
     };
   }, [end, cancel]);
@@ -301,15 +398,42 @@ export function useVoice(
     }, 1000);
     return () => clearInterval(timer);
   }, [call, state, end]);
+  const level = useCallback(() => {
+    const current = attempt.current;
+    if (!current || current.peer?.connectionState !== "connected") return 0;
+    if (current.activity.phase === "listening")
+      return current.meter.level("user");
+    if (current.activity.phase === "speaking" && current.playback === "playing")
+      return current.meter.level("agent");
+    return 0;
+  }, []);
   return {
     state,
+    phase: activity.phase,
+    playback,
+    level,
     notice,
     call,
     start,
     end,
     reconcile,
     controlLost,
-    play: () => attempt.current?.audio?.play(),
+    play: () => {
+      if (attempt.current) void playAudio(attempt.current);
+    },
+    typedTurn: () => {
+      const current = attempt.current;
+      if (!current) return;
+      const interrupted = interruptVoice(current.activity, true);
+      current.activity = interrupted;
+      setActivity(interrupted);
+      return () => {
+        if (attempt.current !== current || current.activity !== interrupted)
+          return;
+        current.activity = { ...interrupted, phase: "listening" };
+        setActivity(current.activity);
+      };
+    },
     active: state !== "idle",
   };
 }

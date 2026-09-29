@@ -24,6 +24,18 @@ _Avoid_: Call, onboarding step
 A live voice exchange within a conversation, during which the user can interrupt the agent.
 _Avoid_: Conversation, voice message
 
+**Listening**:
+The call is ready for the user's speech, including quiet moments when the agent is waiting for the user.
+_Avoid_: User speaking, call connected
+
+**Thinking**:
+The agent is preparing a reply to the current exchange.
+_Avoid_: Connecting, retrying
+
+**Speaking**:
+The agent's voice reply is playing for the user during a call.
+_Avoid_: Reply generated, call active
+
 **Onboarding goal**:
 One of the four things onboarding attempts to obtain: an agent name, a user name, a Gmail connection or a help request. A goal may remain unmet when the user begins receiving help.
 _Avoid_: Required step
