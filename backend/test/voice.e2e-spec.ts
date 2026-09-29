@@ -92,7 +92,7 @@ describe('browser call API', () => {
       .set('Cookie', cookie)
       .send({ tabId, takeover: false })
       .expect(200);
-    const post = (path: string, body: unknown) =>
+    const post = (path: string, body: object) =>
       request(app.getHttpServer())
         .post(path)
         .set('Origin', origin)
