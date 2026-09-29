@@ -42,7 +42,7 @@ One unresolved submission is allowed per conversation. Concurrent replays return
 
 The model receives the latest 40 committed turns. Transcripts remain stored in the app database. App-generated logs contain failure codes and operation IDs, not message content, cookies, connection strings or API keys. The app requests `store: false` from OpenAI, which does not change the provider's separate abuse-monitoring policy.
 
-Start over, operator cleanup, voice and Gmail belong to later checkpoints. Use a fresh private browser session to test a new conversation before Start over ships.
+Voice, Gmail, Start over, cleanup, and the full evaluator matrix are documented in [trial release checks](./release-checks.md).
 
 ## Checkpoint 2
 

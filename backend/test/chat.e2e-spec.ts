@@ -9,6 +9,7 @@ import { ChatModule } from '../src/chat/chat.module.js';
 import { DATABASE, type Database } from '../src/chat/database.js';
 import { MODEL, type ReplyModel } from '../src/chat/model.js';
 import { CHAT_CONFIG } from '../src/chat/config.js';
+import { CLOCK } from '../src/chat/authority.js';
 import { migrate } from '../src/chat/migration.js';
 
 describe('saved conversation API', () => {
@@ -19,8 +20,10 @@ describe('saved conversation API', () => {
     reply: async () => 'Let us practice your introduction.',
   };
   const origin = 'https://persona.example';
+  let now = Date.now();
 
   beforeEach(async () => {
+    now = Date.now();
     model.reply = async () => 'Let us practice your introduction.';
     postgres = new PGlite();
     db = {
@@ -33,6 +36,8 @@ describe('saved conversation API', () => {
       .useValue(db)
       .overrideProvider(MODEL)
       .useValue(model)
+      .overrideProvider(CLOCK)
+      .useValue(() => now)
       .overrideProvider(CHAT_CONFIG)
       .useValue({ origins: [origin], secureCookies: true })
       .compile();
@@ -43,6 +48,55 @@ describe('saved conversation API', () => {
   afterEach(async () => {
     await app.close();
     await postgres.close();
+  });
+
+  it('persists refusal and deferral, ignores refresh, and reopens only explicitly', async () => {
+    model.reply = async (turns, tools) => {
+      const text = turns.at(-1)!.content;
+      const preferences = text.includes('no Gmail')
+        ? [
+            { goal: 'gmail', outcome: 'declined', evidence: 'no Gmail' },
+            { goal: 'voice', outcome: 'deferred', evidence: 'voice later' },
+          ]
+        : text.includes('connect Gmail')
+          ? [{ goal: 'gmail', outcome: 'open', evidence: 'connect Gmail' }]
+          : [];
+      const result = await tools.capture({
+        expectedRevision: tools.state.revision,
+        askOnboarding: false,
+        changes: [],
+        preferences,
+      });
+      expect(result.ok).toBe(true);
+      return 'We can keep working here.';
+    };
+    const cookie = await newSession();
+    const first = await send(cookie, 'no Gmail, voice later').expect(200);
+    const visit = first.body.onboarding.policy.visitId;
+    expect(first.body.onboarding.policy.goals.gmail).toMatchObject({
+      outcome: 'declined',
+      eligible: false,
+    });
+    expect(first.body.onboarding.policy.goals.voice).toMatchObject({
+      outcome: 'deferred',
+      eligible: false,
+    });
+    now += 1800001;
+    const refreshed = await request(app.getHttpServer())
+      .get('/session')
+      .set('Cookie', cookie)
+      .expect(200);
+    expect(refreshed.body.onboarding.policy.visitId).toBe(visit);
+    const next = await send(cookie, 'Continue helping me.').expect(200);
+    expect(next.body.onboarding.policy.visitId).not.toBe(visit);
+    expect(next.body.onboarding.policy.goals.gmail.eligible).toBe(false);
+    expect(next.body.onboarding.policy.goals.voice.eligible).toBe(true);
+    const reopened = await send(cookie, 'connect Gmail').expect(200);
+    expect(reopened.body.onboarding.policy.goals.gmail).toMatchObject({
+      outcome: 'open',
+      eligible: false,
+    });
+    expect(reopened.body.onboarding.gmailAvailable).toBe(false);
   });
 
   it('keeps another tab read-only until explicit takeover and rejects stale writes', async () => {
@@ -106,7 +160,7 @@ describe('saved conversation API', () => {
       expect(result.ok).toBe(true);
       expect(result.state.graduated).toBe(true);
       expect(result.state.onboardingComplete).toBe(false);
-      expect(result.question).toBeNull();
+      expect(result.question).toContain('Would you like to talk');
       return 'Ashwin, start by explaining how you would design an API.';
     };
     const session = await request(app.getHttpServer())
@@ -151,7 +205,8 @@ describe('saved conversation API', () => {
       evidence: 'Call yourself Nova',
       answer: 'Nova it is.',
       expectedName: 'Nova',
-      question: 'What name would you like me to use for you?',
+      question:
+        'Would you like to talk this through on a call? You can use Start a call whenever you are ready.',
     },
     {
       label: 'rejected',
@@ -413,7 +468,7 @@ describe('saved conversation API', () => {
       );
       const accepted = await tools.capture(command);
       if (!accepted.ok) throw new Error('Rejected help');
-      expect(accepted.question).toBeNull();
+      expect(accepted.question).toContain('Would you like to talk');
       return 'Practice a 60-second introduction: background, one result, and why this role.';
     };
     const reply = await send(

@@ -34,6 +34,13 @@ async function voicePage(page: Page) {
     epoch: 0,
   };
   let call: null | Record<string, unknown> = null;
+  const turns: {
+    id: string;
+    role: string;
+    content: string;
+    submissionId: string;
+  }[] = [];
+  let conversationId = "voice-race";
   const ended: string[] = [];
   const started: string[] = [];
   let holdFirst: (() => Promise<void>) | undefined;
@@ -67,14 +74,42 @@ async function voicePage(page: Page) {
         call = { ...call, status: "ended", controlReady: false };
       return route.fulfill({ json: { call, control } });
     }
+    if (path === "/api/calls/turns") {
+      const body = route.request().postDataJSON();
+      if (!turns.some((t) => t.submissionId === body.submissionId))
+        turns.push({
+          id: body.submissionId,
+          role: "user",
+          content: body.content,
+          submissionId: body.submissionId,
+        });
+      return route.fulfill({ json: { accepted: true, generation: 1 } });
+    }
+    if (path === "/api/reset") {
+      turns.length = 0;
+      conversationId = "fresh-voice-race";
+      control = { ...control, epoch: 2 };
+      call = null;
+      return route.fulfill({
+        json: {
+          conversationId,
+          revision: 0,
+          turns: [],
+          operation: null,
+          control,
+        },
+      });
+    }
     if (path === "/api/calls/status")
       return route.fulfill({ json: { call, control } });
     return route.fulfill({
       json: {
-        conversationId: "voice-race",
-        revision: 0,
-        turns: [],
-        operation: null,
+        conversationId,
+        revision: turns.length,
+        turns,
+        operation: turns.length
+          ? { id: turns.at(-1)!.submissionId, status: "completed" }
+          : null,
         control,
       },
     });
@@ -151,5 +186,30 @@ test("successful ownership polling preserves retry after the first message fails
   ).toBeVisible();
   await expect(
     page.getByText("Please keep my first message.", { exact: true }),
+  ).toBeVisible();
+});
+
+test("typing interrupts an active call and reset opens a fresh conversation", async ({
+  page,
+}) => {
+  await voicePage(page);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Start a call" }).click();
+  await expect(page.getByText("Call active", { exact: true })).toBeVisible();
+  await page
+    .getByRole("textbox", { name: "Message Persona" })
+    .fill("Actually, use the shorter example.");
+  await page.getByRole("button", { name: "Send message" }).click();
+  await expect(
+    page.getByText("Actually, use the shorter example.", { exact: true }),
+  ).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "End call" })).toBeVisible();
+  await page.getByRole("button", { name: "Start over", exact: true }).click();
+  await page.getByRole("button", { name: "Delete saved conversation" }).click();
+  await expect(
+    page.getByText("Actually, use the shorter example.", { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Start a call" }),
   ).toBeVisible();
 });

@@ -1,3 +1,4 @@
+import { captureOnboardingTool } from './model.js';
 import WebSocket from 'ws';
 
 export const VOICE_PROVIDER = Symbol('VOICE_PROVIDER');
@@ -21,6 +22,7 @@ export type VoiceEvent = {
   response?: {
     id: string;
     status: string;
+    metadata?: { generation?: string; sourceItem?: string; purpose?: string };
     output?: {
       id: string;
       type: string;
@@ -73,13 +75,19 @@ export class OpenAIVoiceProvider implements VoiceProvider {
             transcription: { model: 'gpt-4o-mini-transcribe' },
             turn_detection: {
               type: 'server_vad',
-              create_response: true,
+              create_response: false,
               interrupt_response: true,
             },
           },
           output: { voice: 'marin' },
         },
         tools: [
+          {
+            type: 'function',
+            name: captureOnboardingTool.name,
+            description: captureOnboardingTool.description,
+            parameters: captureOnboardingTool.parameters,
+          },
           {
             type: 'function',
             name: 'saved_context',

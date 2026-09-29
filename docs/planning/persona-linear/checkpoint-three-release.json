@@ -1,0 +1,22 @@
+{
+  "checkpoint": 3,
+  "pullRequest": "https://github.com/ash-win19/persona-onboarding/pull/9",
+  "commit": "5758b80080a9014a438b9af6c2d8bb43ca2dc776",
+  "renderService": "srv-datekju0tbcc73aeq1h0",
+  "renderDeploy": "dep-datgd13bc2fs73bf9v40",
+  "vercelDeployment": "https://usepersona-9yp04ilp4-ashwinshanmugam-projects.vercel.app",
+  "production": "https://usepersona.vercel.app",
+  "ci": "https://github.com/ash-win19/persona-onboarding/actions/runs/36502514624",
+  "verified": [
+    "real production WebRTC audio",
+    "backend saved_context acknowledgement",
+    "saved user and played assistant transcripts",
+    "hangup and refresh restore",
+    "real ten-minute deadline in isolated environment"
+  ],
+  "remainingForFinalRelease": [
+    "real production interruption and deadline checks",
+    "real Gmail consent",
+    "production restart and cold-start matrix"
+  ]
+}

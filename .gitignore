@@ -11,3 +11,6 @@ coverage/
 test-results/
 playwright-report/
 .vercel
+
+# Downloaded OAuth credentials stay local.
+backend/google-oauth*.json

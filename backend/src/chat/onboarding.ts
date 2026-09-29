@@ -1,4 +1,12 @@
+import { Gmail } from './gmail.js';
+import { Authority } from './authority.js';
 import { Inject, Injectable } from '@nestjs/common';
+import {
+  OnboardingPolicy,
+  policyGoals,
+  type Preference,
+  type PolicyState,
+} from './onboarding-policy.js';
 import { randomUUID } from 'node:crypto';
 import { DATABASE, type Database, type Sql } from './database.js';
 
@@ -12,8 +20,10 @@ type Fact = {
 };
 export type OnboardingState = {
   revision: number;
+  policy?: PolicyState;
   facts: Record<Goal, Fact>;
   gmail: 'connected' | 'not_connected';
+  gmailAvailable?: boolean;
   call: 'successful' | 'not_started';
   graduated: boolean;
   onboardingComplete: boolean;
@@ -22,20 +32,33 @@ export type OnboardingState = {
 };
 export type CaptureResult = {
   ok: boolean;
-  code: 'committed' | 'already_applied' | 'invalid' | 'stale';
+  code: 'committed' | 'already_applied' | 'invalid' | 'stale' | 'pending';
   state: OnboardingState;
   question: string | null;
+  source?: { turnId: string; text: string };
 };
 export interface OnboardingTools {
   state: OnboardingState;
   capture(command: unknown): Promise<CaptureResult>;
 }
 // Only the authenticated coordinator supplies this context, never model arguments.
-export type FactContext = {
-  conversationId: string;
-  submissionId: string;
-  attempt: string;
-};
+export type FactContext = { conversationId: string } & (
+  | {
+      submissionId: string;
+      attempt: string;
+      callId?: never;
+      generation?: never;
+      sourceItem?: never;
+    }
+  | {
+      callId: string;
+      generation: number;
+      sourceItem: string;
+      submissionId?: never;
+      attempt?: never;
+    }
+);
+
 type Change = {
   goal: Goal;
   action: 'set' | 'correct' | 'clarify';
@@ -46,6 +69,7 @@ type Command = {
   expectedRevision: number;
   askOnboarding: boolean;
   changes: Change[];
+  preferences?: Preference[];
 };
 type Event = Record<string, unknown> & {
   goal: Goal;
@@ -65,12 +89,36 @@ const normalized = (value: string) =>
 function validCommand(value: unknown): value is Command {
   if (
     !object(value) ||
-    !exactKeys(value, ['expectedRevision', 'askOnboarding', 'changes']) ||
+    !(
+      exactKeys(value, ['expectedRevision', 'askOnboarding', 'changes']) ||
+      exactKeys(value, [
+        'expectedRevision',
+        'askOnboarding',
+        'changes',
+        'preferences',
+      ])
+    ) ||
     !Number.isSafeInteger(value.expectedRevision) ||
     Number(value.expectedRevision) < 0 ||
     typeof value.askOnboarding !== 'boolean' ||
     !Array.isArray(value.changes) ||
     value.changes.length > 3
+  )
+    return false;
+  if (
+    value.preferences !== undefined &&
+    (!Array.isArray(value.preferences) ||
+      value.preferences.length > 5 ||
+      !value.preferences.every(
+        (p) =>
+          object(p) &&
+          exactKeys(p, ['goal', 'outcome', 'evidence']) &&
+          policyGoals.includes(p.goal as never) &&
+          ['declined', 'deferred', 'open'].includes(String(p.outcome)) &&
+          typeof p.evidence === 'string' &&
+          p.evidence.trim().length > 0 &&
+          p.evidence.length <= 8000,
+      ))
   )
     return false;
   const seen = new Set<string>();
@@ -96,30 +144,14 @@ function validCommand(value: unknown): value is Command {
   });
 }
 
-export function nextOnboardingQuestion(
-  state: OnboardingState,
-  ask: boolean,
-): string | null {
-  if (!ask) return null;
-  const ambiguous = goals.find(
-    (goal) => state.facts[goal].status === 'ambiguous',
-  );
-  const goal =
-    ambiguous ??
-    (!state.graduated
-      ? goals.find((key) => !state.facts[key].value)
-      : undefined);
-  if (!goal) return null;
-  return {
-    agentName: 'What would you like to call me?',
-    userName: 'What name would you like me to use for you?',
-    helpRequest: 'What would you like help with?',
-  }[goal];
-}
-
 @Injectable()
 export class OnboardingService {
-  constructor(@Inject(DATABASE) private readonly db: Database) {}
+  constructor(
+    @Inject(DATABASE) private readonly db: Database,
+    @Inject(OnboardingPolicy) private readonly policy: OnboardingPolicy,
+    @Inject(Authority) private readonly authority: Authority,
+    @Inject(Gmail) private readonly gmail: Gmail,
+  ) {}
 
   async read(
     sql: Sql,
@@ -151,17 +183,35 @@ export class OnboardingService {
       await sql.query<{
         gmail_verified_at: Date | null;
         call_successful_at: Date | null;
+        call_active: boolean;
+        gmail_pending: boolean;
       }>(
-        'SELECT gmail_verified_at, call_successful_at FROM conversations WHERE id = $1',
-        [conversationId],
+        `SELECT gmail_verified_at,call_successful_at,
+          EXISTS(SELECT 1 FROM calls WHERE conversation_id=$1 AND status IN ('connecting','active')) AS call_active,
+          EXISTS(SELECT 1 FROM gmail_attempts WHERE conversation_id=$1 AND status IN ('pending','exchanging') AND expires_at>$2) AS gmail_pending
+          FROM conversations WHERE id=$1`,
+        [conversationId, new Date(this.authority.now())],
       )
     ).rows[0];
     const gmail = integration.gmail_verified_at ? 'connected' : 'not_connected';
     const graduated = !!facts.helpRequest.value;
+    const policy = await this.policy.read(sql, conversationId);
+    for (const goal of goals)
+      if (facts[goal].status === 'known') policy.goals[goal].eligible = false;
+    if (integration.call_active || integration.call_successful_at)
+      policy.goals.voice.eligible = false;
+    if (
+      gmail === 'connected' ||
+      integration.gmail_pending ||
+      !this.gmail.available()
+    )
+      policy.goals.gmail.eligible = false;
     return {
       revision,
+      policy,
       facts,
       gmail,
+      gmailAvailable: this.gmail.available(),
       call: integration.call_successful_at ? 'successful' : 'not_started',
       graduated,
       onboardingComplete:
@@ -173,6 +223,51 @@ export class OnboardingService {
         ...(gmail === 'not_connected' ? ['gmail'] : []),
       ],
     };
+  }
+
+  private async question(
+    sql: Sql,
+    id: string,
+    state: OnboardingState,
+    ask: boolean,
+    voice = false,
+  ): Promise<string | null> {
+    if (!ask) return null;
+    const active =
+      (
+        await sql.query(
+          "SELECT id FROM calls WHERE conversation_id=$1 AND status IN ('connecting','active')",
+          [id],
+        )
+      ).rows.length > 0;
+    const candidates = [
+      ...goals.filter((g) => state.facts[g].status === 'ambiguous'),
+      ...(!state.facts.agentName.value && !state.graduated
+        ? ['agentName' as const]
+        : []),
+      ...(!active && state.call !== 'successful' ? ['voice' as const] : []),
+      ...goals.filter(
+        (g) =>
+          !state.facts[g].value && (g !== 'helpRequest' || !state.graduated),
+      ),
+      ...(state.gmail !== 'connected' && state.gmailAvailable !== false
+        ? ['gmail' as const]
+        : []),
+    ];
+    for (const goal of candidates) {
+      if (voice && goal === 'agentName') continue;
+      if (state.policy && !state.policy.goals[goal].eligible) continue;
+      if (await this.policy.offer(sql, id, goal))
+        return {
+          agentName: 'What would you like to call me?',
+          userName: 'What name would you like me to use for you?',
+          helpRequest: 'What would you like help with?',
+          voice:
+            'Would you like to talk this through on a call? You can use Start a call whenever you are ready.',
+          gmail: 'Would you like to connect Gmail, or keep going here for now?',
+        }[goal];
+    }
+    return null;
   }
 
   async capture(
@@ -192,28 +287,69 @@ export class OnboardingService {
         context.conversationId,
         conversation.revision,
       );
-      const reject = (code: 'invalid' | 'stale'): CaptureResult => ({
+      const reject = (
+        code: 'invalid' | 'stale' | 'pending',
+      ): CaptureResult => ({
         ok: false,
         code,
         state,
         question: null,
+        ...(source
+          ? { source: { turnId: source.id, text: source.content } }
+          : {}),
       });
-      const source = (
-        await sql.query<{ id: string; content: string }>(
-          `SELECT t.id, t.content FROM turns t JOIN submissions s
+      let source:
+        { id: string; content: string; submission_id?: string } | undefined;
+      if (!context.callId)
+        source = (
+          await sql.query<{ id: string; content: string }>(
+            `SELECT t.id, t.content FROM turns t JOIN submissions s
         ON s.conversation_id = t.conversation_id AND s.id = t.submission_id
         WHERE t.conversation_id = $1 AND t.submission_id = $2 AND t.role = 'user'
         AND s.attempt = $3 AND s.status = 'generating' AND s.lease_until > now()
-        AND s.owner_epoch = (SELECT owner_epoch FROM conversations WHERE id = $1)`,
-          [context.conversationId, context.submissionId, context.attempt],
-        )
-      ).rows[0];
+        AND s.owner_epoch = (SELECT owner_epoch FROM conversations WHERE id = $1)
+        AND EXISTS(SELECT 1 FROM conversations WHERE id=$1 AND (owner_tab IS NULL OR owner_until>$4))`,
+            [
+              context.conversationId,
+              context.submissionId,
+              context.attempt,
+              new Date(this.authority.now()),
+            ],
+          )
+        ).rows[0];
+      else {
+        const current = (
+          await sql.query<{ id: string }>(
+            "SELECT id FROM calls WHERE id=$1 AND conversation_id=$2 AND generation=$3 AND source_item_id=$4 AND status='active' AND owner_epoch=(SELECT owner_epoch FROM conversations WHERE id=$2 AND owner_until>$5)",
+            [
+              context.callId,
+              context.conversationId,
+              context.generation,
+              context.sourceItem,
+              new Date(this.authority.now()),
+            ],
+          )
+        ).rows[0];
+        if (!current) return reject('stale');
+        source = (
+          await sql.query<{
+            id: string;
+            content: string;
+            submission_id: string;
+          }>(
+            `SELECT t.id,t.content,t.submission_id FROM turns t JOIN voice_items v ON v.turn_id=t.id WHERE v.call_id=$1 AND v.item_id=$2 AND v.role='user' AND v.finalized`,
+            [context.callId, context.sourceItem],
+          )
+        ).rows[0];
+        if (!source) return reject('pending');
+      }
       if (!source) return reject('stale');
+      const submissionId = context.submissionId ?? source.submission_id!;
       if (!validCommand(command)) return reject('invalid');
       const receipt = (
-        await sql.query<{ ask_onboarding: boolean }>(
-          'SELECT ask_onboarding FROM onboarding_assessments WHERE conversation_id = $1 AND submission_id = $2',
-          [context.conversationId, context.submissionId],
+        await sql.query<{ ask_onboarding: boolean; question: string | null }>(
+          'SELECT question, ask_onboarding FROM onboarding_assessments WHERE conversation_id = $1 AND submission_id = $2',
+          [context.conversationId, submissionId],
         )
       ).rows[0];
       if (receipt)
@@ -221,7 +357,7 @@ export class OnboardingService {
           ok: true,
           code: 'already_applied',
           state,
-          question: nextOnboardingQuestion(state, receipt.ask_onboarding),
+          question: receipt.question,
         };
       if (command.expectedRevision !== conversation.revision)
         return reject('stale');
@@ -234,7 +370,18 @@ export class OnboardingService {
         )
       )
         return reject('invalid');
-      if (command.changes.length) {
+      if (
+        (command.preferences ?? []).some(
+          (p) => !normalized(source.content).includes(normalized(p.evidence)),
+        )
+      )
+        return reject('invalid');
+      await this.policy.apply(
+        sql,
+        context.conversationId,
+        command.preferences ?? [],
+      );
+      if (command.changes.length || command.preferences?.length) {
         const revision = conversation.revision + 1;
         for (const change of command.changes) {
           const prior = state.facts[change.goal];
@@ -264,15 +411,36 @@ export class OnboardingService {
         );
         state = await this.read(sql, context.conversationId, revision);
       }
+      // Volunteering a fact explicitly reopens that goal, but never unrelated ones.
+      await this.policy.apply(
+        sql,
+        context.conversationId,
+        command.changes
+          .filter((c) => c.action !== 'clarify')
+          .map((c) => ({
+            goal: c.goal,
+            outcome: 'open',
+            evidence: c.evidence,
+          })),
+      );
+      state = await this.read(sql, context.conversationId, state.revision);
+      const question = await this.question(
+        sql,
+        context.conversationId,
+        state,
+        command.askOnboarding,
+        !!context.callId,
+      );
+      state = await this.read(sql, context.conversationId, state.revision);
       await sql.query(
-        'INSERT INTO onboarding_assessments(conversation_id, submission_id, ask_onboarding) VALUES ($1,$2,$3)',
-        [context.conversationId, context.submissionId, command.askOnboarding],
+        'INSERT INTO onboarding_assessments(conversation_id,submission_id,ask_onboarding,question) VALUES($1,$2,$3,$4)',
+        [context.conversationId, submissionId, command.askOnboarding, question],
       );
       return {
         ok: true,
         code: 'committed',
         state,
-        question: nextOnboardingQuestion(state, command.askOnboarding),
+        question,
       };
     });
   }
