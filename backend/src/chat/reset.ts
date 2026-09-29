@@ -6,6 +6,7 @@ import { DATABASE, type Database, type Sql } from './database.js';
 import { ChatService } from './chat.service.js';
 import { OnboardingPolicy } from './onboarding-policy.js';
 import { Calls } from './calls.js';
+import { lockSession } from './account-sessions.js';
 
 export async function removeConversation(sql: Sql, id: string) {
   const calls = (
@@ -39,6 +40,8 @@ export class Reset {
     const next = await this.db.transaction(async (sql) => {
       // Serialize retries even when the first request has already deleted the old row.
       await sql.query('SELECT pg_advisory_xact_lock(hashtext($1))', [oldHash]);
+      const session = await lockSession(sql, oldHash, this.authority.now());
+      if (!session) throw new UnauthorizedException();
       const receipt = (
         await sql.query<{
           old_hash: string;
@@ -85,8 +88,17 @@ export class Reset {
         id,
       ]);
       await sql.query(
-        'UPDATE account_sessions SET token_hash=$2 WHERE token_hash=$1',
-        [oldHash, credentialHash(newCredential)],
+        'UPDATE account_sessions SET revoked_at=$2 WHERE token_hash=$1',
+        [oldHash, new Date(this.authority.now())],
+      );
+      await sql.query(
+        'INSERT INTO account_sessions(token_hash,account_id,expires_at,family_hash) VALUES($1,$2,$3,$4)',
+        [
+          credentialHash(newCredential),
+          session.account_id,
+          session.expires_at,
+          session.family_hash,
+        ],
       );
       await sql.query(
         'INSERT INTO reset_receipts(old_hash,new_hash,operation_id,new_conversation_id) VALUES($1,$2,$3,$4)',

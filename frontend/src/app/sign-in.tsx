@@ -27,6 +27,8 @@ export default function SignIn() {
         if (response.status === 401) setConversation(null);
         else if (response.ok) {
           const data = await response.json();
+          if (attempt !== generation.current || controller.signal.aborted)
+            return;
           setConversation(data.conversationId);
         } else throw new Error("UNAVAILABLE");
       } catch {
@@ -86,6 +88,7 @@ export default function SignIn() {
         return;
       }
       const data = await response.json();
+      generation.current++;
       form.reset();
       setConversation(data.conversationId);
     } catch {

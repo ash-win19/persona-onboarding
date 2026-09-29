@@ -11,6 +11,7 @@ import { ChatService } from './chat.service.js';
 import { Calls } from './calls.js';
 import { normalizeEmail } from './account-admin.js';
 import { verifyPassword } from './password.js';
+import { lockSession } from './account-sessions.js';
 
 export const SESSION_AGE = 30 * 86400 * 1000;
 type Account = {
@@ -92,7 +93,7 @@ export class Accounts {
         new Date(this.now()),
       ]);
       await sql.query(
-        'INSERT INTO account_sessions(token_hash,account_id,expires_at) VALUES($1,$2,$3)',
+        'INSERT INTO account_sessions(token_hash,account_id,expires_at,family_hash) VALUES($1,$2,$3,$1)',
         [credentialHash(token), account.id, new Date(this.now() + SESSION_AGE)],
       );
     });
@@ -109,7 +110,7 @@ export class Accounts {
         conversation_id: string | null;
       }>(
         `SELECT a.id,a.email,a.conversation_id FROM accounts a JOIN account_sessions s ON s.account_id=a.id
-       WHERE s.token_hash=$1 AND s.expires_at>$2`,
+       WHERE s.token_hash=$1 AND s.expires_at>$2 AND s.revoked_at IS NULL`,
         [credentialHash(token), new Date(this.now())],
       )
     ).rows[0];
@@ -120,14 +121,16 @@ export class Accounts {
   async logout(token: string | undefined) {
     if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) return;
     const callIds = await this.db.transaction(async (sql) => {
+      const session = await lockSession(sql, credentialHash(token), this.now());
+      if (!session) return [];
       const account = (
         await sql.query<{ conversation_id: string | null }>(
-          `SELECT a.conversation_id FROM accounts a JOIN account_sessions s ON s.account_id=a.id WHERE s.token_hash=$1`,
-          [credentialHash(token)],
+          'SELECT conversation_id FROM accounts WHERE id=$1',
+          [session.account_id],
         )
       ).rows[0];
-      await sql.query('DELETE FROM account_sessions WHERE token_hash=$1', [
-        credentialHash(token),
+      await sql.query('DELETE FROM account_sessions WHERE family_hash=$1', [
+        session.family_hash,
       ]);
       if (!account?.conversation_id) return [];
       await sql.query(
@@ -137,6 +140,10 @@ export class Accounts {
       const calls = await sql.query<{ id: string }>(
         "UPDATE calls SET status='ended',reason='signed_out',ended_at=$2 WHERE conversation_id=$1 AND status IN ('connecting','active') RETURNING id",
         [account.conversation_id, new Date(this.now())],
+      );
+      await sql.query(
+        "UPDATE turns SET delivery='interrupted' WHERE conversation_id=$1 AND channel='voice' AND role='assistant' AND delivery='generated'",
+        [account.conversation_id],
       );
       return calls.rows.map((call) => call.id);
     });

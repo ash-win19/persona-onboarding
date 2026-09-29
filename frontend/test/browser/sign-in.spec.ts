@@ -1,5 +1,69 @@
 import { test, expect } from "@playwright/test";
 
+test("a delayed anonymous focus check cannot undo a successful sign-in", async ({
+  page,
+}) => {
+  let signedIn = false;
+  let loginStarted = false;
+  let staleStarted = false;
+  let releaseLogin!: () => void;
+  let releaseStale!: () => void;
+  const loginGate = new Promise<void>((resolve) => {
+    releaseLogin = resolve;
+  });
+  const staleGate = new Promise<void>((resolve) => {
+    releaseStale = resolve;
+  });
+  const snapshot = {
+    conversationId: "saved",
+    revision: 0,
+    turns: [],
+    operation: null,
+  };
+  await page.route("**/api/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/api/auth/login") {
+      loginStarted = true;
+      await loginGate;
+      signedIn = true;
+      return route.fulfill({ json: snapshot });
+    }
+    if (path === "/api/ready") return route.fulfill({ json: { ready: true } });
+    if (!signedIn && loginStarted) {
+      staleStarted = true;
+      await staleGate;
+      return route.fulfill({ status: 401, json: {} });
+    }
+    return route.fulfill({
+      status: signedIn ? 200 : 401,
+      json: signedIn ? snapshot : {},
+    });
+  });
+  await page.goto("/");
+  await page.getByLabel("Email", { exact: true }).fill("tanay@example.test");
+  await page.getByLabel("Password", { exact: true }).fill("demo-password");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect.poll(() => loginStarted).toBe(true);
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect.poll(() => staleStarted).toBe(true);
+  releaseLogin();
+  const composer = page.getByRole("textbox", { name: "Message Persona" });
+  await composer.fill("Keep this draft");
+  const staleResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/session") && response.status() === 401,
+  );
+  releaseStale();
+  await (await staleResponse).finished();
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  await expect(composer).toHaveValue("Keep this draft");
+});
+
 test("invited users sign in, resume after refresh, and sign out", async ({
   page,
 }) => {
@@ -37,7 +101,7 @@ test("invited users sign in, resume after refresh, and sign out", async ({
   await page.getByLabel("Email", { exact: true }).fill("tanay@example.test");
   await page.getByLabel("Password", { exact: true }).fill("wrong-password");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(page.getByRole("alert")).toContainText("don't match");
+  await expect(page.getByRole("alert").filter({ hasText: "don't match" })).toBeVisible();
   await page.getByLabel("Password", { exact: true }).fill("demo-password");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(

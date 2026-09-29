@@ -133,6 +133,18 @@ export async function migrate(db: Database) {
     await sql.query(
       'CREATE INDEX IF NOT EXISTS account_sessions_owner ON account_sessions(account_id)',
     );
+    await sql.query(
+      'ALTER TABLE account_sessions ADD COLUMN IF NOT EXISTS family_hash text, ADD COLUMN IF NOT EXISTS revoked_at timestamptz',
+    );
+    await sql.query(
+      'UPDATE account_sessions SET family_hash=token_hash WHERE family_hash IS NULL',
+    );
+    await sql.query(
+      'ALTER TABLE account_sessions ALTER COLUMN family_hash SET NOT NULL',
+    );
+    await sql.query(
+      'CREATE INDEX IF NOT EXISTS account_sessions_family ON account_sessions(family_hash)',
+    );
     await sql.query(`CREATE TABLE IF NOT EXISTS login_limits (
       key text PRIMARY KEY, attempts integer NOT NULL, window_start timestamptz NOT NULL
     )`);

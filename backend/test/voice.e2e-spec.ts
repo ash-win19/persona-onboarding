@@ -142,6 +142,24 @@ describe('browser call API', () => {
       heartbeat: () => post('/control', { tabId, takeover: false }).expect(200),
     };
   }
+  it('sign-out immediately closes the call and rejects the old session', async () => {
+    const s = await session();
+    await s
+      .post('/calls/start', { id: randomUUID(), sdp: 'v=0\r\no=browser' })
+      .expect(200);
+    const connection = connections.at(-1)!;
+    expect(connection.closed).toBe(false);
+    await s.post('/auth/logout', {}).expect(200);
+    expect(connection.closed).toBe(true);
+    await request(app.getHttpServer())
+      .get('/session')
+      .set('Cookie', s.cookie)
+      .expect(401);
+    await s
+      .post('/calls/start', { id: randomUUID(), sdp: 'v=0\r\no=browser' })
+      .expect(401);
+  });
+
   it('saves asynchronous final transcripts once, acknowledges a server tool and preserves text after hangup', async () => {
     const s = await session();
     const id = randomUUID();

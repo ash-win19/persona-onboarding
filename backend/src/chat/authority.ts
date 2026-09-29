@@ -41,7 +41,7 @@ export class Authority {
       `SELECT c.id, c.revision, c.owner_tab, c.owner_epoch, c.owner_until
        FROM account_sessions s JOIN accounts a ON a.id=s.account_id
        JOIN conversations c ON c.id=a.conversation_id
-       WHERE s.token_hash=$1 AND s.expires_at>$2${lock ? ' FOR UPDATE OF c' : ''}`,
+       WHERE s.token_hash=$1 AND s.expires_at>$2 AND s.revoked_at IS NULL${lock ? ' FOR UPDATE OF c' : ''}`,
       [credentialHash(credential), new Date(this.now())],
     );
     if (!result.rows[0]) throw new UnauthorizedException();
