@@ -12,6 +12,7 @@ import { DATABASE, type Database, type Sql } from './database.js';
 import { OnboardingPolicy } from './onboarding-policy.js';
 import { OnboardingService, type CaptureResult } from './onboarding.js';
 import { FACT_REPAIR, type FactRepair } from './fact-repair.js';
+import { CONVERSATION_MEMORY, type ConversationMemory } from './memory.js';
 import {
   VOICE_PROVIDER,
   type VoiceConnection,
@@ -82,6 +83,7 @@ export class Calls implements OnModuleDestroy {
     @Inject(VOICE_PROVIDER) private readonly provider: VoiceProvider,
     @Inject(OnboardingPolicy) private readonly policy: OnboardingPolicy,
     @Inject(FACT_REPAIR) private readonly factRepair: FactRepair,
+    @Inject(CONVERSATION_MEMORY) private readonly memory: ConversationMemory,
   ) {}
 
   private async get(sql: Sql, id: string) {
@@ -547,8 +549,23 @@ export class Calls implements OnModuleDestroy {
     clearInterval(runtime.timer);
     await runtime.connection?.close();
     // Retain the event queue briefly for final transcripts already in flight.
-    const timer = setTimeout(() => this.live.delete(id), 30000);
+    const timer = setTimeout(() => {
+      this.live.delete(id);
+      void this.observe(id);
+    }, 30000);
     timer.unref();
+  }
+  // Runs once the call's final transcripts have settled.
+  private async observe(id: string) {
+    try {
+      const call = await this.db.query<{ conversation_id: string }>(
+        'SELECT conversation_id FROM calls WHERE id=$1',
+        [id],
+      );
+      if (call.rows[0]) await this.memory.observe(call.rows[0].conversation_id);
+    } catch {
+      // Memory is best effort; the saved conversation is unaffected.
+    }
   }
 
   private async item(
