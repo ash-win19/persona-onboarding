@@ -100,11 +100,14 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
   const [pending, setPending] = useState<Pending | null>(null);
   const [busy, setBusy] = useState(true);
   const [notice, setNotice] = useState("");
-  const [introducing, setIntroducing] = useState(false);
+  const [introductionPhase, setIntroductionPhase] = useState<
+    "holding" | "leaving" | null
+  >(null);
+  const introducing = introductionPhase !== null;
   const introDismissed = useRef(false);
   const finishIntroduction = useCallback(() => {
     introDismissed.current = true;
-    setIntroducing(false);
+    setIntroductionPhase(null);
   }, []);
   const active = useRef<AbortController | null>(null);
   const scrollArea = useRef<HTMLElement>(null);
@@ -165,7 +168,7 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
       setPending(null);
       setDraft("");
       introDismissed.current = false;
-      setIntroducing(false);
+      setIntroductionPhase(null);
       voiceRef.current.controlLost();
     }
     conversationRef.current = data.conversationId;
@@ -178,7 +181,7 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
       !introDismissed.current &&
       !window.matchMedia("(prefers-reduced-motion: reduce)").matches
     )
-      setIntroducing(true);
+      setIntroductionPhase((phase) => phase ?? "holding");
     setConnection("ready");
     if (data.operation?.status === "completed") {
       setPending((current) =>
@@ -193,18 +196,21 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
   }
 
   useEffect(() => {
-    if (!introducing) return;
+    if (!introductionPhase) return;
     const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
     const changed = () => {
       if (motion.matches) finishIntroduction();
     };
     motion.addEventListener("change", changed);
-    const timer = setTimeout(finishIntroduction, 450);
+    const timer =
+      introductionPhase === "holding"
+        ? setTimeout(() => setIntroductionPhase("leaving"), 2500)
+        : setTimeout(finishIntroduction, 450);
     return () => {
       clearTimeout(timer);
       motion.removeEventListener("change", changed);
     };
-  }, [introducing, finishIntroduction]);
+  }, [introductionPhase, finishIntroduction]);
 
   async function waitForReply(data: Snapshot, signal: AbortSignal) {
     let current = data;
@@ -500,6 +506,13 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
     }
   }
 
+  const openingClassName =
+    introductionPhase === "holding"
+      ? " opening-waiting"
+      : introductionPhase === "leaving"
+        ? " opening-arriving"
+        : "";
+
   return (
     <main
       className={`chat-shell ${introducing ? "is-introducing" : "has-messages"}`}
@@ -536,7 +549,10 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
             </p>
           )}
           {introducing && (
-            <div className="welcome welcome-leaving" aria-hidden="true">
+            <div
+              className={`welcome welcome-intro${introductionPhase === "leaving" ? " welcome-leaving" : ""}`}
+              aria-hidden={introductionPhase === "leaving"}
+            >
               <div className="welcome-mark">
                 <PersonaMark />
               </div>
@@ -553,11 +569,12 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
             aria-label="Messages"
             aria-live="polite"
             aria-relevant="additions text"
+            aria-hidden={introductionPhase === "holding"}
           >
             {snapshot?.turns.map((turn) => (
               <article
                 key={turn.id}
-                className={`turn ${turn.role}${introducing && turn.kind === "opening" ? " opening-arriving" : ""}`}
+                className={`turn ${turn.role}${turn.kind === "opening" ? openingClassName : ""}`}
                 aria-label={turn.role === "user" ? "You" : agentName}
               >
                 <div className="turn-body">
