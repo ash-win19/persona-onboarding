@@ -6,7 +6,7 @@ The dashboard includes Overview, Conversation, Connections and Account. A shared
 
 ## Onboarding handoff
 
-The server records readiness, preparation and dashboard entry separately. A normal handoff requires a first task and the required goals to have been fulfilled, declined, deferred or invited through delivered conversation. Gmail remains optional. Explicit **Skip for now** allows entry without inventing profile details or a task.
+Readiness comes from the onboarding service's durable graduation state. That service accounts for the first task, delivered invitations, declines, deferrals and a user's explicit request to leave setup. The handoff records preparation and dashboard entry separately. Gmail remains optional. **Skip for now** allows entry without inventing profile details or a task.
 
 Preparation records one acknowledgement. During a call, the server queues a tagged acknowledgement after the current response, then waits for that response's uninterrupted playback receipt. The highlighted **Go to dashboard** button starts a five-second border countdown after delivery. Clicking enters immediately. Users can pause and resume the countdown; reduced-motion users get discrete progress updates. A failed entry remains retryable.
 
