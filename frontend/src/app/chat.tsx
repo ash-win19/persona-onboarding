@@ -6,6 +6,7 @@ import { GmailConnection } from "./gmail-connection";
 import { useVoice, type Control, type CallState } from "./use-voice";
 import { ChatIcon } from "./chat-icons";
 import { PersonaLogo, PersonaMark } from "./persona-logo";
+import { CallAnimation, ThinkingIndicator } from "./conversation-animation";
 
 type Turn = {
   id: string;
@@ -345,9 +346,11 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
     setPending((current) => current ?? payload);
     setBusy(true);
     setNotice("");
+    let voiceTurnFailed: (() => void) | undefined;
     try {
       let data: Snapshot;
       if (voice.active && voice.call?.status === "active") {
+        voiceTurnFailed = voice.typedTurn();
         await api(
           "calls/turns",
           controller.signal,
@@ -366,6 +369,7 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
       accept(data);
       await waitForReply(data, controller.signal);
     } catch (error) {
+      voiceTurnFailed?.();
       if (
         error instanceof RequestError &&
         error.status === 409 &&
@@ -404,6 +408,17 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
   const retryPayload = unresolved
     ? { submissionId: unresolved.submissionId, content: unresolved.content }
     : pending;
+  const generating =
+    connection === "ready" && snapshot?.operation?.status === "generating";
+  const submitting =
+    busy && pending && snapshot?.operation?.id !== pending.submissionId;
+  const waitingText = generating
+    ? `${agentName} is thinking`
+    : connection !== "ready" && retryPayload
+      ? "Reconnecting to check your reply…"
+      : submitting
+        ? "Sending your message…"
+        : "";
   const canSend =
     connection === "ready" &&
     hasControl &&
@@ -413,7 +428,7 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
     !!draft.trim();
   const visibleNotice =
     notice ||
-    (!busy && retryPayload
+    (!busy && retryPayload && !generating
       ? "Your latest result is not confirmed. Retry safely with the same message."
       : "");
   const shownPending =
@@ -461,7 +476,15 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
       ? "Waiting for microphone permission"
       : voice.state === "connecting"
         ? "Connecting your call"
-        : "Call active";
+        : voice.playback === "blocked"
+          ? "Call audio is paused"
+          : voice.phase === "speaking"
+            ? voice.playback === "playing"
+              ? `${agentName} is speaking`
+              : "Waiting for call audio"
+            : voice.phase === "thinking"
+              ? `${agentName} is thinking`
+              : "Listening";
 
   async function signOut() {
     setSigningOut(true);
@@ -550,16 +573,8 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
                 </div>
               </article>
             )}
-            {busy && (pending || unresolved) && (
-              <div className="thinking" role="status">
-                <PersonaMark />
-                <span>{agentName} is thinking</span>
-                <span className="thinking-dots" aria-hidden="true">
-                  <i />
-                  <i />
-                  <i />
-                </span>
-              </div>
+            {waitingText && (
+              <ThinkingIndicator text={waitingText} thinking={generating} />
             )}
           </div>
           {snapshot?.control && (
@@ -616,7 +631,7 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
         {visibleNotice && (
           <div className="notice" role="status">
             <p>{visibleNotice}</p>
-            {!busy && (
+            {!busy && !generating && (
               <button type="button" onClick={retry}>
                 {retryPayload ? "Retry message" : "Try connecting again"}
               </button>
@@ -631,7 +646,7 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
         {voice.notice && (
           <div className="notice voice-notice" role="status">
             <p>{voice.notice}</p>
-            {voice.notice.includes("Play call audio") && (
+            {voice.playback === "blocked" && (
               <button type="button" onClick={() => void voice.play()}>
                 Play call audio
               </button>
@@ -640,16 +655,15 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
         )}
         {voice.active && (
           <div className="call-banner" role="status">
-            <span
-              className={`voice-bars ${voice.state === "active" ? "is-active" : ""}`}
-              aria-hidden="true"
-            >
-              <i />
-              <i />
-              <i />
-              <i />
-              <i />
-            </span>
+            <CallAnimation
+              level={voice.level}
+              processing={voice.phase === "thinking"}
+              active={
+                voice.state === "active" &&
+                voice.playback !== "blocked" &&
+                (voice.phase !== "speaking" || voice.playback === "playing")
+              }
+            />
             <span>
               <strong>{callStatus}</strong>
               <small>You can speak or keep typing here.</small>

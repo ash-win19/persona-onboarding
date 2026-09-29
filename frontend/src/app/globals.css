@@ -312,32 +312,11 @@ h1 {
   font-size: 12px;
   padding-top: 4px;
 }
-.thinking > svg {
-  width: 24px;
-  height: 24px;
-}
-.thinking-dots {
+.thinking-orb {
   display: inline-flex;
-  gap: 3px;
-}
-.thinking-dots i {
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: var(--subtle);
-  animation: pulse 1.2s infinite;
-}
-.thinking-dots i:nth-child(2) {
-  animation-delay: 0.15s;
-}
-.thinking-dots i:nth-child(3) {
-  animation-delay: 0.3s;
-}
-@keyframes pulse {
-  50% {
-    opacity: 0.35;
-    transform: translateY(-2px);
-  }
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
 }
 .composer-area {
   position: relative;
@@ -502,6 +481,8 @@ h1 {
   background: var(--soft);
 }
 .call-banner {
+  position: relative;
+  isolation: isolate;
   display: flex;
   align-items: center;
   gap: 13px;
@@ -539,38 +520,22 @@ h1 {
   width: 13px;
   height: 13px;
 }
-.voice-bars {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  gap: 3px;
-  flex-shrink: 0;
+.call-animation {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: -1;
 }
-.voice-bars i {
-  width: 3px;
-  height: 8px;
-  border-radius: 3px;
-  background: var(--foreground);
-}
-.voice-bars i:nth-child(2),
-.voice-bars i:nth-child(4) {
-  height: 17px;
-}
-.voice-bars i:nth-child(3) {
-  height: 25px;
-}
-.voice-bars.is-active i {
-  animation: wave 1.4s ease-in-out infinite alternate;
-}
-.voice-bars.is-active i:nth-child(2n) {
-  animation-delay: 0.4s;
-}
-@keyframes wave {
-  to {
-    transform: scaleY(0.45);
-  }
+.call-animation-static {
+  position: absolute;
+  bottom: 0;
+  left: 30%;
+  right: 30%;
+  height: 2px;
+  background: var(--subtle);
+  opacity: 0.5;
 }
 .gmail-controls {
   display: flex;
