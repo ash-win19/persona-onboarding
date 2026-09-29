@@ -43,7 +43,8 @@ export interface VoiceProvider {
   connect(
     sdp: string,
     instructions: string,
-    onEvent: (event: VoiceEvent) => void,
+    // Resolves after this event is handled, not after background interpretation.
+    onEvent: (event: VoiceEvent) => Promise<void>,
     onClose: () => void,
   ): Promise<VoiceConnection>;
 }
@@ -57,7 +58,7 @@ export class OpenAIVoiceProvider implements VoiceProvider {
   async connect(
     sdp: string,
     instructions: string,
-    onEvent: (event: VoiceEvent) => void,
+    onEvent: (event: VoiceEvent) => Promise<void>,
     onClose: () => void,
   ): Promise<VoiceConnection> {
     const form = new FormData();
@@ -153,7 +154,9 @@ export class OpenAIVoiceProvider implements VoiceProvider {
           : Buffer.isBuffer(data)
             ? data
             : Buffer.from(data);
-        onEvent(JSON.parse(bytes.toString('utf8')) as VoiceEvent);
+        void Promise.resolve(
+          onEvent(JSON.parse(bytes.toString('utf8')) as VoiceEvent),
+        ).catch(onClose);
       } catch {
         onClose();
       }
