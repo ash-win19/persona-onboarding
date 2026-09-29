@@ -94,7 +94,7 @@
       "commit": "51e74ef23c7145131394cb0c9c6075bd6f8d7576",
       "renderDeployment": "dep-dau0c2id0e5s73dp8jf0",
       "result": "passed",
-      "evidence": "/private/tmp/persona-gmail-denial-production.png"
+      "verificationMethod": "Observed production browser accessibility state after the real OAuth callback and refresh."
     },
     {
       "name": "Real Google grant, verified profile address and refresh persistence",
@@ -103,7 +103,7 @@
       "result": "passed",
       "existingConversationPreserved": true,
       "acknowledgementCount": 1,
-      "evidence": "/private/tmp/persona-gmail-connected-production.png"
+      "verificationMethod": "Observed production browser accessibility state after the real OAuth callback and refresh."
     }
   ],
   "localRealProvider": {
@@ -138,14 +138,13 @@
     "realDenialVerified": true,
     "consentScreenReady": true,
     "clientCreationEvidence": "/private/tmp/persona-google-client-created.png",
-    "denialEvidence": "/private/tmp/persona-gmail-denial-production.png",
     "grantReviewEvidence": "/private/tmp/persona-gmail-grant-review.png",
     "refreshPersistenceVerified": true,
     "existingConversationPreserved": true,
     "connectedAccount": "ashwinshan2001@gmail.com",
-    "connectionEvidence": "/private/tmp/persona-gmail-connected-production.png",
     "redirectUri": "https://usepersona.vercel.app/api/gmail/callback",
-    "scope": "https://www.googleapis.com/auth/gmail.metadata"
+    "scope": "https://www.googleapis.com/auth/gmail.metadata",
+    "connectionVerification": "Production UI showed Gmail connected: ashwinshan2001@gmail.com after refresh, with one saved acknowledgement and the prior conversation intact."
   },
   "remainingIssues": [],
   "remainingWork": [],
@@ -153,7 +152,8 @@
     "Checks on earlier deployed revisions are scoped explicitly; they are not presented as rerun on the newest deployment.",
     "Synthetic browser microphone audio exercises real OpenAI transport and tools without capturing the user microphone.",
     "Raw evidence remains local. Voice artifacts use synthetic test content; Google screenshots show the authorized personal account and its existing conversation. The summaries here are the durable release record.",
-    "Google expiry, revocation, callback races and live-call integration use controlled tests; the real Google checks are listed separately."
+    "Google expiry, revocation, callback races and live-call integration use controlled tests; the real Google checks are listed separately.",
+    "The saved connection screenshot did not show the connected state and is not used as proof. A fresh screenshot was unavailable because broad browser inspection was blocked while another signed-in page was active, and direct tab access failed. Google results above rely on the earlier observed production UI state."
   ],
   "verificationBoundaries": {
     "realGoogle": [
