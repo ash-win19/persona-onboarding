@@ -8,7 +8,8 @@ export type DiagnosticCode =
   | 'GMAIL_CONNECTED'
   | 'GMAIL_FAILED'
   | 'SESSION_RESET'
-  | 'REPLY_UNAVAILABLE';
+  | 'REPLY_UNAVAILABLE'
+  | 'CALL_RECAP_UNAVAILABLE';
 @Injectable()
 export class Diagnostics {
   constructor(@Inject(DATABASE) private readonly db: Database) {}

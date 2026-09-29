@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { GmailConnection } from "./gmail-connection";
 import { useVoice, type Control, type CallState } from "./use-voice";
@@ -15,7 +15,14 @@ type Turn = {
   content: string;
   channel?: string;
   delivery?: string;
-  kind?: "opening" | "message";
+  callId?: string | null;
+  kind?: "opening" | "message" | "recap";
+};
+type CallRecord = {
+  id: string;
+  status: string;
+  startedAt: string;
+  endedAt: string | null;
 };
 type SavedFact = {
   value: string | null;
@@ -34,6 +41,7 @@ type Snapshot = {
   conversationId: string;
   revision: number;
   turns: Turn[];
+  calls?: CallRecord[];
   introduction?: boolean;
   operation: {
     id: string;
@@ -149,6 +157,31 @@ async function streamTurn(
     limit.removeEventListener("abort", expire);
     clearTimeout(timer);
   }
+}
+
+function clockTime(value: string) {
+  return new Date(value).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function callLength(from: string, to: string) {
+  const seconds = Math.max(
+    0,
+    Math.round((Date.parse(to) - Date.parse(from)) / 1000),
+  );
+  const minutes = Math.floor(seconds / 60);
+  return minutes ? `${minutes}m ${seconds % 60}s` : `${seconds}s`;
+}
+
+function CallMarker({ children }: { children: string }) {
+  return (
+    <p className="call-marker">
+      <ChatIcon name="phone" width={14} height={14} />
+      <span>{children}</span>
+    </p>
+  );
 }
 
 function pause(ms: number, signal: AbortSignal) {
@@ -500,6 +533,7 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
   }
 
   const agentName = snapshot?.onboarding?.facts.agentName.value || "Persona";
+  const calls = new Map(snapshot?.calls?.map((call) => [call.id, call]));
   const unresolved =
     snapshot?.operation && snapshot.operation.status !== "completed"
       ? snapshot.turns.find(
@@ -669,17 +703,41 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
             aria-hidden={introductionPhase === "holding"}
             aria-busy={!!streamed}
           >
-            {snapshot?.turns.map((turn) => (
-              <article
-                key={turn.id}
-                className={`turn ${turn.role}${turn.kind === "opening" ? openingClassName : ""}`}
-                aria-label={turn.role === "user" ? "You" : agentName}
-              >
-                <div className="turn-body">
-                  <p>{turn.content}</p>
-                </div>
-              </article>
-            ))}
+            {snapshot?.turns.map((turn, index, turns) => {
+              // A call's turns are consecutive, so markers wrap the first and last.
+              const call = turn.callId ? calls.get(turn.callId) : undefined;
+              const starts = call && turns[index - 1]?.callId !== call.id;
+              const ends =
+                call?.endedAt && turns[index + 1]?.callId !== call.id;
+              const cutOff = turn.delivery === "interrupted";
+              return (
+                <Fragment key={turn.id}>
+                  {starts && (
+                    <CallMarker>{`Call started · ${clockTime(call.startedAt)}`}</CallMarker>
+                  )}
+                  <article
+                    className={`turn ${turn.role}${turn.kind === "opening" ? openingClassName : ""}${turn.kind === "recap" ? " recap" : ""}${cutOff ? " cut-off" : ""}`}
+                    aria-label={turn.role === "user" ? "You" : agentName}
+                  >
+                    <div className="turn-body">
+                      {turn.kind === "recap" && (
+                        <span className="turn-label">Call recap</span>
+                      )}
+                      <p>{turn.content}</p>
+                      {turn.channel === "voice" && (
+                        <span className="delivery-note spoken">
+                          <ChatIcon name="phone" width={11} height={11} />
+                          {cutOff ? "Spoken · cut off" : "Spoken"}
+                        </span>
+                      )}
+                    </div>
+                  </article>
+                  {ends && call.endedAt && (
+                    <CallMarker>{`${call.status === "failed" ? "Call disconnected" : "Call ended"} · ${callLength(call.startedAt, call.endedAt)}`}</CallMarker>
+                  )}
+                </Fragment>
+              );
+            })}
             {shownPending && (
               <article className="turn user pending" aria-label="You">
                 <div className="turn-body">

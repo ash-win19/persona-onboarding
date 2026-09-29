@@ -17,6 +17,7 @@ import { DATABASE, PostgresDatabase, type Database } from './database.js';
 import { CHAT_CONFIG, chatConfig, required } from './config.js';
 import { MODEL, OpenAIReplyModel } from './model.js';
 import { FACT_REPAIR, OpenAIFactRepair } from './fact-repair.js';
+import { CALL_RECAP, OpenAICallRecap } from './call-recap.js';
 import { Accounts } from './accounts.js';
 import { AccountsController } from './accounts.controller.js';
 import { CONVERSATION_MEMORY, createConversationMemory } from './memory.js';
@@ -35,6 +36,14 @@ import { CONVERSATION_MEMORY, createConversationMemory } from './memory.js';
       provide: FACT_REPAIR,
       useFactory: () =>
         new OpenAIFactRepair(
+          process.env.OPENAI_API_KEY ?? '',
+          process.env.OPENAI_MODEL || 'gpt-4.1-mini',
+        ),
+    },
+    {
+      provide: CALL_RECAP,
+      useFactory: () =>
+        new OpenAICallRecap(
           process.env.OPENAI_API_KEY ?? '',
           process.env.OPENAI_MODEL || 'gpt-4.1-mini',
         ),
