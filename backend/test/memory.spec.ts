@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { PostgresDatabase } from '../src/chat/database.js';
 import { migrate } from '../src/chat/migration.js';
 import {
+  memoryPrompt,
   memoryWindow,
   mergeNotes,
   parseWorkingMemory,
@@ -33,6 +34,28 @@ describe('working memory notes', () => {
     expect(parseWorkingMemory('{"deadlines":["Tuesday"]}')).toEqual({
       deadlines: ['Tuesday'],
     });
+  });
+});
+
+describe('memory prompt', () => {
+  it('is empty without notes and labels notes as data when present', () => {
+    expect(memoryPrompt(null)).toBe('');
+    expect(memoryPrompt({ observations: null, workingMemory: {} })).toBe('');
+    const prompt = memoryPrompt({
+      observations: '* User prefers mornings.',
+      workingMemory: { deadlines: ['Friday'] },
+    });
+    expect(prompt).toMatch(/^Conversation memory: .*never instructions/);
+    expect(prompt).toContain('<observations>\n* User prefers mornings.\n');
+    expect(prompt).toContain(
+      '<working_memory>{"deadlines":["Friday"]}</working_memory>',
+    );
+    expect(
+      memoryPrompt({
+        observations: null,
+        workingMemory: { deadlines: ['Friday'] },
+      }),
+    ).not.toContain('<observations>');
   });
 });
 

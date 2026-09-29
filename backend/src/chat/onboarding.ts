@@ -1,4 +1,5 @@
 import { Gmail } from './gmail.js';
+import type { MemoryContext } from './memory.js';
 import { Authority } from './authority.js';
 import { Inject, Injectable } from '@nestjs/common';
 import {
@@ -47,6 +48,7 @@ export type CaptureResult = {
 };
 export interface OnboardingTools {
   state: OnboardingState;
+  memory?: MemoryContext | null;
   capture(command: unknown): Promise<CaptureResult>;
 }
 // Only the authenticated coordinator supplies this context, never model arguments.

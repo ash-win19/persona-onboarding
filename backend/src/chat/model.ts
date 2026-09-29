@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import type { OnboardingTools } from './onboarding.js';
-import { noteKinds } from './memory.js';
+import { memoryPrompt, noteKinds } from './memory.js';
 
 export const MODEL = Symbol('MODEL');
 export interface ModelTurn {
@@ -210,6 +210,7 @@ Respond to the user's current concern FIRST. When an actionable help request exi
 A browser voice call is available through Start a call and requires user consent. Never say voice is unavailable. You cannot read or send email or browse. Gmail status reflects only a verified connection. Never treat a user's claim as verified integration access or say onboarding is complete unless onboardingComplete is true.
 Do not ask any onboarding question in your answer. The server appends the one permitted question below. ${committed.question ? 'The answer must contain statements only, with no question marks. followUp must be null; the server supplies the clarification or onboarding question.' : 'You may ask at most one focused follow-up about the current task after providing useful help. Do not ask for missing onboarding details.'}
 Permitted appended question: ${JSON.stringify(committed.question)}
+${memoryPrompt(tools.memory ?? null)}
 Authoritative current state: ${JSON.stringify(committed.state)}`,
         input: [
           ...input,
