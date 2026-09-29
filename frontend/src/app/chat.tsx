@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { GmailConnection } from "./gmail-connection";
 import { useVoice, type Control, type CallState } from "./use-voice";
+import { ChatIcon, PersonaMark } from "./chat-icons";
+import { ConversationDialog } from "./conversation-dialog";
 
 type Turn = {
   id: string;
@@ -95,7 +97,11 @@ export default function Chat() {
     "Connecting to your conversation. This may take a moment.",
   );
   const active = useRef<AbortController | null>(null);
-  const end = useRef<HTMLDivElement>(null);
+  const scrollArea = useRef<HTMLElement>(null);
+  const followLatest = useRef(true);
+  const [showJump, setShowJump] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [gmailNotice, setGmailNotice] = useState("");
   const input = useRef<HTMLTextAreaElement>(null);
   const tabId = useRef("");
   const ownerRef = useRef<{ tabId: string; epoch: number } | undefined>(
@@ -106,6 +112,7 @@ export default function Chat() {
   const resetAttempt = useRef<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [resetNotice, setResetNotice] = useState("");
   const headers = () => ({
     "Content-Type": "application/json",
     "X-Persona-Client": "web",
@@ -151,6 +158,7 @@ export default function Chat() {
     ) {
       setPending(null);
       setDraft("");
+      setResetNotice("");
       voiceRef.current.controlLost();
     }
     conversationRef.current = data.conversationId;
@@ -288,9 +296,18 @@ export default function Chat() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshot?.conversationId, !!snapshot?.control]);
 
+  const lastTurn = snapshot?.turns.at(-1);
   useEffect(() => {
-    end.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [snapshot, pending, notice]);
+    const area = scrollArea.current;
+    if (area && followLatest.current) area.scrollTop = area.scrollHeight;
+  }, [lastTurn?.id, lastTurn?.content, pending?.submissionId, busy]);
+
+  useEffect(() => {
+    const field = input.current;
+    if (!field) return;
+    field.style.height = "auto";
+    field.style.height = `${Math.min(field.scrollHeight, 180)}px`;
+  }, [draft]);
 
   async function submit(payload: Pending) {
     if (busy) return;
@@ -351,6 +368,7 @@ export default function Chat() {
     if (resetting) return;
     setResetting(true);
     setConfirmReset(false);
+    setResetNotice("");
     resetAttempt.current ??= crypto.randomUUID();
     active.current?.abort();
     voiceRef.current.controlLost();
@@ -364,11 +382,14 @@ export default function Chat() {
       accept(data);
       setPending(null);
       setDraft("");
+      setDetailsOpen(false);
+      followLatest.current = true;
+      setShowJump(false);
       setNotice("A fresh conversation is ready.");
       resetAttempt.current = null;
     } catch {
-      setNotice(
-        "Start over could not be confirmed. Use Start over again to retry safely.",
+      setResetNotice(
+        "Start over could not be confirmed. Retry to check the result safely.",
       );
     } finally {
       setResetting(false);
@@ -429,232 +450,249 @@ export default function Chat() {
       content: draft.trim(),
     };
     setDraft("");
+    followLatest.current = true;
+    setShowJump(false);
     void submit(payload);
   }
 
+  const empty = !snapshot?.turns.length && !pending;
+  const callStatus =
+    voice.state === "permission"
+      ? "Waiting for microphone permission"
+      : voice.state === "connecting"
+        ? "Connecting your call"
+        : "Call active";
+
   return (
-    <main className="chat-shell">
+    <main className={`chat-shell ${empty ? "is-empty" : "has-messages"}`}>
       <header className="chat-header">
         <Link className="wordmark" href="/" aria-label="Persona home">
-          <span className="persona-mark" aria-hidden="true">
-            p
-          </span>
-          persona<span className="wordmark-dot">.</span>
+          <PersonaMark />
+          persona
         </Link>
-        <div className={`connection ${connection}`} role="status">
-          <span aria-hidden="true" />
-          {connection === "ready"
-            ? "Connected"
-            : connection === "connecting"
-              ? "Connecting"
-              : "Connection interrupted"}
+        <div className="header-actions">
+          <div className={`connection ${connection}`} role="status">
+            <span aria-hidden="true" />
+            {connection === "ready"
+              ? "Connected"
+              : connection === "connecting"
+                ? "Connecting"
+                : "Connection interrupted"}
+          </div>
+          <button
+            className="details-button"
+            type="button"
+            onClick={() => setDetailsOpen(true)}
+          >
+            <ChatIcon name="memory" />
+            <span>What I remember</span>
+          </button>
         </div>
       </header>
-      <section className="conversation" aria-label="Conversation">
-        {!snapshot?.turns.length && !pending && (
-          <div className="welcome">
-            <span className="eyebrow">A SPACE TO THINK TOGETHER</span>
-            <h1>
-              A little help.
-              <br />
-              <em>A little more headspace.</em>
-            </h1>
-            <p>
-              What would you like to call me? You can also tell me your name, or
-              jump straight into something you need help with.
-            </p>
-            <div className="suggestions">
-              {[
-                "Prepare for an interview",
-                "Untangle an idea",
-                "Plan my week",
-              ].map((suggestion) => (
-                <button
-                  key={suggestion}
-                  onClick={() => {
-                    setDraft(suggestion);
-                    input.current?.focus();
-                  }}
-                >
-                  {suggestion}
-                  <span aria-hidden="true">↗</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-        {snapshot?.control && (
-          <div className="conversation-controls">
-            {!hasControl ? (
+
+      <section
+        ref={scrollArea}
+        className="conversation"
+        aria-label="Conversation"
+        onScroll={(event) => {
+          const area = event.currentTarget;
+          const nearEnd =
+            area.scrollHeight - area.scrollTop - area.clientHeight < 80;
+          followLatest.current = nearEnd;
+          setShowJump(!nearEnd);
+        }}
+      >
+        <div className="conversation-content">
+          {empty && (
+            <div className="welcome">
+              <div className="welcome-mark">
+                <PersonaMark />
+              </div>
+              <h1>Where should we start?</h1>
               <p>
-                This conversation is controlled in another tab.{" "}
-                <button
-                  onClick={() =>
-                    void takeControl().catch(() =>
-                      setNotice("Could not take control. Try again."),
-                    )
-                  }
-                >
-                  Take control
-                </button>
+                What would you like to call me?
+                <br />
+                Or jump right into something you need a hand with.
               </p>
-            ) : (
-              <div className="call-controls">
-                {voice.active ? (
-                  <button onClick={() => void voice.end()}>End call</button>
-                ) : (
+              <div className="suggestions" aria-label="Conversation starters">
+                {(
+                  [
+                    ["briefcase", "Prepare for an interview", "Find the words"],
+                    ["idea", "Untangle an idea", "Think it through"],
+                    ["calendar", "Plan my week", "Make some room"],
+                  ] as const
+                ).map(([icon, suggestion, caption]) => (
                   <button
-                    disabled={connection !== "ready" || busy || !!retryPayload}
-                    onClick={() => void voice.start()}
+                    key={suggestion}
+                    type="button"
+                    onClick={() => {
+                      setDraft(suggestion);
+                      input.current?.focus();
+                    }}
                   >
-                    Start a call
+                    <ChatIcon name={icon} />
+                    <span>
+                      <strong>{suggestion}</strong>
+                      <small>{caption}</small>
+                    </span>
+                    <ChatIcon name="arrowRight" className="suggestion-arrow" />
                   </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <div
+            className="turns"
+            role="log"
+            aria-label="Messages"
+            aria-live="polite"
+            aria-relevant="additions text"
+          >
+            {snapshot?.turns.map((turn) => (
+              <article key={turn.id} className={`turn ${turn.role}`}>
+                {turn.role === "assistant" && (
+                  <PersonaMark className="message-mark" />
                 )}
-                <span role="status">
-                  {voice.state === "permission"
-                    ? "Waiting for microphone permission"
-                    : voice.state === "connecting"
-                      ? "Connecting your call"
-                      : voice.state === "active"
-                        ? "Call active"
-                        : "Voice is optional"}
+                <div className="turn-body">
+                  <div className="turn-label">
+                    {turn.role === "user" ? "You" : agentName}
+                    <span
+                      className={
+                        turn.channel === "voice" ||
+                        turn.delivery === "interrupted"
+                          ? "delivery"
+                          : "sr-only"
+                      }
+                    >
+                      {turn.delivery === "interrupted"
+                        ? "Saved transcript · interrupted"
+                        : turn.channel === "voice"
+                          ? "Saved transcript"
+                          : "Saved"}
+                    </span>
+                  </div>
+                  <p>{turn.content}</p>
+                </div>
+              </article>
+            ))}
+            {shownPending && (
+              <article className="turn user pending">
+                <div className="turn-body">
+                  <div className="turn-label">
+                    You<span className="delivery">Not yet confirmed</span>
+                  </div>
+                  <p>{pending.content}</p>
+                </div>
+              </article>
+            )}
+            {busy && (pending || unresolved) && (
+              <div className="thinking" role="status">
+                <PersonaMark />
+                <span>{agentName} is thinking</span>
+                <span className="thinking-dots" aria-hidden="true">
+                  <i />
+                  <i />
+                  <i />
                 </span>
               </div>
-            )}
-            {voice.notice && (
-              <p role="status">
-                {voice.notice}
-                {voice.notice.includes("Play call audio") && (
-                  <button onClick={() => void voice.play()}>
-                    Play call audio
-                  </button>
-                )}
-              </p>
             )}
           </div>
-        )}
-        {snapshot?.control && (
-          <>
-            <GmailConnection
-              key={snapshot.conversationId}
-              headers={headers}
-              enabled={hasControl && connection === "ready" && !resetting}
-              conversationId={snapshot.conversationId}
-              onChanged={refresh}
-            />
-            <div className="reset-controls">
-              {confirmReset ? (
-                <div role="alertdialog" aria-label="Start over confirmation">
-                  <p>
-                    Delete this app&apos;s saved conversation, names,
-                    preferences, and Gmail credentials? This does not delete
-                    data retained independently by providers.
-                  </p>
-                  <button onClick={() => void startOver()}>
-                    Delete saved conversation
-                  </button>
-                  <button onClick={() => setConfirmReset(false)}>
-                    Keep conversation
-                  </button>
-                </div>
-              ) : (
-                <button
-                  disabled={!hasControl || resetting}
-                  onClick={() => setConfirmReset(true)}
-                >
-                  {resetting ? "Starting over…" : "Start over"}
-                </button>
-              )}
-            </div>
-          </>
-        )}
-        {snapshot?.onboarding && snapshot.turns.length > 0 && (
-          <details className="memory" aria-label="Saved details">
-            <summary>What I remember</summary>
-            <dl>
-              {(
-                [
-                  ["agentName", "Your assistant"],
-                  ["userName", "Your name"],
-                  ["helpRequest", "What we are working on"],
-                ] as const
-              ).map(([key, label]) => {
-                const fact = snapshot.onboarding!.facts[key];
-                return (
-                  <div key={key}>
-                    <dt>{label}</dt>
-                    <dd>
-                      {fact.value || "Not shared yet"}
-                      {fact.status === "ambiguous" && (
-                        <span className="clarification">
-                          Needs clarification
-                        </span>
-                      )}
-                    </dd>
-                  </div>
-                );
-              })}
-              <div>
-                <dt>Gmail</dt>
-                <dd>
-                  {snapshot.onboarding.gmail === "connected"
-                    ? "Connected"
-                    : "Not connected"}
-                </dd>
-              </div>
-            </dl>
-            <p>You can correct any detail in the conversation.</p>
-          </details>
-        )}
-        <div
-          className="turns"
-          role="log"
-          aria-label="Messages"
-          aria-live="polite"
-          aria-relevant="additions text"
-        >
-          {snapshot?.turns.map((turn) => (
-            <article key={turn.id} className={`turn ${turn.role}`}>
-              <div className="turn-label">
-                {turn.role === "user" ? "You" : agentName}
-                <span>
-                  {turn.delivery === "interrupted"
-                    ? "Saved transcript · interrupted"
-                    : turn.channel === "voice"
-                      ? "Saved transcript"
-                      : "Saved"}
-                </span>
-              </div>
-              <p>{turn.content}</p>
-            </article>
-          ))}
-          {shownPending && (
-            <article className="turn user pending">
-              <div className="turn-label">
-                You<span>Not yet confirmed</span>
-              </div>
-              <p>{pending.content}</p>
-            </article>
-          )}
-          {busy && (pending || unresolved) && (
-            <p className="thinking" role="status">
-              {agentName} is thinking<span aria-hidden="true">...</span>
-            </p>
-          )}
         </div>
+      </section>
+
+      <footer className="composer-area">
+        {!detailsOpen && resetNotice && (
+          <div className="notice" role="status">
+            <p>{resetNotice}</p>
+            <button type="button" onClick={() => setDetailsOpen(true)}>
+              Review start over
+            </button>
+          </div>
+        )}
+        {showJump && (
+          <button
+            className="jump-button"
+            type="button"
+            onClick={() => {
+              followLatest.current = true;
+              setShowJump(false);
+              scrollArea.current?.scrollTo({
+                top: scrollArea.current.scrollHeight,
+                behavior: window.matchMedia("(prefers-reduced-motion: reduce)")
+                  .matches
+                  ? "auto"
+                  : "smooth",
+              });
+            }}
+          >
+            <ChatIcon name="arrowDown" /> Back to latest
+          </button>
+        )}
+        {!hasControl && snapshot?.control && (
+          <div className="notice" role="status">
+            <p>This conversation is controlled in another tab.</p>
+            <button
+              type="button"
+              onClick={() =>
+                void takeControl().catch(() =>
+                  setNotice("Could not take control. Try again."),
+                )
+              }
+            >
+              Take control
+            </button>
+          </div>
+        )}
         {visibleNotice && (
           <div className="notice" role="status">
             <p>{visibleNotice}</p>
             {!busy && (
-              <button onClick={retry}>
+              <button type="button" onClick={retry}>
                 {retryPayload ? "Retry message" : "Try connecting again"}
               </button>
             )}
           </div>
         )}
-        <div ref={end} />
-      </section>
-      <footer className="composer-area">
+        {gmailNotice && (
+          <div className="notice gmail-notice" role="status">
+            <p>{gmailNotice}</p>
+          </div>
+        )}
+        {voice.notice && (
+          <div className="notice voice-notice" role="status">
+            <p>{voice.notice}</p>
+            {voice.notice.includes("Play call audio") && (
+              <button type="button" onClick={() => void voice.play()}>
+                Play call audio
+              </button>
+            )}
+          </div>
+        )}
+        {voice.active && (
+          <div className="call-banner" role="status">
+            <span
+              className={`voice-bars ${voice.state === "active" ? "is-active" : ""}`}
+              aria-hidden="true"
+            >
+              <i />
+              <i />
+              <i />
+              <i />
+              <i />
+            </span>
+            <span>
+              <strong>{callStatus}</strong>
+              <small>You can speak or keep typing here.</small>
+            </span>
+            <button
+              type="button"
+              className="end-call"
+              onClick={() => void voice.end()}
+            >
+              <ChatIcon name="stop" /> End call
+            </button>
+          </div>
+        )}
         <form
           className="composer"
           onSubmit={(event) => {
@@ -669,9 +707,13 @@ export default function Chat() {
             ref={input}
             id="message"
             value={draft}
-            rows={2}
+            rows={1}
             maxLength={8000}
-            placeholder="What's on your mind?"
+            placeholder={
+              voice.active
+                ? "Type to join the conversation…"
+                : "What's on your mind?"
+            }
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
               if (
@@ -684,20 +726,153 @@ export default function Chat() {
               }
             }}
           />
-          <button
-            className="send"
-            type="submit"
-            disabled={!canSend}
-            aria-label="Send message"
-          >
-            <span aria-hidden="true">↑</span>
-          </button>
+          <div className="composer-toolbar">
+            <div className="composer-tools">
+              {snapshot?.control && (
+                <GmailConnection
+                  key={snapshot.conversationId}
+                  headers={headers}
+                  enabled={hasControl && connection === "ready" && !resetting}
+                  conversationId={snapshot.conversationId}
+                  onChanged={refresh}
+                  onNotice={setGmailNotice}
+                />
+              )}
+            </div>
+            <div className="send-tools">
+              {snapshot?.control && !voice.active && (
+                <button
+                  className="voice-button"
+                  type="button"
+                  disabled={
+                    !hasControl ||
+                    connection !== "ready" ||
+                    busy ||
+                    !!retryPayload ||
+                    resetting
+                  }
+                  onClick={() => void voice.start()}
+                >
+                  <ChatIcon name="headphones" /> Start a call
+                </button>
+              )}
+              <button
+                className="send"
+                type="submit"
+                disabled={!canSend}
+                aria-label="Send message"
+              >
+                <ChatIcon name="arrowUp" />
+              </button>
+            </div>
+          </div>
         </form>
         <p className="privacy-note">
-          Your conversation is saved for this browser. Pick up where you left
-          off.
+          <span>One conversation. Pick up where you left off.</span>
+          <span className="keyboard-hint">Shift + Enter for a new line</span>
         </p>
       </footer>
+
+      <ConversationDialog
+        open={detailsOpen}
+        onClose={() => {
+          setDetailsOpen(false);
+          setConfirmReset(false);
+        }}
+      >
+        <section className="memory" role="group" aria-label="Saved details">
+          <h3>Saved details</h3>
+          <dl>
+            {(
+              [
+                ["agentName", "Your assistant"],
+                ["userName", "Your name"],
+                ["helpRequest", "What we are working on"],
+              ] as const
+            ).map(([key, label]) => {
+              const fact = snapshot?.onboarding?.facts[key];
+              return (
+                <div key={key}>
+                  <dt>{label}</dt>
+                  <dd>
+                    {fact?.value || "Not shared yet"}
+                    {fact?.status === "ambiguous" && (
+                      <span className="clarification">Needs clarification</span>
+                    )}
+                  </dd>
+                </div>
+              );
+            })}
+            <div>
+              <dt>Gmail</dt>
+              <dd>
+                {snapshot?.onboarding?.gmail === "connected"
+                  ? "Connected"
+                  : "Not connected"}
+              </dd>
+            </div>
+          </dl>
+          <p>You can correct any detail in the conversation.</p>
+        </section>
+        <div className="conversation-info">
+          <ChatIcon name="info" />
+          <p>
+            This conversation is saved for this browser. Voice and text share
+            the same history.
+          </p>
+        </div>
+        {snapshot?.control && (
+          <div className="reset-controls">
+            {resetNotice ? (
+              <div className="notice" role="alert">
+                <p>{resetNotice}</p>
+                <button
+                  type="button"
+                  disabled={!hasControl || resetting}
+                  onClick={() => void startOver()}
+                >
+                  Retry start over
+                </button>
+              </div>
+            ) : confirmReset ? (
+              <div role="alertdialog" aria-label="Start over confirmation">
+                <h3>Start over?</h3>
+                <p>
+                  Delete this app&apos;s saved conversation, names, preferences,
+                  and Gmail credentials? This does not delete data retained
+                  independently by providers.
+                </p>
+                <div className="reset-actions">
+                  <button
+                    className="destructive-button"
+                    type="button"
+                    onClick={() => void startOver()}
+                  >
+                    Delete saved conversation
+                  </button>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => setConfirmReset(false)}
+                  >
+                    Keep conversation
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                className="reset-button"
+                type="button"
+                disabled={!hasControl || resetting}
+                onClick={() => setConfirmReset(true)}
+              >
+                <ChatIcon name="reset" />
+                {resetting ? "Starting over…" : "Start over"}
+              </button>
+            )}
+          </div>
+        )}
+      </ConversationDialog>
     </main>
   );
 }

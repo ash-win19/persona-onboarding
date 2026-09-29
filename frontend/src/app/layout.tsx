@@ -2,8 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Persona onboarding",
-  description: "Get started with your personal assistant.",
+  title: "Persona | Your personal assistant",
+  description:
+    "One conversation to think things through, get help, and pick up where you left off.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
