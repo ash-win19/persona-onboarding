@@ -37,7 +37,16 @@
       "helpRequestRetained": true,
       "graduated": true,
       "gmailPreferenceUnchanged": true,
-      "evidence": "/private/tmp/persona-canonical-retry-production.json"
+      "evidence": "/private/tmp/persona-canonical-retry-production.json",
+      "timings": {
+        "measurement": "Browser receipt timestamps for provider events; one production run with synthetic microphone audio, not acoustic output measurements or percentile estimates.",
+        "speechStoppedToOutputAudioStartedMs": [
+          7963,
+          4172
+        ],
+        "speechStartedToOutputAudioClearedMs": 0,
+        "interruptionNote": "Speech-started and output-cleared events arrived in the same millisecond. This does not measure microphone-to-speaker interruption latency."
+      }
     },
     {
       "name": "Explicit names/task plus name-question refusal, Gmail refusal and voice deferral persist after refresh",

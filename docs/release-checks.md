@@ -60,6 +60,8 @@ Automated tests use isolated databases and controlled provider adapters. They co
 
 Real-provider checks are recorded separately with the deployed commit. Mocked OAuth tests do not count as a real Google consent pass. Browser fake microphone audio tests exercise real OpenAI speech, transport and tools without capturing the evaluator's microphone.
 
+On production revision `51e74ef`, one real voice run took 7.963 seconds from the provider speech-stopped event to its playback-start event for the initial response, then 4.172 seconds after a spoken correction. During interruption, speech-started and output-cleared events arrived in the same millisecond. These are browser receipt times for provider events, not acoustic measurements or latency guarantees. Expect several seconds of silence while a fact-changing turn is processed.
+
 For backend restart verification, first save a synthetic conversation and start its call. Restart only `srv-datekju0tbcc73aeq1h0` in the personal workspace. Confirm voice stops and committed history returns after readiness recovers. For cold-start verification, let the Free service idle naturally, then record readiness and first usable chat time through the Vercel URL. Never alter the production database to simulate an outage; use the isolated failure adapter and bounded Neon timeout probe described in deployment documentation.
 
 Known limits: the anonymous credential belongs to the same browser profile; clearing cookies loses access but does not request server deletion. Unsaved drafts may be lost on a crash. Ended calls require an explicit new call. The trial verifies Gmail access but provides no inbox actions. Free Render sleep and restarts can interrupt calls.
