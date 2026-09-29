@@ -91,14 +91,14 @@ test("reading earlier messages survives polling and new replies until jumping to
   ).toBeInViewport();
 });
 
-test("mobile has one usable composer and details close without losing a draft", async ({
+test("mobile has one usable composer for an uninterrupted conversation", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 375, height: 740 });
   await conversation(page);
   await page.goto("/");
   const input = page.getByRole("textbox", { name: "Message Persona" });
-  await page.getByRole("button", { name: "Prepare for an interview" }).click();
+  await input.fill("Prepare for an interview");
   await expect(input).toHaveValue("Prepare for an interview");
   await expect(input).toBeFocused();
   await expect(
@@ -115,47 +115,7 @@ test("mobile has one usable composer and details close without losing a draft", 
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
-  await page.getByRole("button", { name: "Conversation settings" }).click();
-  await expect(
-    page.getByRole("dialog", { name: "Your conversation" }),
-  ).toBeVisible();
-  await expect(
-    page
-      .getByRole("group", { name: "Saved details" })
-      .getByText("Sam", { exact: true }),
-  ).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(page.getByRole("dialog")).not.toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Conversation settings" }),
-  ).toBeFocused();
-  await expect(input).toHaveValue("Prepare for an interview");
   await expect(page.getByRole("textbox")).toHaveCount(1);
-});
-
-test("a failed reset explains recovery inside the dialog and retries the same request", async ({
-  page,
-}) => {
-  await conversation(page, true);
-  const operations: string[] = [];
-  await page.route("**/api/reset", async (route) => {
-    operations.push(route.request().postDataJSON().operationId);
-    return route.fulfill({ status: 503, json: {} });
-  });
-  await page.goto("/");
-  await page.getByRole("button", { name: "Conversation settings" }).click();
-  await page.getByRole("button", { name: "Start over", exact: true }).click();
-  await page.getByRole("button", { name: "Delete saved conversation" }).click();
-  const dialog = page.getByRole("dialog", { name: "Your conversation" });
-  await expect(
-    dialog.getByText(/Start over could not be confirmed/),
-  ).toBeVisible();
-  await dialog.getByRole("button", { name: "Retry start over" }).click();
-  await expect(
-    dialog.getByText(/Start over could not be confirmed/),
-  ).toBeVisible();
-  expect(operations).toHaveLength(2);
-  expect(operations[1]).toBe(operations[0]);
 });
 
 test("a short viewport can scroll to Send with an expanded draft and a recovery notice", async ({

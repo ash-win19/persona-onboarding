@@ -3,17 +3,11 @@ import type { SVGProps } from "react";
 const paths = {
   arrowUp: "m6 12 6-6 6 6M12 6v12",
   arrowDown: "m6 12 6 6 6-6M12 6v12",
-  arrowRight: "M5 12h14m-6-6 6 6-6 6",
-  close: "m6 6 12 12M6 18 18 6",
   mail: "M4 5h16v14H4zM4 6l8 6 8-6",
   info: "M12 11v6M12 7h.01M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0",
   headphones: "M4 14v-3a8 8 0 0 1 16 0v3M4 13H3v7h4v-7zm16 0h1v7h-4v-7z",
   stop: "M7 7h10v10H7z",
   check: "m5 12 4 4L19 6",
-  reset: "M3 10a9 9 0 1 1 2 8M3 4v6h6",
-  briefcase: "M8 6V3h8v3M3 6h18v14H3zM3 11a20 20 0 0 0 18 0M12 11v3",
-  idea: "M9 18h6m-6 3h6M8 14a6 6 0 1 1 8 0c-1 1-1 2-1 2H9s0-1-1-2",
-  calendar: "M4 5h16v16H4zM8 2v6m8-6v6M4 11h16M8 15h2m4 0h2",
 } as const;
 
 export function ChatIcon({
