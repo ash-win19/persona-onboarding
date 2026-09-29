@@ -431,10 +431,10 @@ test("onboarding invites a name and restores corrected facts without a form", as
   await expect(
     page.getByText("Sam, start with a short introduction."),
   ).toBeVisible();
-  await expect(page.locator(".turn.assistant .turn-label")).toContainText("Nova");
+  await expect(page.getByRole("article", { name: "Nova", exact: true })).toContainText("Sam, start with a short introduction.");
   await page.reload();
   await expect(page.getByText("Sam, start with a short introduction.")).toBeVisible();
-  await expect(page.locator(".turn.assistant .turn-label")).toContainText("Nova");
+  await expect(page.getByRole("article", { name: "Nova", exact: true })).toContainText("Sam, start with a short introduction.");
 });
 test("declined microphone permission leaves the saved text conversation usable", async ({
   page,
