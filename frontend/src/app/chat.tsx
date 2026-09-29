@@ -52,7 +52,16 @@ async function api<T>(
     method: body === undefined ? "GET" : "POST",
     credentials: "same-origin",
     cache: "no-store",
-    headers: { "Content-Type": "application/json", "X-Persona-Client": "web", ...(owner ? { "X-Persona-Tab": owner.tabId, "X-Persona-Epoch": String(owner.epoch) } : {}) },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Persona-Client": "web",
+      ...(owner
+        ? {
+            "X-Persona-Tab": owner.tabId,
+            "X-Persona-Epoch": String(owner.epoch),
+          }
+        : {}),
+    },
     body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
   });
@@ -87,27 +96,51 @@ export default function Chat() {
   const active = useRef<AbortController | null>(null);
   const end = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
-  const tabId=useRef("");
-  const ownerRef=useRef<{tabId:string;epoch:number}|undefined>(undefined);
-  const [hasControl,setHasControl]=useState(true);
-  const headers=()=>({"Content-Type":"application/json","X-Persona-Client":"web",...(ownerRef.current?{"X-Persona-Tab":ownerRef.current.tabId,"X-Persona-Epoch":String(ownerRef.current.epoch)}:{})});
-  const refresh=async()=>{const data=await api<Snapshot>("session",new AbortController().signal);accept(data);};
-  const voice=useVoice(headers,refresh);
-  const voiceRef=useRef(voice);voiceRef.current=voice;
+  const tabId = useRef("");
+  const ownerRef = useRef<{ tabId: string; epoch: number } | undefined>(
+    undefined,
+  );
+  const [hasControl, setHasControl] = useState(true);
+  const headers = () => ({
+    "Content-Type": "application/json",
+    "X-Persona-Client": "web",
+    ...(ownerRef.current
+      ? {
+          "X-Persona-Tab": ownerRef.current.tabId,
+          "X-Persona-Epoch": String(ownerRef.current.epoch),
+        }
+      : {}),
+  });
+  const refresh = async () => {
+    const data = await api<Snapshot>("session", new AbortController().signal);
+    accept(data);
+  };
+  const voice = useVoice(headers, refresh);
+  const voiceRef = useRef(voice);
+  useEffect(() => {
+    voiceRef.current = voice;
+  }, [voice]);
 
-  function control(value:Control){
-    const mine=value.tabId===tabId.current;
-    ownerRef.current=mine?{tabId:tabId.current,epoch:value.epoch}:undefined;
+  function control(value: Control) {
+    const mine = value.tabId === tabId.current;
+    ownerRef.current = mine
+      ? { tabId: tabId.current, epoch: value.epoch }
+      : undefined;
     setHasControl(mine);
-    if(!mine)voiceRef.current.controlLost();
+    if (!mine) voiceRef.current.controlLost();
   }
-  async function takeControl(){
-    const result=await api<{control:Control}>("control",new AbortController().signal,{tabId:tabId.current,takeover:true});
-    control(result.control);await refresh();
+  async function takeControl() {
+    const result = await api<{ control: Control }>(
+      "control",
+      new AbortController().signal,
+      { tabId: tabId.current, takeover: true },
+    );
+    control(result.control);
+    await refresh();
   }
 
   function accept(data: Snapshot) {
-    if(data.control?.tabId)control(data.control);
+    if (data.control?.tabId) control(data.control);
     setSnapshot(data);
     setConnection("ready");
     if (data.operation?.status === "completed") {
@@ -155,9 +188,13 @@ export default function Chat() {
         }
       }
       const data = await api<Snapshot>("session", controller.signal, {});
-      if(data.control){
-        const claim=await api<{control:Control}>("control",controller.signal,{tabId:tabId.current,takeover:false});
-        data.control=claim.control;
+      if (data.control) {
+        const claim = await api<{ control: Control }>(
+          "control",
+          controller.signal,
+          { tabId: tabId.current, takeover: false },
+        );
+        data.control = claim.control;
       }
       if (controller.signal.aborted) return;
       accept(data);
@@ -175,7 +212,7 @@ export default function Chat() {
   }
 
   useEffect(() => {
-    if(!tabId.current)tabId.current=crypto.randomUUID();
+    if (!tabId.current) tabId.current = crypto.randomUUID();
     const controller = new AbortController();
     active.current = controller;
     const timer = setTimeout(() => {
@@ -189,28 +226,53 @@ export default function Chat() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(()=>{
-    if(!snapshot?.control || !snapshot.conversationId)return;
-    const controller=new AbortController();let running=false;
-    const poll=async()=>{
-      if(running)return;running=true;
-      try{
-        const signal=AbortSignal.any([controller.signal,AbortSignal.timeout(5000)]);
-        const claim=await api<{control:Control}>("control",signal,{tabId:tabId.current,takeover:false});
-        if(controller.signal.aborted)return;
+  useEffect(() => {
+    if (!snapshot?.control || !snapshot.conversationId) return;
+    const controller = new AbortController();
+    let running = false;
+    const poll = async () => {
+      if (running) return;
+      running = true;
+      try {
+        const signal = AbortSignal.any([
+          controller.signal,
+          AbortSignal.timeout(5000),
+        ]);
+        const claim = await api<{ control: Control }>("control", signal, {
+          tabId: tabId.current,
+          takeover: false,
+        });
+        if (controller.signal.aborted) return;
         control(claim.control);
-        const status=await api<{call:CallState|null;control:Control}>("calls/status",signal);
-        voiceRef.current.reconcile(status.call,status.control.tabId===tabId.current);
-        const data=await api<Snapshot>("session",signal);
-        if(!controller.signal.aborted)accept(data);
-      }catch{if(!controller.signal.aborted){voiceRef.current.controlLost();setConnection("unavailable");}}
-      finally{running=false;}
+        const status = await api<{ call: CallState | null; control: Control }>(
+          "calls/status",
+          signal,
+        );
+        voiceRef.current.reconcile(
+          status.call,
+          status.control.tabId === tabId.current,
+        );
+        const data = await api<Snapshot>("session", signal);
+        if (!controller.signal.aborted) accept(data);
+      } catch {
+        if (!controller.signal.aborted) {
+          voiceRef.current.controlLost();
+          setConnection("unavailable");
+        }
+      } finally {
+        running = false;
+      }
     };
-    const timer=setInterval(()=>{void poll();},3000);
-    return()=>{controller.abort();clearInterval(timer);};
+    const timer = setInterval(() => {
+      void poll();
+    }, 3000);
+    return () => {
+      controller.abort();
+      clearInterval(timer);
+    };
     // Polling follows the conversation; current media and authority live in refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[snapshot?.conversationId,!!snapshot?.control]);
+  }, [snapshot?.conversationId, !!snapshot?.control]);
 
   useEffect(() => {
     end.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -225,7 +287,12 @@ export default function Chat() {
     setBusy(true);
     setNotice("");
     try {
-      const data = await api<Snapshot>("turns", controller.signal, payload, ownerRef.current);
+      const data = await api<Snapshot>(
+        "turns",
+        controller.signal,
+        payload,
+        ownerRef.current,
+      );
       if (controller.signal.aborted) return;
       accept(data);
       await waitForReply(data, controller.signal);
@@ -269,7 +336,12 @@ export default function Chat() {
     ? { submissionId: unresolved.submissionId, content: unresolved.content }
     : pending;
   const canSend =
-    connection === "ready" && hasControl && !voice.active && !busy && !retryPayload && !!draft.trim();
+    connection === "ready" &&
+    hasControl &&
+    !voice.active &&
+    !busy &&
+    !retryPayload &&
+    !!draft.trim();
   const visibleNotice =
     notice ||
     (pending &&
@@ -361,13 +433,52 @@ export default function Chat() {
         )}
         {snapshot?.control && (
           <div className="conversation-controls">
-            {!hasControl ? <p>This conversation is controlled in another tab. <button onClick={()=>void takeControl().catch(()=>setNotice("Could not take control. Try again."))}>Take control</button></p> : (
+            {!hasControl ? (
+              <p>
+                This conversation is controlled in another tab.{" "}
+                <button
+                  onClick={() =>
+                    void takeControl().catch(() =>
+                      setNotice("Could not take control. Try again."),
+                    )
+                  }
+                >
+                  Take control
+                </button>
+              </p>
+            ) : (
               <div className="call-controls">
-                {voice.active ? <button onClick={()=>void voice.end()}>End call</button> : <button disabled={connection!=="ready" || busy || !!retryPayload} onClick={()=>void voice.start()}>Start a call</button>}
-                <span role="status">{voice.state==="permission"?"Waiting for microphone permission":voice.state==="connecting"?"Connecting your call":voice.state==="active"?"Call active":"Voice is optional"}</span>
+                {voice.active ? (
+                  <button onClick={() => void voice.end()}>End call</button>
+                ) : (
+                  <button
+                    disabled={connection !== "ready" || busy || !!retryPayload}
+                    onClick={() => void voice.start()}
+                  >
+                    Start a call
+                  </button>
+                )}
+                <span role="status">
+                  {voice.state === "permission"
+                    ? "Waiting for microphone permission"
+                    : voice.state === "connecting"
+                      ? "Connecting your call"
+                      : voice.state === "active"
+                        ? "Call active"
+                        : "Voice is optional"}
+                </span>
               </div>
             )}
-            {voice.notice && <p role="status">{voice.notice}{voice.notice.includes("Play call audio") && <button onClick={()=>void voice.play()}>Play call audio</button>}</p>}
+            {voice.notice && (
+              <p role="status">
+                {voice.notice}
+                {voice.notice.includes("Play call audio") && (
+                  <button onClick={() => void voice.play()}>
+                    Play call audio
+                  </button>
+                )}
+              </p>
+            )}
           </div>
         )}
         {snapshot?.onboarding && snapshot.turns.length > 0 && (
@@ -419,7 +530,13 @@ export default function Chat() {
             <article key={turn.id} className={`turn ${turn.role}`}>
               <div className="turn-label">
                 {turn.role === "user" ? "You" : agentName}
-                <span>{turn.delivery==="interrupted"?"Saved transcript · interrupted":turn.channel==="voice"?"Saved transcript":"Saved"}</span>
+                <span>
+                  {turn.delivery === "interrupted"
+                    ? "Saved transcript · interrupted"
+                    : turn.channel === "voice"
+                      ? "Saved transcript"
+                      : "Saved"}
+                </span>
               </div>
               <p>{turn.content}</p>
             </article>

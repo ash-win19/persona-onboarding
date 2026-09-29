@@ -260,22 +260,29 @@ export class Calls implements OnModuleDestroy {
     return this.status(credential);
   }
   private async finish(id: string, reason: string) {
-    await this.stopTransport(id);
-    await this.db.query(
-      "UPDATE calls SET status=$2,reason=$3,ended_at=$4 WHERE id=$1 AND status IN ('connecting','active')",
-      [
-        id,
-        ['user_hangup', 'page_exit', 'takeover', 'time_limit'].includes(reason)
-          ? 'ended'
-          : 'failed',
-        reason,
-        new Date(this.authority.now()),
-      ],
-    );
-    await this.db.query(
-      "UPDATE turns SET delivery='interrupted' WHERE call_id=$1 AND role='assistant' AND delivery='generated'",
-      [id],
-    );
+    try {
+      await this.db.transaction(async (sql) => {
+        await sql.query(
+          "UPDATE calls SET status=$2,reason=$3,ended_at=$4 WHERE id=$1 AND status IN ('connecting','active')",
+          [
+            id,
+            ['user_hangup', 'page_exit', 'takeover', 'time_limit'].includes(
+              reason,
+            )
+              ? 'ended'
+              : 'failed',
+            reason,
+            new Date(this.authority.now()),
+          ],
+        );
+        await sql.query(
+          "UPDATE turns SET delivery='interrupted' WHERE call_id=$1 AND role='assistant' AND delivery='generated'",
+          [id],
+        );
+      });
+    } finally {
+      await this.stopTransport(id);
+    }
   }
   private async stopTransport(id: string) {
     const runtime = this.live.get(id);

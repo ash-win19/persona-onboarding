@@ -442,33 +442,75 @@ test("onboarding invites a name and restores corrected facts without a form", as
   await page.getByText("What I remember", { exact: true }).click();
   await expect(memory.getByText("Sam", { exact: true })).toBeVisible();
 });
-test("declined microphone permission leaves the saved text conversation usable", async ({ page }) => {
-  let control: { tabId: string | null; epoch: number } = { tabId: null, epoch: 0 };
+test("declined microphone permission leaves the saved text conversation usable", async ({
+  page,
+}) => {
+  let control: { tabId: string | null; epoch: number } = {
+    tabId: null,
+    epoch: 0,
+  };
   let attemptedCalls = 0;
   const snapshot = {
-    conversationId: "voice-permission-check", revision: 0, turns: [] as { id: string; submissionId: string; role: string; content: string }[], operation: null as null | { id: string; status: string },
+    conversationId: "voice-permission-check",
+    revision: 0,
+    turns: [] as {
+      id: string;
+      submissionId: string;
+      role: string;
+      content: string;
+    }[],
+    operation: null as null | { id: string; status: string },
   };
   await page.addInitScript(() => {
-    Object.defineProperty(navigator.mediaDevices, "getUserMedia", { value: () => Promise.reject(new DOMException("Declined", "NotAllowedError")) });
+    Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
+      value: () =>
+        Promise.reject(new DOMException("Declined", "NotAllowedError")),
+    });
   });
-  await page.route("**/api/**", async route => {
+  await page.route("**/api/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
     if (path === "/api/ready") return route.fulfill({ json: { ready: true } });
-    if (path === "/api/control") { control = { tabId: route.request().postDataJSON().tabId, epoch: 1 }; return route.fulfill({ json: { control } }); }
-    if (path === "/api/calls/status") return route.fulfill({ json: { call: null, control } });
-    if (path === "/api/calls/start") { attemptedCalls++; return route.fulfill({ status: 503, json: {} }); }
+    if (path === "/api/control") {
+      control = { tabId: route.request().postDataJSON().tabId, epoch: 1 };
+      return route.fulfill({ json: { control } });
+    }
+    if (path === "/api/calls/status")
+      return route.fulfill({ json: { call: null, control } });
+    if (path === "/api/calls/start") {
+      attemptedCalls++;
+      return route.fulfill({ status: 503, json: {} });
+    }
     if (path === "/api/turns") {
       const body = route.request().postDataJSON();
-      snapshot.turns = [{ id: "u", submissionId: body.submissionId, role: "user", content: body.content }, { id: "a", submissionId: body.submissionId, role: "assistant", content: "We can keep typing." }];
+      snapshot.turns = [
+        {
+          id: "u",
+          submissionId: body.submissionId,
+          role: "user",
+          content: body.content,
+        },
+        {
+          id: "a",
+          submissionId: body.submissionId,
+          role: "assistant",
+          content: "We can keep typing.",
+        },
+      ];
       snapshot.operation = { id: body.submissionId, status: "completed" };
     }
     return route.fulfill({ json: { ...snapshot, control } });
   });
   await page.goto("/");
   await page.getByRole("button", { name: "Start a call" }).click();
-  await expect(page.getByText("Microphone access was declined.", { exact: false })).toBeVisible();
+  await expect(
+    page.getByText("Microphone access was declined.", { exact: false }),
+  ).toBeVisible();
   expect(attemptedCalls).toBe(0);
-  await page.getByRole("textbox", { name: "Message Persona" }).fill("Let's type instead.");
+  await page
+    .getByRole("textbox", { name: "Message Persona" })
+    .fill("Let's type instead.");
   await page.getByRole("button", { name: "Send message" }).click();
-  await expect(page.getByText("We can keep typing.", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("We can keep typing.", { exact: true }),
+  ).toBeVisible();
 });
