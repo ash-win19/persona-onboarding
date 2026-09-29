@@ -1,5 +1,5 @@
-import Chat from "./chat";
+import SignIn from "./sign-in";
 
 export default function Home() {
-  return <Chat />;
+  return <SignIn />;
 }

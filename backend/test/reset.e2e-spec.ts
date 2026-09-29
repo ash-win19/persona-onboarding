@@ -1,3 +1,4 @@
+import { invitedAccount } from './invited-account.js';
 import { PGlite } from '@electric-sql/pglite';
 import { Test } from '@nestjs/testing';
 import type { INestApplication } from '@nestjs/common';
@@ -102,11 +103,11 @@ describe('reset and operator cleanup', () => {
   });
   async function session() {
     const created = await request(app.getHttpServer())
-      .post('/session')
+      .post('/auth/login')
       .set('Origin', origin)
       .set('X-Persona-Client', 'web')
-      .send({})
-      .expect(201);
+      .send(await invitedAccount(app))
+      .expect(200);
     const cookie = created.headers['set-cookie'][0],
       tabId = randomUUID();
     const claim = await request(app.getHttpServer())
@@ -156,6 +157,16 @@ describe('reset and operator cleanup', () => {
       (await db.query('SELECT 1 FROM conversations WHERE id=$1', [id])).rows,
     ).toHaveLength(0);
   }
+  it('sign-out with an old cookie also revokes a reset response still in flight', async () => {
+    const s = await session();
+    const reset = await s
+      .post('/reset', { operationId: randomUUID() })
+      .expect(200);
+    await s.post('/auth/logout', {}).expect(200);
+    await s.get('/session', reset.headers['set-cookie'][0]).expect(401);
+    await s.get('/session').expect(401);
+  });
+
   it('deletes all app data and tokens, rotates the session once, and stops the old call', async () => {
     const s = await session();
     model.reply = async (turns, tools) => {

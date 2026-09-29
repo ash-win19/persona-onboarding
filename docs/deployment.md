@@ -2,6 +2,8 @@
 
 The public entry point is the Vercel `usepersona` project. Next.js proxies `/api/*` to the Render service through its build-time `BACKEND_URL`. The backend authenticates session cookies itself and checks `Origin` plus the custom client header on every write.
 
+The application now requires operator-created email/password accounts. Follow [invite-only sign-in](./sign-in.md) for provisioning and password resets. `/session` no longer creates anonymous sessions; old anonymous cookies are rejected. Provision at least the owner's account before releasing the login page. During the host rollout, the old frontend may ask users to reconnect until Vercel finishes deploying the sign-in page.
+
 ## Account selection
 
 Use the personal Render workspace `My Personal Workspace`, ID `tea-d731qrp9fqoc73cc7ehg`. The backend service is `persona-api`, ID `srv-datekju0tbcc73aeq1h0`, at `https://persona-api-ngfi.onrender.com`. Before a deployment mutation, run `render whoami` and `render workspace current` and verify the personal account and this workspace. Do not reuse an unrelated work account's credentials.
@@ -28,8 +30,8 @@ Vercel uses `frontend/` as its root directory. Set production `BACKEND_URL` to t
 
 ## Production review
 
-- Open a fresh private browser session, send a concrete help request and wait for the real assistant reply. Both messages should show Saved only after the server returns them.
-- Refresh, close and reopen the same browser session. The committed transcript should remain in order. Another browser session must show a separate conversation.
+- Open a fresh private browser session, sign in with a disposable trial account, send a concrete help request and wait for the real assistant reply. Both messages should be committed before being treated as saved.
+- Refresh, close and reopen the same browser session. The committed transcript should remain in order. The same account in another browser resumes it; a different account must show a separate conversation.
 - Restart the backend, reconnect and confirm the committed transcript survives. Let the free backend idle naturally and open the frontend later to observe wake-up behavior.
 - In browser automation, allow a real `/api/turns` request to finish at the server, discard its response, then click Retry message. Confirm one user turn and one assistant turn. Repeated delivery of the same identifier must not call the model again after completion.
 - Simulate database unavailability through an isolated test configuration or a controlled test adapter. Check readiness and submit failure, visible pending content, and successful retry after recovery. Do not disrupt unrelated databases.

@@ -1,3 +1,4 @@
+import { invitedAccount } from './invited-account.js';
 import { PGlite } from '@electric-sql/pglite';
 import { Test } from '@nestjs/testing';
 import type { INestApplication } from '@nestjs/common';
@@ -100,11 +101,11 @@ describe('browser call API', () => {
   });
   async function session() {
     const created = await request(app.getHttpServer())
-      .post('/session')
+      .post('/auth/login')
       .set('Origin', origin)
       .set('X-Persona-Client', 'web')
-      .send({})
-      .expect(201);
+      .send(await invitedAccount(app))
+      .expect(200);
     const cookie = created.headers['set-cookie'][0];
     const tabId = randomUUID();
     const claim = await request(app.getHttpServer())
@@ -141,6 +142,24 @@ describe('browser call API', () => {
       heartbeat: () => post('/control', { tabId, takeover: false }).expect(200),
     };
   }
+  it('sign-out immediately closes the call and rejects the old session', async () => {
+    const s = await session();
+    await s
+      .post('/calls/start', { id: randomUUID(), sdp: 'v=0\r\no=browser' })
+      .expect(200);
+    const connection = connections.at(-1)!;
+    expect(connection.closed).toBe(false);
+    await s.post('/auth/logout', {}).expect(200);
+    expect(connection.closed).toBe(true);
+    await request(app.getHttpServer())
+      .get('/session')
+      .set('Cookie', s.cookie)
+      .expect(401);
+    await s
+      .post('/calls/start', { id: randomUUID(), sdp: 'v=0\r\no=browser' })
+      .expect(401);
+  });
+
   it('saves asynchronous final transcripts once, acknowledges a server tool and preserves text after hangup', async () => {
     const s = await session();
     const id = randomUUID();

@@ -17,15 +17,19 @@ import { DATABASE, PostgresDatabase } from './database.js';
 import { CHAT_CONFIG, chatConfig, required } from './config.js';
 import { MODEL, OpenAIReplyModel } from './model.js';
 import { FACT_REPAIR, OpenAIFactRepair } from './fact-repair.js';
+import { Accounts } from './accounts.js';
+import { AccountsController } from './accounts.controller.js';
 
 @Module({
   controllers: [
+    AccountsController,
     ChatController,
     CallsController,
     GmailController,
     ResetController,
   ],
   providers: [
+    Accounts,
     {
       provide: FACT_REPAIR,
       useFactory: () =>

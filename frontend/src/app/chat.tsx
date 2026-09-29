@@ -68,6 +68,8 @@ async function api<T>(
     body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
   });
+  if (response.status === 401)
+    window.dispatchEvent(new Event("persona:unauthorized"));
   if (!response.ok) throw new RequestError(response.status);
   return response.json();
 }
@@ -87,7 +89,7 @@ function pause(ms: number, signal: AbortSignal) {
   });
 }
 
-export default function Chat() {
+export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [connection, setConnection] = useState<Connection>("connecting");
   const [draft, setDraft] = useState("");
@@ -101,6 +103,7 @@ export default function Chat() {
   const followLatest = useRef(true);
   const [showJump, setShowJump] = useState(false);
   const [gmailNotice, setGmailNotice] = useState("");
+  const [signingOut, setSigningOut] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
   const tabId = useRef("");
   const ownerRef = useRef<{ tabId: string; epoch: number } | undefined>(
@@ -423,12 +426,33 @@ export default function Chat() {
         ? "Connecting your call"
         : "Call active";
 
+  async function signOut() {
+    setSigningOut(true);
+    try {
+      await api("auth/logout", new AbortController().signal, {});
+      voiceRef.current.controlLost();
+      active.current?.abort();
+      onSignedOut?.();
+    } catch {
+      setNotice("We couldn't sign you out. Please try again.");
+    } finally {
+      setSigningOut(false);
+    }
+  }
+
   return (
     <main className={`chat-shell ${empty ? "is-empty" : "has-messages"}`}>
       <header className="chat-header">
         <Link className="wordmark" href="/" aria-label="Persona home">
           <PersonaLogo />
         </Link>
+        <button
+          className="sign-out"
+          onClick={() => void signOut()}
+          disabled={signingOut}
+        >
+          {signingOut ? "Signing out…" : "Sign out"}
+        </button>
       </header>
 
       <section
@@ -451,7 +475,8 @@ export default function Chat() {
               </div>
               <h1>Where should we start?</h1>
               <p>
-                What would you like to call me? Or jump right into something you need a hand with.
+                What would you like to call me? Or jump right into something you
+                need a hand with.
               </p>
             </div>
           )}
@@ -655,7 +680,6 @@ export default function Chat() {
           </div>
         </form>
       </footer>
-
     </main>
   );
 }
