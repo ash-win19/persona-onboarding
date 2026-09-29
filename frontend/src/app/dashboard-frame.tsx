@@ -258,7 +258,7 @@ export function DashboardFrame({
               This version verifies your Gmail connection. It does not read or
               send your emails.
             </p>
-            {snapshot?.control && (
+            {snapshot?.control && snapshot.journey?.entered && (
               <GmailConnection
                 headers={headers}
                 enabled={enabled}

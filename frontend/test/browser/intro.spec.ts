@@ -100,8 +100,8 @@ test("the hero holds for 2.5 seconds before fading into the greeting, without re
   });
   await page.goto("/onboarding");
   await expect(page.getByText("Opening your conversation…")).toBeVisible();
-  await page.clock.install();
-  await page.clock.pauseAt(new Date());
+  await page.clock.install({ time: new Date("2026-01-01T00:00:00Z") });
+  await page.clock.pauseAt(new Date("2026-01-01T00:00:01Z"));
   await saved.release();
   const hero = page.locator(".welcome");
   const greeting = page.getByText(

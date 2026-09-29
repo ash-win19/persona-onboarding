@@ -6,6 +6,7 @@ test("a delayed anonymous focus check cannot undo a successful sign-in", async (
   let signedIn = false;
   let loginStarted = false;
   let staleStarted = false;
+  let staleFinished = false;
   let releaseLogin!: () => void;
   let releaseStale!: () => void;
   const loginGate = new Promise<void>((resolve) => {
@@ -32,7 +33,10 @@ test("a delayed anonymous focus check cannot undo a successful sign-in", async (
     if (!signedIn && loginStarted) {
       staleStarted = true;
       await staleGate;
-      return route.fulfill({ status: 401, json: {} });
+      // Navigating away from sign-in aborts this obsolete session check.
+      await route.fulfill({ status: 401, json: {} }).catch(() => undefined);
+      staleFinished = true;
+      return;
     }
     return route.fulfill({
       status: signedIn ? 200 : 401,
@@ -49,12 +53,8 @@ test("a delayed anonymous focus check cannot undo a successful sign-in", async (
   releaseLogin();
   const composer = page.getByRole("textbox", { name: "Message Persona" });
   await composer.fill("Keep this draft");
-  const staleResponse = page.waitForResponse(
-    (response) =>
-      response.url().endsWith("/api/session") && response.status() === 401,
-  );
   releaseStale();
-  await (await staleResponse).finished();
+  await expect.poll(() => staleFinished).toBe(true);
   await page.evaluate(
     () =>
       new Promise<void>((resolve) =>
@@ -62,6 +62,7 @@ test("a delayed anonymous focus check cannot undo a successful sign-in", async (
       ),
   );
   await expect(composer).toHaveValue("Keep this draft");
+  await expect(page).toHaveURL(/\/onboarding$/);
 });
 
 test("invited users sign in, resume after refresh, and sign out", async ({

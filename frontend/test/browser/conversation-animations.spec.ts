@@ -53,7 +53,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
       return route.fulfill({ json: snapshot() });
     });
     try {
-      await page.goto("/");
+      await page.goto("/onboarding");
       await page
         .getByRole("textbox", { name: "Message Persona" })
         .fill("What should I focus on today?");
