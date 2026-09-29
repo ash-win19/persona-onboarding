@@ -78,6 +78,79 @@ async function api<T>(
   return response.json();
 }
 
+class StreamInterrupted extends Error {}
+
+// Posts a turn and reads the streamed reply. The usual 15 second limit applies
+// until the response starts; after that the limit restarts with every chunk, so
+// a long reply is not cut off while text keeps arriving.
+async function streamTurn(
+  payload: Pending,
+  signal: AbortSignal,
+  owner: { tabId: string; epoch: number } | undefined,
+  on: { snapshot: (data: Snapshot) => void; delta: (text: string) => void },
+): Promise<Snapshot> {
+  const idle = new AbortController();
+  const expire = () => idle.abort();
+  const limit = AbortSignal.timeout(15000);
+  limit.addEventListener("abort", expire, { once: true });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const response = await fetch("/api/turns", {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: {
+        Accept: "text/event-stream",
+        "Content-Type": "application/json",
+        "X-Persona-Client": "web",
+        ...(owner
+          ? {
+              "X-Persona-Tab": owner.tabId,
+              "X-Persona-Epoch": String(owner.epoch),
+            }
+          : {}),
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.any([signal, idle.signal]),
+    });
+    limit.removeEventListener("abort", expire);
+    if (response.status === 401)
+      window.dispatchEvent(new Event("persona:unauthorized"));
+    if (!response.ok) throw new RequestError(response.status);
+    if (!response.headers.get("Content-Type")?.includes("text/event-stream"))
+      return response.json();
+    const reader = response
+      .body!.pipeThrough(new TextDecoderStream())
+      .getReader();
+    let buffer = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) throw new StreamInterrupted();
+      clearTimeout(timer);
+      timer = setTimeout(() => idle.abort(), 20000);
+      buffer += value;
+      for (
+        let end = buffer.indexOf("\n\n");
+        end !== -1;
+        end = buffer.indexOf("\n\n")
+      ) {
+        const block = buffer.slice(0, end);
+        buffer = buffer.slice(end + 2);
+        const event = /^event: (.*)$/m.exec(block)?.[1];
+        const data = /^data: (.*)$/m.exec(block)?.[1];
+        if (!event || data === undefined) continue;
+        if (event === "snapshot") on.snapshot(JSON.parse(data));
+        else if (event === "delta") on.delta(JSON.parse(data).text);
+        else if (event === "done") return JSON.parse(data);
+        else if (event === "error") throw new StreamInterrupted();
+      }
+    }
+  } finally {
+    limit.removeEventListener("abort", expire);
+    clearTimeout(timer);
+  }
+}
+
 function pause(ms: number, signal: AbortSignal) {
   return new Promise<void>((resolve, reject) => {
     if (signal.aborted) return reject(signal.reason);
@@ -98,6 +171,10 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
   const [connection, setConnection] = useState<Connection>("connecting");
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState<Pending | null>(null);
+  const [streamed, setStreamed] = useState<{
+    submissionId: string;
+    text: string;
+  } | null>(null);
   const [busy, setBusy] = useState(true);
   const [notice, setNotice] = useState("");
   const [introducing, setIntroducing] = useState(false);
@@ -329,7 +406,13 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
   useEffect(() => {
     const area = scrollArea.current;
     if (area && followLatest.current) area.scrollTop = area.scrollHeight;
-  }, [lastTurn?.id, lastTurn?.content, pending?.submissionId, busy]);
+  }, [
+    lastTurn?.id,
+    lastTurn?.content,
+    pending?.submissionId,
+    busy,
+    streamed?.text,
+  ]);
 
   useEffect(() => {
     const field = input.current;
@@ -347,6 +430,7 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
     setBusy(true);
     setNotice("");
     let voiceTurnFailed: (() => void) | undefined;
+    let saved = false;
     try {
       let data: Snapshot;
       if (voice.active && voice.call?.status === "active") {
@@ -359,20 +443,33 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
         );
         data = await api<Snapshot>("session", controller.signal);
       } else
-        data = await api<Snapshot>(
-          "turns",
-          controller.signal,
-          payload,
-          ownerRef.current,
-        );
+        data = await streamTurn(payload, controller.signal, ownerRef.current, {
+          snapshot: (current) => {
+            saved = true;
+            if (!controller.signal.aborted) accept(current);
+          },
+          delta: (text) => {
+            if (controller.signal.aborted) return;
+            setStreamed((current) => ({
+              submissionId: payload.submissionId,
+              text:
+                (current?.submissionId === payload.submissionId
+                  ? current.text
+                  : "") + text,
+            }));
+          },
+        });
       if (controller.signal.aborted) return;
+      setStreamed(null);
       accept(data);
       await waitForReply(data, controller.signal);
     } catch (error) {
       voiceTurnFailed?.();
+      if (!controller.signal.aborted) setStreamed(null);
+      // A conflict, or a stream that broke after the message was saved, is
+      // resolved from the saved conversation.
       if (
-        error instanceof RequestError &&
-        error.status === 409 &&
+        ((error instanceof RequestError && error.status === 409) || saved) &&
         !controller.signal.aborted
       ) {
         try {
@@ -553,6 +650,7 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
             aria-label="Messages"
             aria-live="polite"
             aria-relevant="additions text"
+            aria-busy={!!streamed}
           >
             {snapshot?.turns.map((turn) => (
               <article
@@ -573,7 +671,14 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
                 </div>
               </article>
             )}
-            {waitingText && (
+            {streamed && (
+              <article className="turn assistant" aria-label={agentName}>
+                <div className="turn-body">
+                  <p>{streamed.text}</p>
+                </div>
+              </article>
+            )}
+            {waitingText && !streamed && (
               <ThinkingIndicator text={waitingText} thinking={generating} />
             )}
           </div>

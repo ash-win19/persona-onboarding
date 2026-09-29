@@ -5,6 +5,7 @@ import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
+import { streamText } from './fake-responses.js';
 import { ChatModule } from '../src/chat/chat.module.js';
 import { DATABASE, type Database } from '../src/chat/database.js';
 import {
@@ -152,43 +153,30 @@ describe('memory in prompts', () => {
       const second = input.input.some(
         (item: { type?: string }) => item.type === 'function_call_output',
       );
-      if (second) reply = input.instructions;
+      if (second) {
+        reply = input.instructions;
+        return streamText(res, ['Noted.']);
+      }
       res.setHeader('Content-Type', 'application/json');
       res.end(
         JSON.stringify({
-          id: second ? 'resp_reply' : 'resp_capture',
+          id: 'resp_capture',
           object: 'response',
           status: 'completed',
-          output: second
-            ? [
-                {
-                  type: 'message',
-                  role: 'assistant',
-                  content: [
-                    {
-                      type: 'output_text',
-                      text: JSON.stringify({
-                        answer: 'Noted.',
-                        followUp: null,
-                      }),
-                      annotations: [],
-                    },
-                  ],
-                },
-              ]
-            : [
-                {
-                  type: 'function_call',
-                  name: 'capture_onboarding',
-                  call_id: 'call_memory',
-                  arguments: JSON.stringify({
-                    expectedRevision: 1,
-                    askOnboarding: false,
-                    changes: [],
-                    preferences: [],
-                  }),
-                },
-              ],
+          output: [
+            {
+              type: 'function_call',
+              name: 'capture_onboarding',
+              call_id: 'call_memory',
+              arguments: JSON.stringify({
+                expectedRevision: 1,
+                askOnboarding: false,
+                changes: [],
+                preferences: [],
+                memory: [],
+              }),
+            },
+          ],
         }),
       );
     });
