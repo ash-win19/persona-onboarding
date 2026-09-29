@@ -63,11 +63,13 @@ test("a delayed Gmail status cannot restore account details after Start over", a
     return route.fulfill({ json: snapshot() });
   });
   await page.goto("/");
+  await page.getByText("Gmail connected", { exact: true }).click();
   await expect(
     page.getByText("Gmail connected: old@example.test"),
   ).toBeVisible();
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect.poll(() => reads).toBe(2);
+  await page.getByRole("button", { name: "What I remember" }).click();
   await page.getByRole("button", { name: "Start over", exact: true }).click();
   await page.getByRole("button", { name: "Delete saved conversation" }).click();
   await expect(

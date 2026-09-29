@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ChatIcon } from "./chat-icons";
 type GmailStatus = {
   available: boolean;
   status: "connected" | "not_connected" | "reconnect_needed";
@@ -12,15 +13,17 @@ export function GmailConnection({
   enabled,
   conversationId,
   onChanged,
+  onNotice,
 }: {
   headers: () => Record<string, string>;
   enabled: boolean;
   conversationId: string;
   onChanged: () => Promise<void>;
+  onNotice: (notice: string) => void;
 }) {
   const [gmail, setGmail] = useState<GmailStatus | null>(null);
-  const [busy, setBusy] = useState(false),
-    [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const noticeRef = useRef(onNotice);
   const lifecycle = useRef(new AbortController());
   const popup = useRef<Window | null>(null),
     attempt = useRef<string | null>(null),
@@ -29,7 +32,8 @@ export function GmailConnection({
   useEffect(() => {
     headersRef.current = headers;
     changedRef.current = onChanged;
-  }, [headers, onChanged]);
+    noticeRef.current = onNotice;
+  }, [headers, onChanged, onNotice]);
   const refresh = useCallback(async () => {
     const life = lifecycle.current;
     if (life.signal.aborted) return;
@@ -51,7 +55,7 @@ export function GmailConnection({
       attempt.current = null;
       popup.current?.close();
       popup.current = null;
-      setNotice(
+      noticeRef.current(
         status.attempt.status === "connected"
           ? "Gmail connected."
           : status.attempt.status === "denied"
@@ -65,6 +69,7 @@ export function GmailConnection({
   }, []);
   useEffect(() => {
     lifecycle.current = new AbortController();
+    noticeRef.current("");
     let cancelled = false;
     const initial = setTimeout(() => {
       if (!cancelled) void refresh().catch(() => undefined);
@@ -97,13 +102,13 @@ export function GmailConnection({
         })
           .then(() => refresh())
           .catch(() =>
-            setNotice(
+            noticeRef.current(
               "The window closed. Check connection status before retrying.",
             ),
           );
       } else
         void refresh().catch(() =>
-          setNotice(
+          noticeRef.current(
             "Could not check Gmail yet. Your conversation is still here.",
           ),
         );
@@ -113,7 +118,7 @@ export function GmailConnection({
   async function connect() {
     const life = lifecycle.current;
     setBusy(true);
-    setNotice("");
+    noticeRef.current("");
     const opened = window.open(
       "about:blank",
       "persona-gmail",
@@ -141,39 +146,62 @@ export function GmailConnection({
       opened?.close();
       if (life.signal.aborted) return;
       setBusy(false);
-      setNotice("Gmail could not start connecting. Please try again.");
+      noticeRef.current("Gmail could not start connecting. Please try again.");
     }
   }
   if (!gmail) return null;
   return (
     <div className="gmail-controls">
-      {gmail.status === "connected" ? (
-        <p>
-          Gmail connected: {gmail.email}
-          {gmail.unavailable
-            ? " · Could not verify access just now. Try again shortly."
-            : ""}
-        </p>
-      ) : (
-        <>
-          <button
-            disabled={!enabled || busy || !gmail.available}
-            onClick={() => void connect()}
-          >
-            {busy
-              ? "Connecting Gmail…"
-              : gmail.status === "reconnect_needed"
-                ? "Reconnect Gmail"
-                : "Connect Gmail"}
-          </button>
+      {gmail.status !== "connected" && (
+        <button
+          type="button"
+          className="tool-button"
+          disabled={!enabled || busy || !gmail.available}
+          onClick={() => void connect()}
+        >
+          <ChatIcon name="mail" />
+          {busy
+            ? "Connecting Gmail…"
+            : gmail.status === "reconnect_needed"
+              ? "Reconnect Gmail"
+              : "Connect Gmail"}
+        </button>
+      )}
+      <details className="gmail-details">
+        <summary
+          className={
+            gmail.status === "connected"
+              ? "tool-button gmail-connected"
+              : "icon-button"
+          }
+          aria-label={
+            gmail.status === "connected"
+              ? "Gmail connection details"
+              : "About Gmail connection"
+          }
+        >
+          <ChatIcon name={gmail.status === "connected" ? "check" : "info"} />
+          {gmail.status === "connected" && <span>Gmail connected</span>}
+        </summary>
+        <div className="gmail-popover">
+          <strong>
+            {gmail.status === "connected"
+              ? "Your connected account"
+              : "A connection you control"}
+          </strong>
+          {gmail.status === "connected" && (
+            <p>Gmail connected: {gmail.email}</p>
+          )}
           <p>
             {gmail.available
               ? "Google consent permits Gmail metadata and headers. This trial only verifies your account address; it does not read your messages."
               : "Gmail connection setup is not available yet. You can continue chatting."}
           </p>
-        </>
-      )}
-      {notice && <p role="status">{notice}</p>}
+          {gmail.unavailable && (
+            <p>Could not verify access just now. Try again shortly.</p>
+          )}
+        </div>
+      </details>
     </div>
   );
 }
