@@ -14,6 +14,10 @@ import {
   type ConversationMemory,
 } from './memory.js';
 
+export interface ReplyStream {
+  start(snapshot: Awaited<ReturnType<ChatService['read']>>): void;
+  delta(text: string): void;
+}
 export type Turn = {
   role: 'user' | 'assistant';
   content: string;
@@ -21,7 +25,7 @@ export type Turn = {
   id: string;
   submissionId: string;
   createdAt: Date;
-  kind: 'opening' | 'message';
+  kind: 'opening' | 'message' | 'handoff';
 };
 type Operation = {
   id: string;
@@ -118,6 +122,7 @@ export class ChatService {
     submissionId: string,
     content: string,
     owner?: Owner,
+    stream?: ReplyStream,
   ) {
     const conversation = await this.authority.authorize(credential);
     const attempt = randomUUID();
@@ -179,6 +184,7 @@ export class ChatService {
     });
     if (!claimed) return this.read(credential);
     const snapshot = await this.read(credential);
+    stream?.start(snapshot);
     const memory = await this.memory.context(conversation.id);
     let reply: string;
     try {
@@ -201,6 +207,7 @@ export class ChatService {
               command,
             ),
         },
+        stream && ((text) => stream.delta(text)),
       );
     } catch {
       await this.db.query(
@@ -229,6 +236,12 @@ export class ChatService {
       await sql.query(
         'INSERT INTO turns(id, conversation_id, submission_id, role, content) VALUES ($1, $2, $3, $4, $5)',
         [randomUUID(), conversation.id, submissionId, 'assistant', reply],
+      );
+      await this.onboarding.deliveredText(
+        sql,
+        conversation.id,
+        submissionId,
+        reply,
       );
       await sql.query(
         'UPDATE conversations SET revision = revision + 1 WHERE id = $1',
@@ -277,7 +290,7 @@ export class ChatService {
           ? handoffMessage
           : skipMessage;
         await sql.query(
-          `UPDATE conversations SET handoff_prepared_at=now(),handoff_message=$2,handoff_delivery=$3,handoff_call_id=$4,revision=revision+1 WHERE id=$1`,
+          `UPDATE conversations SET handoff_prepared_at=now(),graduated_at=COALESCE(graduated_at,now()),handoff_message=$2,handoff_delivery=$3,handoff_call_id=$4,revision=revision+1,onboarding_revision=revision+1 WHERE id=$1`,
           [
             conversation.id,
             message,

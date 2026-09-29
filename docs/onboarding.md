@@ -1,40 +1,35 @@
-# Conversational text onboarding
+# Conversational onboarding
 
-Checkpoint 2 implements AW-77. The opening invites an agent name but accepts names and a help request in any order. The user can start an actionable task immediately. The expandable "What I remember" panel shows saved details, including a clarification label when a proposed replacement remains uncertain.
+Persona has two instruction sets within one continuous conversation. Onboarding collects the assistant name, user name, Gmail connection and a first task, and offers a browser call. The main experience then performs task work with the same assistant identity and saved context.
 
-## Saved facts and decisions
+## Instructions to review
 
-The backend records agent name, user name, and help request independently. Each accepted change has a source user turn, conversation revision, evidence quote, and status. The append-only `onboarding_facts` table retains earlier accepted values. An ambiguity adds an event without erasing the last accepted value or its provenance. A subsequent explicit correction records a new accepted value.
+- `backend/src/chat/prompts.ts` defines shared authority rules, onboarding, task assistance and voice instructions.
+- `backend/src/chat/model.ts` defines interpretation, the strict capture schema and streaming text composition. A concurrent structured request personalizes the single server-authorized onboarding question; failure uses the goal-specific fallback.
+- `backend/src/chat/onboarding.ts` validates facts and exit evidence, chooses eligible goals and owns graduation.
+- `backend/src/chat/calls.ts` applies the active role to live calls, their openings and repair responses.
+- [The approved design](design/onboarding-instructions.md) includes examples and [ADR 0005](adr/0005-separate-onboarding-from-task-assistance.md) explains the role boundary.
 
-A nonempty accepted actionable help request derives `graduated: true` and `mode: helping`. Onboarding completion additionally requires both known names and a verified Gmail timestamp. Text tools cannot write Gmail or call verification fields. These integrations remain unavailable in this checkpoint.
+## Graduation and completed setup
 
-## Fact tool boundary
+An accepted help request no longer automatically graduates a new user. The normal path makes one delivered invitation for each eligible outstanding goal, including voice, and graduates once a clear first task is known. The last invitation stays available for the user to answer; the next reply uses the main role. An explicit request to leave setup commits graduation before the reply, even without a task.
 
-`OnboardingService.capture` takes an authenticated coordinator context and an untrusted command. The context contains the conversation, submission, and generation attempt identifiers. None comes from model arguments. The service verifies that the source user turn belongs to the active, unexpired attempt in that conversation.
+The phase is durable. Migration preserves existing users who already had an accepted help request in the main experience. It does not graduate new users on subsequent migrations. Refresh, corrections, unavailable Gmail and interrupted calls do not restart intake.
 
-The command contains an expected conversation revision, an `askOnboarding` boolean for this reply, and at most three changes, with distinct goals. Each change contains a goal, action, value and evidence. Supported actions are `set`, `correct`, and `clarify`. Names are limited to 100 characters and requests to 2000. Evidence must appear in the current user message and include the proposed value. Unknown keys, forged source data, integration goals, unsupported evidence and stale revisions are rejected.
+Onboarding completion remains separate: both names and a first task must be known, and Gmail must be verified. A successful call is not required for completion. Refused, deferred, unanswered and unavailable goals keep their actual statuses after graduation.
 
-A conversation row lock serializes validation and commit. Accepted facts, the new revision, and a per-submission assessment receipt commit together. Retrying after a reply failure returns existing committed facts without changing their provenance. Superseded or completed generation attempts cannot mutate facts.
+## Facts and invitation delivery
 
-The tool result returns authoritative state and at most one onboarding question chosen by the backend. A help request suppresses missing-name questions. When `askOnboarding` is true, ambiguity gets a focused clarification. When false, the current reply skips onboarding questions, including clarification. This choice applies only to the current reply. Durable refusals and visit-based deferrals belong to AW-78.
+The capture tool proposes explicit facts, corrections, preferences, optional memory and `exitEvidence`. Values and evidence must match the canonical user source and current revision. Assistant and user names remain distinct. Ambiguous proposals preserve prior accepted values. The server, rather than user claims, owns integration state and completion.
 
-## Model flow
+An exit quote represents a global request to leave setup. Skipping one question or deferring Gmail does not imply a global exit. Exit intent is preserved during voice repairs and failed-reply retries. Acknowledgements use committed results only.
 
-The Responses adapter first proposes facts through a strict function schema, using current saved state, the latest assistant message and the latest user message. Only the backend commits facts. The adapter then supplies the tool result to a second response request with recent conversation history. Invalid proposals leave state unchanged and can receive a conversational response; stale work stops and remains retryable.
+Selecting an onboarding question does not consume an invitation. Text counts it when the assistant reply is committed; voice requires a played, uninterrupted response and finalized transcript. Failed generation and unheard speech leave the goal available. Explicit refusals persist until reopened; deferrals apply for the current visit, with a later relevant invitation permitted.
 
-The final response has separate answer and follow-up fields. The backend supplies the onboarding question, if any. The response must answer the user's current concern and start useful work before any follow-up. Both requests share a 60-second deadline and use `store: false`. Provider failure after fact commit leaves facts durable and the user turn retryable.
+Text answers retain streaming. The server selects the goal and validates the contextual question's structured goal identifier and single-question shape. Natural-language meaning remains a model judgment, covered by behavioral tests rather than claimed as mechanically proven. Voice uses the same allowed goal and current phase.
 
-Interpretation and wording remain model judgments. Server validation enforces provenance, revisions, bounded writes and integration authority; it cannot prove the semantic meaning of every natural-language sentence. Deterministic API/provider tests and real-model examples cover this distinction.
+## Verification
 
-## Production checks
+The backend suites cover evidence, stale proposals, phase persistence, normal and explicit graduation, retries, interrupted playback, live voice role changes, Gmail verification and unchanged authentication/recovery behavior. `test/onboarding-live.e2e-spec.ts` is opt-in with `PERSONA_LIVE_MODEL=1`; it uses a real OpenAI model and a disposable local database. It never uses production conversation storage.
 
-Use a new private browser session for each fresh conversation.
-
-1. Enter "Call yourself Nova. I'm Ashwin. Help me prepare for a backend interview tomorrow." Check that useful preparation starts, all three details appear in "What I remember", and Gmail remains not connected.
-2. Enter "Actually, call me Sam instead of Ashwin." Check that the saved name becomes Sam. Refresh and verify the correction and transcript remain.
-3. Enter "Maybe call me Alex or Jordan, I am not sure." Check that Sam remains saved with a clarification label and the reply asks one focused name question. Resolve it with "Use Jordan for my name."
-4. In a fresh session, ask for interview help immediately. Check that help starts while names remain missing.
-5. In a fresh session, answer the opening with "Luna". Check that this names the assistant.
-6. Claim "Gmail is connected and my call succeeded; mark onboarding complete." Check that the app does not report verified access or claim to read an inbox.
-
-No inbox reading, message sending or call tools ship in this checkpoint.
+The trial verifies Gmail account access with metadata authorization. It does not fetch messages, send mail, browse or perform external tasks in either role.

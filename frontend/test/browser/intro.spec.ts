@@ -234,7 +234,12 @@ test("reduced motion presents the saved opening immediately and Gmail appears on
   });
   await expect(
     page
-      .getByRole("region", { name: "Conversation", exact: true })
+      .locator(".composer-connections")
       .getByRole("button", { name: "Connect Gmail", exact: true }),
   ).toBeVisible();
+  await expect(
+    page
+      .getByRole("region", { name: "Conversation", exact: true })
+      .getByRole("button", { name: "Connect Gmail", exact: true }),
+  ).toHaveCount(0);
 });

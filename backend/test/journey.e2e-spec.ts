@@ -7,6 +7,7 @@ import { ChatModule } from '../src/chat/chat.module.js';
 import { DATABASE, type Database } from '../src/chat/database.js';
 import { MODEL } from '../src/chat/model.js';
 import { CHAT_CONFIG } from '../src/chat/config.js';
+import { OnboardingService } from '../src/chat/onboarding.js';
 import { migrate } from '../src/chat/migration.js';
 import { invitedAccount } from './invited-account.js';
 
@@ -80,6 +81,7 @@ describe('dashboard journey', () => {
       delivery: 'text',
     });
     expect(skipped.body.onboarding.facts.helpRequest.value).toBeNull();
+    expect(skipped.body.onboarding.graduated).toBe(true);
     const entered = await change(cookie, 'enter').expect(200);
     expect(entered.body.journey.entered).toBe(true);
     await change(cookie, 'enter').expect(200);
@@ -89,23 +91,18 @@ describe('dashboard journey', () => {
       restored.body.turns.filter((t: { kind: string }) => t.kind === 'handoff'),
     ).toHaveLength(1);
   });
-  it('requires a delivered offer, not a selected but failed or interrupted question', async () => {
+  it('uses durable graduation instead of guessing completion from assistant wording', async () => {
     const { cookie, id } = await session();
-    await fact(id, 'agentName', 'Nova');
-    await fact(id, 'userName', 'Ash');
     await fact(id, 'helpRequest', 'Prepare for an interview');
     await db.query(
-      "INSERT INTO onboarding_policy(conversation_id,goal,outcome,offered_visit) SELECT id,'voice','open',visit_id FROM conversations WHERE id=$1",
-      [id],
+      "INSERT INTO turns(id,conversation_id,submission_id,role,content,delivery) VALUES($1,$2,$3,'assistant','We have everything and can start now.','text')",
+      [randomUUID(), id, randomUUID()],
     );
     expect((await read(cookie)).body.journey.ready).toBe(false);
-    const turn = randomUUID();
-    await db.query(
-      "INSERT INTO turns(id,conversation_id,submission_id,role,content,delivery) VALUES($1,$2,$3,'assistant','Would you like to talk this through on a call?','interrupted')",
-      [turn, id, randomUUID()],
-    );
-    expect((await read(cookie)).body.journey.ready).toBe(false);
-    await db.query("UPDATE turns SET delivery='played' WHERE id=$1", [turn]);
+    await change(cookie, 'prepare').expect(409);
+    await db.query('UPDATE conversations SET graduated_at=now() WHERE id=$1', [
+      id,
+    ]);
     expect((await read(cookie)).body.journey.ready).toBe(true);
     await change(cookie, 'prepare').expect(200);
     await change(cookie, 'enter').expect(200);
@@ -118,6 +115,7 @@ describe('dashboard journey', () => {
         "INSERT INTO onboarding_policy(conversation_id,goal,outcome) VALUES($1,$2,'declined') ON CONFLICT(conversation_id,goal) DO UPDATE SET outcome='declined'",
         [id, goal],
       );
+    await db.transaction((sql) => app.get(OnboardingService).advance(sql, id));
     expect((await read(cookie)).body.journey.ready).toBe(true);
     await change(cookie, 'prepare').expect(200);
     await change(cookie, 'enter').expect(200);

@@ -283,7 +283,7 @@ test("retry keeps the same submission identifier after losing a committed respon
   await page.getByRole("button", { name: "Send message" }).click();
   await expect(
     page.getByText("Not yet confirmed", { exact: true }),
-  ).toBeVisible();
+  ).toHaveCount(0);
   await page.getByRole("button", { name: "Retry message" }).click();
   await expect(page.getByText("Your reply was saved.")).toBeVisible();
   expect(submissions).toHaveLength(2);
@@ -365,7 +365,7 @@ test("database failure preserves both committed history and pending input", asyn
   await expect(page.getByText("My pending message.")).toBeVisible();
   await expect(
     page.getByText("Not yet confirmed", { exact: true }),
-  ).toBeVisible();
+  ).toHaveCount(0);
 });
 
 test("onboarding invites a name and restores corrected facts without a form", async ({

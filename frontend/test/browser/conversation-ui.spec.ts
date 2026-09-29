@@ -73,6 +73,12 @@ test("reading earlier messages survives polling and new replies until jumping to
   await expect(
     page.getByRole("button", { name: "Back to latest" }),
   ).toBeVisible();
+  const jump = page.getByRole("button", { name: "Back to latest" });
+  await expect(jump).toHaveText("");
+  const circle = await jump.boundingBox();
+  expect(circle).not.toBeNull();
+  expect(circle!.width).toBe(circle!.height);
+  await expect(jump).toHaveCSS("border-radius", "50%");
   const before = saved.reads();
   saved.turns.push({
     id: "new-reply",
