@@ -118,7 +118,8 @@ describe('invite-only authentication', () => {
       {
         kind: 'opening',
         role: 'assistant',
-        content: "Hi, I'm Persona. What would you like to call me?",
+        content:
+          "Hi, I'm Persona. Let's make this yours and choose the first thing to take off your plate. What would you like to call me?",
       },
     ]);
     const open = (cookie: string) =>

@@ -8,6 +8,10 @@ The conversation in which a person names their assistant, introduces themselves,
 The personal assistant that the user names and talks to during onboarding.
 _Avoid_: User, customer
 
+**Onboarding agent**:
+The assistant role responsible for introducing a new user to Persona, collecting onboarding information and preparing their first task. Substantive task work belongs to the main experience.
+_Avoid_: General-purpose assistant
+
 **User**:
 The person introducing themselves and asking the agent for help.
 _Avoid_: Agent
@@ -15,6 +19,14 @@ _Avoid_: Agent
 **Help request**:
 A task or problem the user asks the agent to help with.
 _Avoid_: Support ticket
+
+**First task**:
+The concrete outcome the user wants Persona to help with first, together with only the context needed to understand it. Identifying the first task does not require a broader profile of the user's work, routines or preferences.
+_Avoid_: User profile
+
+**Main experience**:
+The continuation of the same conversation in which the user's assistant works on their requests. It carries forward the information accepted during onboarding.
+_Avoid_: New conversation, onboarding
 
 **Conversation**:
 The ongoing exchange between a user and their agent, which can continue through text, voice and later visits.
@@ -41,7 +53,7 @@ One of the four things onboarding attempts to obtain: an agent name, a user name
 _Avoid_: Required step
 
 **Graduation**:
-The point at which the agent starts helping with an actionable help request. Graduation does not mean every onboarding goal is complete.
+The transition from onboarding into the main experience, normally after identifying a first task and attempting the eligible onboarding goals. A user may leave onboarding earlier, even without a first task; graduation does not mean every onboarding goal is complete.
 _Avoid_: Onboarding completion
 
 **Onboarding completion**:
@@ -57,7 +69,7 @@ A user's decision not to fulfill an onboarding goal or accept a call invitation.
 _Avoid_: Deferral, unanswered question
 
 **Deferral**:
-A user's decision to postpone an onboarding request beyond the current visit.
+A user's decision to postpone an onboarding request until a later visit. The request may be offered once in a later visit when relevant.
 _Avoid_: Refusal
 
 **Visit**:
