@@ -301,9 +301,7 @@ test("readiness retries are bounded and a deliberate retry recovers", async ({
     });
   });
   await page.goto("/");
-  await expect(
-    page.getByText("Connecting to your conversation. This may take a moment."),
-  ).toBeVisible();
+  await expect(page.getByText("Opening your conversation…")).toBeVisible();
   await page
     .getByRole("textbox", { name: "Message Persona" })
     .fill("Do not lose my draft.");
@@ -369,6 +367,13 @@ test("onboarding invites a name and restores corrected facts without a form", as
 }) => {
   let saved = false;
   let submissionId = "s";
+  const opening = {
+    id: "opening",
+    submissionId: "opening",
+    role: "assistant",
+    kind: "opening",
+    content: "Hi, I'm Persona. What would you like to call me?",
+  };
   await page.route("**/api/**", async (route) => {
     if (route.request().url().endsWith("/ready"))
       return route.fulfill({ json: { ready: true } });
@@ -382,6 +387,7 @@ test("onboarding invites a name and restores corrected facts without a form", as
         revision: saved ? 3 : 0,
         turns: saved
           ? [
+              opening,
               {
                 id: "u",
                 submissionId,
@@ -396,7 +402,7 @@ test("onboarding invites a name and restores corrected facts without a form", as
                 content: "Sam, start with a short introduction.",
               },
             ]
-          : [],
+          : [opening],
         operation: saved ? { id: submissionId, status: "completed" } : null,
         onboarding: {
           graduated: saved,
@@ -431,10 +437,20 @@ test("onboarding invites a name and restores corrected facts without a form", as
   await expect(
     page.getByText("Sam, start with a short introduction."),
   ).toBeVisible();
-  await expect(page.getByRole("article", { name: "Nova", exact: true })).toContainText("Sam, start with a short introduction.");
+  await expect(
+    page
+      .getByRole("article", { name: "Nova", exact: true })
+      .filter({ hasText: "Sam, start with a short introduction." }),
+  ).toHaveCount(1);
   await page.reload();
-  await expect(page.getByText("Sam, start with a short introduction.")).toBeVisible();
-  await expect(page.getByRole("article", { name: "Nova", exact: true })).toContainText("Sam, start with a short introduction.");
+  await expect(
+    page.getByText("Sam, start with a short introduction."),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("article", { name: "Nova", exact: true })
+      .filter({ hasText: "Sam, start with a short introduction." }),
+  ).toHaveCount(1);
 });
 test("declined microphone permission leaves the saved text conversation usable", async ({
   page,

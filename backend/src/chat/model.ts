@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import type { OnboardingTools } from './onboarding.js';
+import { openingMessage } from './opening.js';
 
 export const MODEL = Symbol('MODEL');
 export interface ModelTurn {
@@ -114,8 +115,7 @@ export class OpenAIReplyModel implements ReplyModel {
         ? [
             {
               role: 'assistant',
-              content:
-                'What would you like to call me? You can also tell me your name, or jump straight into something you need help with.',
+              content: openingMessage,
             },
             ...turns,
           ]

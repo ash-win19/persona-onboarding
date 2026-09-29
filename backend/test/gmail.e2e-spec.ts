@@ -165,7 +165,7 @@ describe('Gmail consent lifecycle', () => {
     expect(stored.tokens).not.toContain('access-good');
     const restored = await s.get('/session').expect(200);
     expect(restored.body.conversationId).toBe(s.id);
-    expect(restored.body.turns).toHaveLength(3);
+    expect(restored.body.turns).toHaveLength(4);
     expect(restored.body.onboarding.gmail).toBe('connected');
   });
   it('rejects mismatched, denied, closed, expired and insufficient-scope attempts', async () => {
@@ -204,7 +204,7 @@ describe('Gmail consent lifecycle', () => {
     await old;
     const status = await s.get('/gmail/status').expect(200);
     expect(status.body.email).toBe('access-new@example.test');
-    expect((await s.get('/session')).body.turns).toHaveLength(1);
+    expect((await s.get('/session')).body.turns).toHaveLength(2);
   });
   it.each([
     [403, 'rateLimitExceeded', false],
@@ -261,7 +261,7 @@ describe('Gmail consent lifecycle', () => {
     );
     const restored = await s.get('/session').expect(200);
     expect(restored.body.onboarding.gmail).toBe('not_connected');
-    expect(restored.body.turns).toHaveLength(1);
+    expect(restored.body.turns).toHaveLength(2);
     expect(
       (
         await db.query<{ tokens: string }>(

@@ -92,7 +92,7 @@ describe('invite-only authentication', () => {
       .expect(200);
     const second = await signIn().expect(200);
     expect(second.body.conversationId).toBe(first.body.conversationId);
-    expect(second.body.turns).toHaveLength(2);
+    expect(second.body.turns).toHaveLength(3);
     await request(app.getHttpServer())
       .get('/session')
       .set('Cookie', cookie)
@@ -110,6 +110,65 @@ describe('invite-only authentication', () => {
       .expect(403);
   });
 
+  it('saves one opening and grants its entrance once across simultaneous tabs and sign-ins', async () => {
+    const email = 'opening@example.test';
+    await createAccount(db, email, 'unique-test-password');
+    const first = await login(email).expect(200);
+    expect(first.body.turns).toMatchObject([
+      {
+        kind: 'opening',
+        role: 'assistant',
+        content: "Hi, I'm Persona. What would you like to call me?",
+      },
+    ]);
+    const open = (cookie: string) =>
+      request(app.getHttpServer())
+        .post('/session')
+        .set('Origin', origin)
+        .set('X-Persona-Client', 'web')
+        .set('Cookie', cookie)
+        .send({})
+        .expect(201);
+    const cookie = first.headers['set-cookie'][0];
+    const tabs = await Promise.all([open(cookie), open(cookie)]);
+    expect(tabs.filter((tab) => tab.body.introduction)).toHaveLength(1);
+    for (const tab of tabs) expect(tab.body.turns).toEqual(first.body.turns);
+    const later = await login(email).expect(200);
+    expect((await open(later.headers['set-cookie'][0])).body.introduction).toBe(
+      false,
+    );
+    await request(app.getHttpServer())
+      .post('/turns')
+      .set('Origin', origin)
+      .set('X-Persona-Client', 'web')
+      .set('Cookie', cookie)
+      .send({
+        submissionId: first.body.turns[0].submissionId,
+        content: 'Try reusing the opening ID',
+      })
+      .expect(409);
+  });
+
+  it('backfills only untouched legacy conversations without repeating the opening', async () => {
+    await createAccount(
+      db,
+      'legacy-empty@example.test',
+      'unique-test-password',
+    );
+    const empty = await login('legacy-empty@example.test').expect(200);
+    await db.query('DELETE FROM turns WHERE conversation_id=$1', [
+      empty.body.conversationId,
+    ]);
+    const existing = await login('tanay@example.test').expect(200);
+    await migrate(db);
+    await migrate(db);
+    const refreshed = await login('legacy-empty@example.test').expect(200);
+    expect(refreshed.body.turns).toMatchObject([{ kind: 'opening' }]);
+    expect((await login('tanay@example.test').expect(200)).body.turns).toEqual(
+      existing.body.turns,
+    );
+  });
+
   it('keeps two accounts isolated even with a supplied conversation ID', async () => {
     await createAccount(db, 'zach@example.test', 'unique-test-password');
     const tanay = await login('tanay@example.test').expect(200);
@@ -120,7 +179,7 @@ describe('invite-only authentication', () => {
       .query({ conversationId: tanay.body.conversationId })
       .expect(200);
     expect(isolated.body.conversationId).not.toBe(tanay.body.conversationId);
-    expect(isolated.body.turns).toEqual([]);
+    expect(isolated.body.turns).toMatchObject([{ kind: 'opening' }]);
   });
 
   it('revokes a signed-out session while preserving history for the next sign-in', async () => {
@@ -139,7 +198,7 @@ describe('invite-only authentication', () => {
       .expect(401);
     const after = await login('tanay@example.test').expect(200);
     expect(after.body.conversationId).toBe(before.body.conversationId);
-    expect(after.body.turns).toHaveLength(2);
+    expect(after.body.turns).toHaveLength(3);
   });
 
   it('rejects legacy anonymous cookies', async () => {

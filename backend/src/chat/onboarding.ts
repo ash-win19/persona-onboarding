@@ -248,6 +248,16 @@ export class OnboardingService {
     };
   }
 
+  async callOpening(sql: Sql, id: string, revision: number) {
+    const state = await this.read(sql, id, revision);
+    if (state.graduated)
+      return 'Continue the existing help request using the saved conversation. Give one short useful next step or ask one focused task question. Do not restart onboarding.';
+    const question = await this.question(sql, id, state, true, true);
+    return question
+      ? `Briefly greet the user, then ask exactly this question: ${question}`
+      : 'Briefly greet the user and say you are here when they are ready. Do not ask another onboarding question.';
+  }
+
   private async question(
     sql: Sql,
     id: string,

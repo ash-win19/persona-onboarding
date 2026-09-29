@@ -11,12 +11,14 @@ type GmailStatus = {
 export function GmailConnection({
   headers,
   enabled,
+  introduced,
   conversationId,
   onChanged,
   onNotice,
 }: {
   headers: () => Record<string, string>;
   enabled: boolean;
+  introduced: boolean;
   conversationId: string;
   onChanged: () => Promise<void>;
   onNotice: (notice: string) => void;
@@ -155,7 +157,11 @@ export function GmailConnection({
       noticeRef.current("Gmail could not start connecting. Please try again.");
     }
   }
-  if (!gmail) return null;
+  if (
+    !gmail ||
+    (!introduced && gmail.status === "not_connected" && !gmail.attempt)
+  )
+    return null;
   return (
     <div className="gmail-controls">
       {gmail.status !== "connected" && (

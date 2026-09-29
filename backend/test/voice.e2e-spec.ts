@@ -159,6 +159,88 @@ describe('browser call API', () => {
       .post('/calls/start', { id: randomUUID(), sdp: 'v=0\r\no=browser' })
       .expect(401);
   });
+  it('speaks first only after browser readiness, and never repeats the opening on retries', async () => {
+    const s = await session();
+    const id = randomUUID();
+    await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
+    const c = connections.at(-1)!;
+    expect(
+      c.sent.filter((event) => event.type === 'response.create'),
+    ).toHaveLength(0);
+    await Promise.all([
+      s.post('/calls/ready', { id }).expect(200),
+      s.post('/calls/ready', { id }).expect(200),
+    ]);
+    const response = c.sent.filter((event) => event.type === 'response.create');
+    expect(response).toHaveLength(1);
+    expect(response[0]).toMatchObject({
+      response: {
+        tool_choice: 'none',
+        metadata: { generation: '0', purpose: 'opening' },
+        instructions: expect.stringContaining(
+          'What name would you like me to use for you?',
+        ),
+      },
+    });
+    await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
+    await s.post('/calls/ready', { id }).expect(409);
+  });
+
+  it('lets early user speech take precedence over the voice opening', async () => {
+    const s = await session();
+    const id = randomUUID();
+    await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
+    const c = connections.at(-1)!;
+    await c.emit({
+      type: 'input_audio_buffer.speech_started',
+      item_id: 'early-speech',
+    });
+    await s.post('/calls/ready', { id }).expect(200);
+    expect(
+      c.sent.filter((event) => event.type === 'response.create'),
+    ).toHaveLength(0);
+    await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
+  });
+
+  it('continues a known task when opening a call rather than asking for missing names', async () => {
+    const s = await session();
+    model.reply = async (_turns, tools) => {
+      await tools.capture({
+        expectedRevision: tools.state.revision,
+        askOnboarding: false,
+        changes: [
+          {
+            goal: 'helpRequest',
+            action: 'set',
+            value: 'Prepare for an interview',
+            evidence: 'Prepare for an interview',
+          },
+        ],
+        preferences: [],
+      });
+      return 'Let us prepare.';
+    };
+    await s
+      .post('/turns', {
+        submissionId: randomUUID(),
+        content: 'Prepare for an interview',
+      })
+      .expect(200);
+    const id = randomUUID();
+    await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
+    await s.post('/calls/ready', { id }).expect(200);
+    const response = connections
+      .at(-1)!
+      .sent.find((event) => event.type === 'response.create');
+    expect(response).toMatchObject({
+      response: {
+        instructions: expect.stringContaining(
+          'Continue the existing help request',
+        ),
+      },
+    });
+    await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
+  });
 
   it('saves asynchronous final transcripts once, acknowledges a server tool and preserves text after hangup', async () => {
     const s = await session();
@@ -207,6 +289,7 @@ describe('browser call API', () => {
       async () => {
         const saved = await s.read();
         expect(saved.body.turns.map((t: { role: string }) => t.role)).toEqual([
+          'assistant',
           'user',
           'assistant',
         ]);
@@ -220,7 +303,7 @@ describe('browser call API', () => {
     await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
     expect(c.closed).toBe(true);
     const restored = await s.read();
-    expect(restored.body.turns[1].delivery).toBe('interrupted');
+    expect(restored.body.turns[2].delivery).toBe('interrupted');
     expect((await s.status()).body.call).toMatchObject({
       status: 'ended',
       reason: 'user_hangup',
@@ -230,7 +313,7 @@ describe('browser call API', () => {
     const text = await s
       .post('/turns', { submissionId: randomUUID(), content: 'Continue here.' })
       .expect(200);
-    expect(text.body.turns).toHaveLength(4);
+    expect(text.body.turns).toHaveLength(5);
   });
   it('invalidates the previous call immediately on takeover and fences its late events', async () => {
     const s = await session();
@@ -253,7 +336,7 @@ describe('browser call API', () => {
     await s
       .post('/turns', { submissionId: randomUUID(), content: 'Stale owner' })
       .expect(403);
-    expect((await s.read()).body.turns).toHaveLength(0);
+    expect((await s.read()).body.turns).toHaveLength(1);
   });
   it('ends at the persisted ten-minute deadline with a one-minute warning', async () => {
     const s = await session();
@@ -350,7 +433,7 @@ describe('browser call API', () => {
       transcript: 'An old long answer.',
     });
     await vi.waitFor(async () =>
-      expect((await s.read()).body.turns).toHaveLength(1),
+      expect((await s.read()).body.turns).toHaveLength(2),
     );
     const body = {
       id,
@@ -385,7 +468,7 @@ describe('browser call API', () => {
         (t: { content: string }) => t.content === body.content,
       ),
     ).toHaveLength(1);
-    expect(saved.body.turns[0].delivery).toBe('interrupted');
+    expect(saved.body.turns[1].delivery).toBe('interrupted');
     void c.emit({
       type: 'response.done',
       response: { id: 'old-response', status: 'cancelled' },
@@ -430,7 +513,7 @@ describe('browser call API', () => {
       transcript: 'Call me Sam. Help me prepare for an interview.',
     });
     await vi.waitFor(async () =>
-      expect((await s.read()).body.turns).toHaveLength(1),
+      expect((await s.read()).body.turns).toHaveLength(2),
     );
     const before = await s.read();
     void c.emit({
@@ -518,7 +601,7 @@ describe('browser call API', () => {
         'Help me practice a back-end interview, around 400 words, and keep speaking.',
     });
     await vi.waitFor(async () =>
-      expect((await s.read()).body.turns).toHaveLength(1),
+      expect((await s.read()).body.turns).toHaveLength(2),
     );
     const capture = (
       responseId: string,
@@ -581,10 +664,10 @@ describe('browser call API', () => {
       'practice a back-end interview, around 400 words',
     );
     expect(saved.onboarding.facts.userName.sourceTurnId).toBe(
-      saved.turns[0].id,
+      saved.turns[1].id,
     );
     expect(saved.onboarding.facts.helpRequest.sourceTurnId).toBe(
-      saved.turns[1].id,
+      saved.turns[2].id,
     );
     void c.emit({
       type: 'response.done',
@@ -601,7 +684,7 @@ describe('browser call API', () => {
         'Stop there, actually, call me Jordan. Keep the next answer to one sentence.',
     });
     await vi.waitFor(async () =>
-      expect((await s.read()).body.turns).toHaveLength(3),
+      expect((await s.read()).body.turns).toHaveLength(4),
     );
     capture('correction-response', 3, 'correct-name', saved.revision, [
       {
@@ -793,7 +876,7 @@ describe('browser call API', () => {
           'Sam',
         ),
       );
-      expect((await s.read()).body.turns).toHaveLength(1);
+      expect((await s.read()).body.turns).toHaveLength(2);
       await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
     },
   );
@@ -814,7 +897,7 @@ describe('browser call API', () => {
       });
     }
     await vi.waitFor(async () =>
-      expect((await s.read()).body.turns).toHaveLength(2),
+      expect((await s.read()).body.turns).toHaveLength(3),
     );
     const before = (await s.read()).body;
     void c.emit({
@@ -857,7 +940,7 @@ describe('browser call API', () => {
     );
     expect(
       (await s.read()).body.onboarding.facts.helpRequest.sourceTurnId,
-    ).toBe(before.turns[1].id);
+    ).toBe(before.turns[2].id);
     await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
     expect((await s.read()).body.onboarding.graduated).toBe(true);
   });
@@ -888,7 +971,7 @@ describe('browser call API', () => {
         });
       }
       await vi.waitFor(async () =>
-        expect((await s.read()).body.turns).toHaveLength(inputs.length),
+        expect((await s.read()).body.turns).toHaveLength(inputs.length + 1),
       );
       const before = (await s.read()).body;
       void c.emit({
@@ -936,7 +1019,7 @@ describe('browser call API', () => {
         (await s.read()).body.onboarding.policy.goals.userName.outcome,
       ).toBe(outcome);
       expect((await s.read()).body.onboarding.facts.userName.sourceTurnId).toBe(
-        before.turns[sourceIndex].id,
+        before.turns[sourceIndex + 1].id,
       );
       await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
     },
@@ -1058,10 +1141,10 @@ describe('browser call API', () => {
       const saved = (await s.read()).body;
       expect(saved.onboarding.graduated).toBe(true);
       expect(saved.onboarding.facts.userName.sourceTurnId).toBe(
-        saved.turns[0].id,
+        saved.turns[1].id,
       );
       expect(saved.onboarding.facts.helpRequest.sourceTurnId).toBe(
-        saved.turns[1].id,
+        saved.turns[2].id,
       );
       await vi.waitFor(() =>
         expect(
@@ -1214,7 +1297,7 @@ describe('browser call API', () => {
       transcript: 'Call me Sam.',
     });
     await vi.waitFor(async () =>
-      expect((await s.read()).body.turns).toHaveLength(1),
+      expect((await s.read()).body.turns).toHaveLength(2),
     );
     for (let attempt = 0; attempt < 3; attempt++) {
       const responseId = `repair-response-${attempt}`;
@@ -1299,7 +1382,7 @@ describe('browser call API', () => {
     await vi.waitFor(() =>
       expect(c.sent.some((e) => e.type === 'response.create')).toBe(true),
     );
-    expect((await s.read()).body.turns).toHaveLength(0);
+    expect((await s.read()).body.turns).toHaveLength(1);
     await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
   });
   it('reports lost sideband control and leaves committed chat usable', async () => {
@@ -1323,6 +1406,6 @@ describe('browser call API', () => {
           })
           .expect(200)
       ).body.turns,
-    ).toHaveLength(2);
+    ).toHaveLength(3);
   });
 });
