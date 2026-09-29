@@ -394,7 +394,7 @@ export class OnboardingService {
         const batch = await sql.query<Source & { finalized: boolean }>(
           `SELECT v.turn_id AS id,t.content,v.submission_id,v.finalized FROM voice_items v
            LEFT JOIN turns t ON t.id=v.turn_id
-           WHERE v.call_id=$1 AND v.role='user'
+           WHERE v.call_id=$1 AND v.role='user' AND (NOT v.finalized OR t.id IS NOT NULL)
            AND v.sequence <= (SELECT sequence FROM voice_items WHERE call_id=$1 AND item_id=$2)
            AND v.sequence > COALESCE((SELECT max(prior.sequence) FROM voice_items prior
              JOIN onboarding_assessments a ON a.submission_id=prior.submission_id AND a.conversation_id=$3
@@ -447,7 +447,14 @@ export class OnboardingService {
       }
       if (
         (command.preferences ?? []).some(
-          (p) => !normalized(source.content).includes(normalized(p.evidence)),
+          (p) =>
+            !sources.some((candidate) =>
+              context.callId
+                ? spokenQuote(candidate.content, p.evidence) !== undefined
+                : normalized(candidate.content).includes(
+                    normalized(p.evidence),
+                  ),
+            ),
         )
       )
         return reject('invalid');

@@ -572,9 +572,15 @@ export class Calls implements OnModuleDestroy {
     text: string,
     responseId?: string,
   ) {
-    if (!text.trim()) return;
     const item = await this.item(sql, call, id, role, responseId);
     if (item.finalized) return;
+    if (!text.trim()) {
+      await sql.query(
+        'UPDATE voice_items SET finalized=true WHERE call_id=$1 AND item_id=$2',
+        [call.id, id],
+      );
+      return;
+    }
     const response = responseId
       ? (
           await sql.query<{
@@ -706,17 +712,20 @@ export class Calls implements OnModuleDestroy {
           });
       }
       if (
-        event.type ===
-          'conversation.item.input_audio_transcription.completed' &&
-        event.item_id &&
-        event.transcript
+        [
+          'conversation.item.input_audio_transcription.completed',
+          'conversation.item.input_audio_transcription.failed',
+        ].includes(event.type) &&
+        event.item_id
       ) {
         await this.saveTranscript(
           sql,
           call,
           event.item_id,
           'user',
-          event.transcript,
+          event.type === 'conversation.item.input_audio_transcription.failed'
+            ? ''
+            : (event.transcript ?? ''),
         );
       }
       if (

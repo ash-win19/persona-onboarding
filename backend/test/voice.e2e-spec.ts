@@ -697,6 +697,128 @@ describe('browser call API', () => {
       await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
     },
   );
+  it.each(['empty', 'failed'])(
+    'saves a clear name after an %s transcription',
+    async (outcome) => {
+      const s = await session(),
+        id = randomUUID();
+      await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
+      const c = connections.at(-1)!;
+      c.emit({ type: 'input_audio_buffer.committed', item_id: 'noise' });
+      c.emit({
+        type:
+          outcome === 'empty'
+            ? 'conversation.item.input_audio_transcription.completed'
+            : 'conversation.item.input_audio_transcription.failed',
+        item_id: 'noise',
+        transcript: '',
+      });
+      c.emit({ type: 'input_audio_buffer.committed', item_id: 'clear-name' });
+      c.emit({
+        type: 'conversation.item.input_audio_transcription.completed',
+        item_id: 'clear-name',
+        transcript: 'Call me Sam.',
+      });
+      c.emit({
+        type: 'response.created',
+        response: {
+          id: 'after-noise',
+          status: 'in_progress',
+          metadata: { generation: '2', sourceItem: 'clear-name' },
+        },
+      });
+      c.emit({
+        type: 'response.function_call_arguments.done',
+        response_id: 'after-noise',
+        call_id: 'after-noise-tool',
+        name: 'capture_onboarding',
+        arguments: JSON.stringify({
+          expectedRevision: 0,
+          askOnboarding: false,
+          preferences: [],
+          changes: [
+            {
+              goal: 'userName',
+              action: 'set',
+              value: 'Sam',
+              evidence: 'Call me Sam',
+            },
+          ],
+        }),
+      });
+      await vi.waitFor(async () =>
+        expect((await s.read()).body.onboarding.facts.userName.value).toBe(
+          'Sam',
+        ),
+      );
+      expect((await s.read()).body.turns).toHaveLength(1);
+      await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
+    },
+  );
+  it('keeps a refusal and task when speech detection splits them', async () => {
+    const s = await session(),
+      id = randomUUID();
+    await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
+    const c = connections.at(-1)!;
+    for (const [item, transcript] of [
+      ['refusal', 'Do not connect Gmail.'],
+      ['task', 'Help me prepare for an interview.'],
+    ]) {
+      c.emit({ type: 'input_audio_buffer.committed', item_id: item });
+      c.emit({
+        type: 'conversation.item.input_audio_transcription.completed',
+        item_id: item,
+        transcript,
+      });
+    }
+    await vi.waitFor(async () =>
+      expect((await s.read()).body.turns).toHaveLength(2),
+    );
+    const before = (await s.read()).body;
+    c.emit({
+      type: 'response.created',
+      response: {
+        id: 'refusal-response',
+        status: 'in_progress',
+        metadata: { generation: '2', sourceItem: 'task' },
+      },
+    });
+    c.emit({
+      type: 'response.function_call_arguments.done',
+      response_id: 'refusal-response',
+      call_id: 'refusal-tool',
+      name: 'capture_onboarding',
+      arguments: JSON.stringify({
+        expectedRevision: before.revision,
+        askOnboarding: false,
+        preferences: [
+          {
+            goal: 'gmail',
+            outcome: 'declined',
+            evidence: 'Do not connect Gmail',
+          },
+        ],
+        changes: [
+          {
+            goal: 'helpRequest',
+            action: 'set',
+            value: 'prepare for an interview',
+            evidence: 'Help me prepare for an interview',
+          },
+        ],
+      }),
+    });
+    await vi.waitFor(async () =>
+      expect((await s.read()).body.onboarding.policy.goals.gmail.outcome).toBe(
+        'declined',
+      ),
+    );
+    expect(
+      (await s.read()).body.onboarding.facts.helpRequest.sourceTurnId,
+    ).toBe(before.turns[1].id);
+    await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
+    expect((await s.read()).body.onboarding.graduated).toBe(true);
+  });
   it('repairs rejected voice facts before replying and bounds malformed retries', async () => {
     const s = await session(),
       id = randomUUID();
