@@ -161,6 +161,9 @@ export async function migrate(db: Database) {
     await sql.query(
       'ALTER TABLE calls ADD COLUMN IF NOT EXISTS opening_started boolean NOT NULL DEFAULT false',
     );
+    await sql.query(
+      'ALTER TABLE accounts ADD COLUMN IF NOT EXISTS fresh_start boolean NOT NULL DEFAULT false',
+    );
     const empty = await sql.query<{ id: string }>(
       `SELECT id FROM conversations c WHERE NOT EXISTS(SELECT 1 FROM turns WHERE conversation_id=c.id)
        AND NOT EXISTS(SELECT 1 FROM calls WHERE conversation_id=c.id) FOR UPDATE`,

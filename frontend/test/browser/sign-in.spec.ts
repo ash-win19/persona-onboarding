@@ -101,7 +101,9 @@ test("invited users sign in, resume after refresh, and sign out", async ({
   await page.getByLabel("Email", { exact: true }).fill("tanay@example.test");
   await page.getByLabel("Password", { exact: true }).fill("wrong-password");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(page.getByRole("alert").filter({ hasText: "don't match" })).toBeVisible();
+  await expect(
+    page.getByRole("alert").filter({ hasText: "don't match" }),
+  ).toBeVisible();
   await page.getByLabel("Password", { exact: true }).fill("demo-password");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(
@@ -116,6 +118,38 @@ test("invited users sign in, resume after refresh, and sign out", async ({
   await expect(
     page.getByRole("textbox", { name: "Message Persona" }),
   ).toHaveCount(0);
+});
+
+test("each page load asks for a fresh start, but a Gmail consent return does not", async ({
+  page,
+}) => {
+  let freshStarts = 0;
+  await page.route("**/api/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/api/auth/fresh-start") {
+      freshStarts++;
+      return route.fulfill({ json: { conversationId: "test-conversation" } });
+    }
+    if (path === "/api/ready") return route.fulfill({ json: { ready: true } });
+    return route.fulfill({
+      json: {
+        conversationId: "test-conversation",
+        revision: 0,
+        turns: [],
+        operation: null,
+      },
+    });
+  });
+  const composer = page.getByRole("textbox", { name: "Message Persona" });
+  await page.goto("/");
+  await expect(composer).toBeVisible();
+  expect(freshStarts).toBe(1);
+  await page.reload();
+  await expect(composer).toBeVisible();
+  expect(freshStarts).toBe(2);
+  await page.goto("/?gmail=connected");
+  await expect(composer).toBeVisible();
+  expect(freshStarts).toBe(2);
 });
 
 test("a revoked session clears the conversation and returns to sign-in", async ({
