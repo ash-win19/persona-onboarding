@@ -158,7 +158,7 @@ test("requests Persona's opening after the peer connects without waiting for use
   page,
 }) => {
   const voice = await voicePage(page);
-  await page.goto("/");
+  await page.goto("/onboarding");
   expect(voice.ready).toHaveLength(0);
   await page.getByRole("button", { name: "Start a call" }).click();
   await expect.poll(() => voice.ready).toEqual(voice.started);
@@ -171,7 +171,7 @@ test("a lost setup response cancels the reserved attempt and permits another cal
 }) => {
   const voice = await voicePage(page);
   voice.hold(async () => {});
-  await page.goto("/");
+  await page.goto("/onboarding");
   await page.getByRole("button", { name: "Start a call" }).click();
   await expect(
     page.getByText("The call could not connect.", { exact: false }),
@@ -193,7 +193,7 @@ test("a cancelled setup failing late cannot end the newer call", async ({
         failOld = resolve;
       }),
   );
-  await page.goto("/");
+  await page.goto("/onboarding");
   await page.getByRole("button", { name: "Start a call" }).click();
   await expect.poll(() => voice.started.length).toBe(1);
   await page.getByRole("button", { name: "End call" }).click();
@@ -215,7 +215,7 @@ test("successful ownership polling preserves retry after the first message fails
   page.on("response", (response) => {
     if (response.url().endsWith("/api/calls/status")) polled = true;
   });
-  await page.goto("/");
+  await page.goto("/onboarding");
   await page
     .getByRole("textbox", { name: "Message Persona" })
     .fill("Please keep my first message.");
@@ -236,7 +236,7 @@ test("typing interrupts an active call and a server reset clears the conversatio
   page,
 }) => {
   const voice = await voicePage(page);
-  await page.goto("/");
+  await page.goto("/onboarding");
   await page.getByRole("button", { name: "Start a call" }).click();
   await expect(page.getByText("Listening", { exact: true })).toBeVisible();
   await page
@@ -277,7 +277,7 @@ test("voice visuals follow speech, generation, playback and interruption without
   page,
 }) => {
   await voicePage(page);
-  await page.goto("/");
+  await page.goto("/onboarding");
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.getByRole("button", { name: "Start a call" }).click();
@@ -363,7 +363,7 @@ test("blocked playback never shows speaking, and a successful retry clears the n
   page,
 }) => {
   await voicePage(page);
-  await page.goto("/");
+  await page.goto("/onboarding");
   await page.evaluate(() => {
     (window as unknown as { blockCallAudio: boolean }).blockCallAudio = true;
   });
@@ -410,7 +410,7 @@ test("reduced motion stays static while voice status updates and old attempts st
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize({ width: 375, height: 600 });
   await voicePage(page);
-  await page.goto("/");
+  await page.goto("/onboarding");
   await page.getByRole("button", { name: "Start a call" }).click();
   await expect(page.locator(".call-animation-static")).toBeVisible();
   await expect(page.locator(".call-banner")).toContainText("Listening");

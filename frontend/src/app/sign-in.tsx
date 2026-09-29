@@ -1,25 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import Chat from "./chat";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { destination, startFresh } from "@/lib/journey";
 import { PersonaLogo } from "./persona-logo";
 
-// Fresh-start test accounts begin a new conversation on every page load. The
-// request is shared so React's development double-mount sends it only once.
-let freshStart: Promise<unknown> | undefined;
-function startFresh() {
-  // Gmail's consent window returns to this page and must keep the current one.
-  if (new URLSearchParams(window.location.search).has("gmail")) return;
-  freshStart ??= fetch("/api/auth/fresh-start", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Persona-Client": "web" },
-    body: "{}",
-    signal: AbortSignal.timeout(65000),
-  }).catch(() => undefined);
-  return freshStart;
-}
-
 export default function SignIn() {
+  const router = useRouter();
   const [conversation, setConversation] = useState<string | null>(null);
   const [checking, setChecking] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -46,6 +34,7 @@ export default function SignIn() {
           if (attempt !== generation.current || controller.signal.aborted)
             return;
           setConversation(data.conversationId);
+          router.replace(destination(data.journey));
         } else throw new Error("UNAVAILABLE");
       } catch {
         if (!controller.signal.aborted)
@@ -70,7 +59,7 @@ export default function SignIn() {
       window.removeEventListener("persona:unauthorized", signedOut);
       window.removeEventListener("focus", focus);
     };
-  }, []);
+  }, [router]);
 
   async function signIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -107,6 +96,7 @@ export default function SignIn() {
       generation.current++;
       form.reset();
       setConversation(data.conversationId);
+      router.replace(destination(data.journey));
     } catch {
       setError("We couldn't sign you in. Please try again.");
     } finally {
@@ -116,22 +106,24 @@ export default function SignIn() {
 
   if (conversation)
     return (
-      <Chat
-        key={conversation}
-        onSignedOut={() => {
-          generation.current++;
-          setConversation(null);
-        }}
-      />
+      <main className="app-loading">
+        <p role="status">Opening your Persona…</p>
+      </main>
     );
 
   return (
     <main className="sign-in-shell">
+      <Link className="sign-in-back text-link" href="/">
+        ← Back to home
+      </Link>
       <div className="sign-in-content">
         <div className="sign-in-logo" aria-label="Persona">
           <PersonaLogo />
         </div>
         <h1>Sign in.</h1>
+        <p className="sign-in-description">
+          Your Persona is right where you left it.
+        </p>
         <form
           className="sign-in-form"
           onSubmit={signIn}

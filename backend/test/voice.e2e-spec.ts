@@ -158,6 +158,104 @@ describe('browser call API', () => {
       heartbeat: () => post('/control', { tabId, takeover: false }).expect(200),
     };
   }
+  it('queues the tagged handoff after playback and preserves the call on dashboard entry', async () => {
+    const s = await session(),
+      id = randomUUID();
+    await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
+    const c = connections.at(-1)!;
+    await c.emit({
+      type: 'response.created',
+      response: {
+        id: 'last-question',
+        status: 'in_progress',
+        metadata: { generation: '0' },
+      },
+    });
+    await c.emit({
+      type: 'response.output_audio_transcript.done',
+      response_id: 'last-question',
+      item_id: 'last-question-item',
+      transcript: 'Would you like to connect Gmail?',
+    });
+    const prepared = await s.post('/journey', { action: 'skip' }).expect(200);
+    expect(prepared.body.journey.delivery).toBe('waiting');
+    const handoffs = () =>
+      c.sent.filter(
+        (e) =>
+          e.type === 'response.create' &&
+          (e.response as { metadata?: { purpose?: string } }).metadata
+            ?.purpose === 'onboarding_handoff',
+      );
+    expect(handoffs()).toHaveLength(0);
+    await c.emit({
+      type: 'response.done',
+      response: { id: 'last-question', status: 'completed' },
+    });
+    expect(handoffs()).toHaveLength(0);
+    await c.emit({
+      type: 'output_audio_buffer.stopped',
+      response_id: 'last-question',
+    });
+    expect(handoffs()).toHaveLength(1);
+    expect(
+      (handoffs()[0].response as { instructions: string }).instructions,
+    ).toContain('You can bring your first task');
+    await c.emit({
+      type: 'response.created',
+      response: {
+        id: 'handoff',
+        status: 'in_progress',
+        metadata: { generation: '0', purpose: 'onboarding_handoff' },
+      },
+    });
+    await c.emit({
+      type: 'response.done',
+      response: { id: 'handoff', status: 'completed' },
+    });
+    expect((await s.read()).body.journey.delivery).toBe('waiting');
+    await c.emit({
+      type: 'output_audio_buffer.stopped',
+      response_id: 'last-question',
+    });
+    expect((await s.read()).body.journey.delivery).toBe('waiting');
+    await c.emit({
+      type: 'output_audio_buffer.stopped',
+      response_id: 'handoff',
+    });
+    expect((await s.read()).body.journey.delivery).toBe('played');
+    await s.post('/journey', { action: 'enter' }).expect(200);
+    expect((await s.read()).body.journey.entered).toBe(true);
+    expect((await s.status()).body.call.status).toBe('active');
+    expect(c.closed).toBe(false);
+    await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
+  });
+
+  it('does not treat interrupted handoff audio as a completed acknowledgement', async () => {
+    const s = await session(),
+      id = randomUUID();
+    await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
+    const c = connections.at(-1)!;
+    await s.post('/journey', { action: 'skip' }).expect(200);
+    await c.emit({
+      type: 'response.created',
+      response: {
+        id: 'interrupted-handoff',
+        status: 'in_progress',
+        metadata: { generation: '0', purpose: 'onboarding_handoff' },
+      },
+    });
+    await c.emit({
+      type: 'input_audio_buffer.speech_started',
+      item_id: 'interruption',
+    });
+    await c.emit({
+      type: 'output_audio_buffer.stopped',
+      response_id: 'interrupted-handoff',
+    });
+    expect((await s.read()).body.journey.delivery).toBe('text');
+    await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
+  });
+
   it('sign-out immediately closes the call and rejects the old session', async () => {
     const s = await session();
     await s

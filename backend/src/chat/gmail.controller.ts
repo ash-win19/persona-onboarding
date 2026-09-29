@@ -73,7 +73,9 @@ export class GmailController {
       await this.calls.refreshContext(credential(req)).catch(() => undefined);
     res.redirect(
       303,
-      this.config.origins[0] + '/?gmail=' + encodeURIComponent(result),
+      this.config.origins[0] +
+        '/onboarding?gmail=' +
+        encodeURIComponent(result),
     );
   }
 }
