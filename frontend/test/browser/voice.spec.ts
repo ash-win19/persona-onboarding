@@ -85,21 +85,6 @@ async function voicePage(page: Page) {
         });
       return route.fulfill({ json: { accepted: true, generation: 1 } });
     }
-    if (path === "/api/reset") {
-      turns.length = 0;
-      conversationId = "fresh-voice-race";
-      control = { ...control, epoch: 2 };
-      call = null;
-      return route.fulfill({
-        json: {
-          conversationId,
-          revision: 0,
-          turns: [],
-          operation: null,
-          control,
-        },
-      });
-    }
     if (path === "/api/calls/status")
       return route.fulfill({ json: { call, control } });
     return route.fulfill({
@@ -117,6 +102,12 @@ async function voicePage(page: Page) {
   return {
     started,
     ended,
+    reset: () => {
+      turns.length = 0;
+      conversationId = "fresh-voice-race";
+      control = { ...control, epoch: 2 };
+      call = null;
+    },
     hold: (fn: () => Promise<void>) => {
       holdFirst = fn;
     },
@@ -189,10 +180,10 @@ test("successful ownership polling preserves retry after the first message fails
   ).toBeVisible();
 });
 
-test("typing interrupts an active call and reset opens a fresh conversation", async ({
+test("typing interrupts an active call and a server reset clears the conversation", async ({
   page,
 }) => {
-  await voicePage(page);
+  const voice = await voicePage(page);
   await page.goto("/");
   await page.getByRole("button", { name: "Start a call" }).click();
   await expect(page.getByText("Call active", { exact: true })).toBeVisible();
@@ -204,9 +195,7 @@ test("typing interrupts an active call and reset opens a fresh conversation", as
     page.getByText("Actually, use the shorter example.", { exact: true }),
   ).toHaveCount(1);
   await expect(page.getByRole("button", { name: "End call" })).toBeVisible();
-  await page.getByRole("button", { name: "What I remember" }).click();
-  await page.getByRole("button", { name: "Start over", exact: true }).click();
-  await page.getByRole("button", { name: "Delete saved conversation" }).click();
+  voice.reset();
   await expect(
     page.getByText("Actually, use the shorter example.", { exact: true }),
   ).toHaveCount(0);

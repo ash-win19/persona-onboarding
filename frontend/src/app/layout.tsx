@@ -1,5 +1,14 @@
 import type { Metadata } from "next";
+import localFont from "next/font/local";
 import "./globals.css";
+
+const inter = localFont({
+  src: "./fonts/inter-latin.woff2",
+  variable: "--font-inter",
+  weight: "100 900",
+  display: "swap",
+  preload: false,
+});
 
 export const metadata: Metadata = {
   title: "Persona | Your personal assistant",
@@ -9,7 +18,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className="h-full antialiased">
+    <html lang="en" className={`${inter.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );

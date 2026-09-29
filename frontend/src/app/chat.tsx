@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { GmailConnection } from "./gmail-connection";
 import { useVoice, type Control, type CallState } from "./use-voice";
-import { ChatIcon, PersonaMark } from "./chat-icons";
-import { ConversationDialog } from "./conversation-dialog";
+import { ChatIcon } from "./chat-icons";
+import { PersonaLogo, PersonaMark } from "./persona-logo";
 
 type Turn = {
   id: string;
@@ -100,7 +100,6 @@ export default function Chat() {
   const scrollArea = useRef<HTMLElement>(null);
   const followLatest = useRef(true);
   const [showJump, setShowJump] = useState(false);
-  const [detailsOpen, setDetailsOpen] = useState(false);
   const [gmailNotice, setGmailNotice] = useState("");
   const input = useRef<HTMLTextAreaElement>(null);
   const tabId = useRef("");
@@ -109,10 +108,6 @@ export default function Chat() {
   );
   const [hasControl, setHasControl] = useState(true);
   const conversationRef = useRef<string | null>(null);
-  const resetAttempt = useRef<string | null>(null);
-  const [confirmReset, setConfirmReset] = useState(false);
-  const [resetting, setResetting] = useState(false);
-  const [resetNotice, setResetNotice] = useState("");
   const headers = () => ({
     "Content-Type": "application/json",
     "X-Persona-Client": "web",
@@ -158,7 +153,6 @@ export default function Chat() {
     ) {
       setPending(null);
       setDraft("");
-      setResetNotice("");
       voiceRef.current.controlLost();
     }
     conversationRef.current = data.conversationId;
@@ -364,39 +358,6 @@ export default function Chat() {
     }
   }
 
-  async function startOver() {
-    if (resetting) return;
-    setResetting(true);
-    setConfirmReset(false);
-    setResetNotice("");
-    resetAttempt.current ??= crypto.randomUUID();
-    active.current?.abort();
-    voiceRef.current.controlLost();
-    try {
-      const data = await api<Snapshot>(
-        "reset",
-        new AbortController().signal,
-        { operationId: resetAttempt.current },
-        ownerRef.current,
-      );
-      accept(data);
-      setPending(null);
-      setDraft("");
-      setDetailsOpen(false);
-      followLatest.current = true;
-      setShowJump(false);
-      setNotice("A fresh conversation is ready.");
-      resetAttempt.current = null;
-    } catch {
-      setResetNotice(
-        "Start over could not be confirmed. Retry to check the result safely.",
-      );
-    } finally {
-      setResetting(false);
-      setBusy(false);
-    }
-  }
-
   const agentName = snapshot?.onboarding?.facts.agentName.value || "Persona";
   const unresolved =
     snapshot?.operation && snapshot.operation.status !== "completed"
@@ -413,7 +374,6 @@ export default function Chat() {
     connection === "ready" &&
     hasControl &&
     (!voice.active || voice.state === "active") &&
-    !resetting &&
     !busy &&
     !retryPayload &&
     !!draft.trim();
@@ -467,27 +427,8 @@ export default function Chat() {
     <main className={`chat-shell ${empty ? "is-empty" : "has-messages"}`}>
       <header className="chat-header">
         <Link className="wordmark" href="/" aria-label="Persona home">
-          <PersonaMark />
-          persona
+          <PersonaLogo />
         </Link>
-        <div className="header-actions">
-          <div className={`connection ${connection}`} role="status">
-            <span aria-hidden="true" />
-            {connection === "ready"
-              ? "Connected"
-              : connection === "connecting"
-                ? "Connecting"
-                : "Connection interrupted"}
-          </div>
-          <button
-            className="details-button"
-            type="button"
-            onClick={() => setDetailsOpen(true)}
-          >
-            <ChatIcon name="memory" />
-            <span>What I remember</span>
-          </button>
-        </div>
       </header>
 
       <section
@@ -510,35 +451,8 @@ export default function Chat() {
               </div>
               <h1>Where should we start?</h1>
               <p>
-                What would you like to call me?
-                <br />
-                Or jump right into something you need a hand with.
+                What would you like to call me? Or jump right into something you need a hand with.
               </p>
-              <div className="suggestions" aria-label="Conversation starters">
-                {(
-                  [
-                    ["briefcase", "Prepare for an interview", "Find the words"],
-                    ["idea", "Untangle an idea", "Think it through"],
-                    ["calendar", "Plan my week", "Make some room"],
-                  ] as const
-                ).map(([icon, suggestion, caption]) => (
-                  <button
-                    key={suggestion}
-                    type="button"
-                    onClick={() => {
-                      setDraft(suggestion);
-                      input.current?.focus();
-                    }}
-                  >
-                    <ChatIcon name={icon} />
-                    <span>
-                      <strong>{suggestion}</strong>
-                      <small>{caption}</small>
-                    </span>
-                    <ChatIcon name="arrowRight" className="suggestion-arrow" />
-                  </button>
-                ))}
-              </div>
             </div>
           )}
           <div
@@ -601,14 +515,6 @@ export default function Chat() {
       </section>
 
       <footer className="composer-area">
-        {!detailsOpen && resetNotice && (
-          <div className="notice" role="status">
-            <p>{resetNotice}</p>
-            <button type="button" onClick={() => setDetailsOpen(true)}>
-              Review start over
-            </button>
-          </div>
-        )}
         {showJump && (
           <button
             className="jump-button"
@@ -732,7 +638,7 @@ export default function Chat() {
                 <GmailConnection
                   key={snapshot.conversationId}
                   headers={headers}
-                  enabled={hasControl && connection === "ready" && !resetting}
+                  enabled={hasControl && connection === "ready"}
                   conversationId={snapshot.conversationId}
                   onChanged={refresh}
                   onNotice={setGmailNotice}
@@ -748,8 +654,7 @@ export default function Chat() {
                     !hasControl ||
                     connection !== "ready" ||
                     busy ||
-                    !!retryPayload ||
-                    resetting
+                    !!retryPayload
                   }
                   onClick={() => void voice.start()}
                 >
@@ -767,112 +672,8 @@ export default function Chat() {
             </div>
           </div>
         </form>
-        <p className="privacy-note">
-          <span>One conversation. Pick up where you left off.</span>
-          <span className="keyboard-hint">Shift + Enter for a new line</span>
-        </p>
       </footer>
 
-      <ConversationDialog
-        open={detailsOpen}
-        onClose={() => {
-          setDetailsOpen(false);
-          setConfirmReset(false);
-        }}
-      >
-        <section className="memory" role="group" aria-label="Saved details">
-          <h3>Saved details</h3>
-          <dl>
-            {(
-              [
-                ["agentName", "Your assistant"],
-                ["userName", "Your name"],
-                ["helpRequest", "What we are working on"],
-              ] as const
-            ).map(([key, label]) => {
-              const fact = snapshot?.onboarding?.facts[key];
-              return (
-                <div key={key}>
-                  <dt>{label}</dt>
-                  <dd>
-                    {fact?.value || "Not shared yet"}
-                    {fact?.status === "ambiguous" && (
-                      <span className="clarification">Needs clarification</span>
-                    )}
-                  </dd>
-                </div>
-              );
-            })}
-            <div>
-              <dt>Gmail</dt>
-              <dd>
-                {snapshot?.onboarding?.gmail === "connected"
-                  ? "Connected"
-                  : "Not connected"}
-              </dd>
-            </div>
-          </dl>
-          <p>You can correct any detail in the conversation.</p>
-        </section>
-        <div className="conversation-info">
-          <ChatIcon name="info" />
-          <p>
-            This conversation is saved for this browser. Voice and text share
-            the same history.
-          </p>
-        </div>
-        {snapshot?.control && (
-          <div className="reset-controls">
-            {resetNotice ? (
-              <div className="notice" role="alert">
-                <p>{resetNotice}</p>
-                <button
-                  type="button"
-                  disabled={!hasControl || resetting}
-                  onClick={() => void startOver()}
-                >
-                  Retry start over
-                </button>
-              </div>
-            ) : confirmReset ? (
-              <div role="alertdialog" aria-label="Start over confirmation">
-                <h3>Start over?</h3>
-                <p>
-                  Delete this app&apos;s saved conversation, names, preferences,
-                  and Gmail credentials? This does not delete data retained
-                  independently by providers.
-                </p>
-                <div className="reset-actions">
-                  <button
-                    className="destructive-button"
-                    type="button"
-                    onClick={() => void startOver()}
-                  >
-                    Delete saved conversation
-                  </button>
-                  <button
-                    className="secondary-button"
-                    type="button"
-                    onClick={() => setConfirmReset(false)}
-                  >
-                    Keep conversation
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <button
-                className="reset-button"
-                type="button"
-                disabled={!hasControl || resetting}
-                onClick={() => setConfirmReset(true)}
-              >
-                <ChatIcon name="reset" />
-                {resetting ? "Starting over…" : "Start over"}
-              </button>
-            )}
-          </div>
-        )}
-      </ConversationDialog>
     </main>
   );
 }

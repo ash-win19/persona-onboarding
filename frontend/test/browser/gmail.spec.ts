@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-test("a delayed Gmail status cannot restore account details after Start over", async ({
+test("a delayed Gmail status cannot restore account details after a server-side conversation reset", async ({
   page,
 }) => {
   let control: { tabId: string | null; epoch: number } = {
@@ -56,10 +56,6 @@ test("a delayed Gmail status cannot restore account details after Start over", a
         json: conversationId === "old-conversation" ? oldStatus : newStatus,
       });
     }
-    if (path === "/api/reset") {
-      conversationId = "new-conversation";
-      control = { ...control, epoch: 2 };
-    }
     return route.fulfill({ json: snapshot() });
   });
   await page.goto("/");
@@ -69,9 +65,8 @@ test("a delayed Gmail status cannot restore account details after Start over", a
   ).toBeVisible();
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect.poll(() => reads).toBe(2);
-  await page.getByRole("button", { name: "What I remember" }).click();
-  await page.getByRole("button", { name: "Start over", exact: true }).click();
-  await page.getByRole("button", { name: "Delete saved conversation" }).click();
+  conversationId = "new-conversation";
+  control = { ...control, epoch: 2 };
   await expect(
     page.getByRole("button", { name: "Connect Gmail", exact: true }),
   ).toBeVisible();
@@ -135,10 +130,6 @@ test("reset during Gmail polling cannot publish an old error into the fresh conv
         },
       });
     }
-    if (path === "/api/reset") {
-      conversationId = "after-reset";
-      control = { ...control, epoch: 2 };
-    }
     return route.fulfill({
       json: {
         conversationId,
@@ -154,13 +145,14 @@ test("reset during Gmail polling cannot publish an old error into the fresh conv
     .getByRole("button", { name: "Connect Gmail", exact: true })
     .click();
   await expect.poll(() => held).toBe(true);
-  await page.getByRole("button", { name: "What I remember" }).click();
-  await page.getByRole("button", { name: "Start over", exact: true }).click();
-  await page.getByRole("button", { name: "Delete saved conversation" }).click();
+  conversationId = "after-reset";
+  control = { ...control, epoch: 2 };
+  await expect(
+    page.getByRole("button", { name: "Connect Gmail", exact: true }),
+  ).toBeVisible();
   release();
   await expect(
     page.getByRole("button", { name: "Connect Gmail", exact: true }),
   ).toBeVisible();
-  await expect(page.getByText("A fresh conversation is ready.")).toBeVisible();
   await expect(page.getByText(/Could not check Gmail yet/)).toHaveCount(0);
 });
