@@ -6,7 +6,11 @@ import { OnboardingPolicy } from './onboarding-policy.js';
 import { OnboardingService } from './onboarding.js';
 import { MODEL, type ReplyModel } from './model.js';
 import { Authority, credentialHash, type Owner } from './authority.js';
-import { CONVERSATION_MEMORY, type ConversationMemory } from './memory.js';
+import {
+  CONVERSATION_MEMORY,
+  memoryWindow,
+  type ConversationMemory,
+} from './memory.js';
 
 export type Turn = {
   role: 'user' | 'assistant';
@@ -143,19 +147,22 @@ export class ChatService {
     });
     if (!claimed) return this.read(credential);
     const snapshot = await this.read(credential);
+    const memory = await this.memory.context(conversation.id);
     let reply: string;
     try {
       reply = await this.model.reply(
-        snapshot.turns
-          .filter(
+        memoryWindow(
+          snapshot.turns.filter(
             (turn) =>
               turn.role === 'user' ||
               ['text', 'played'].includes(turn.delivery),
-          )
-          .slice(-40)
-          .map(({ role, content: text }) => ({ role, content: text })),
+          ),
+          memory,
+          { recent: 10, max: 40 },
+        ).map(({ role, content: text }) => ({ role, content: text })),
         {
           state: snapshot.onboarding,
+          memory,
           capture: (command) =>
             this.onboarding.capture(
               { conversationId: conversation.id, submissionId, attempt },
