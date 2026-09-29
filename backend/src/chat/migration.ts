@@ -112,5 +112,14 @@ export async function migrate(db: Database) {
     await sql.query(
       'CREATE INDEX IF NOT EXISTS operational_retention ON operational_events(at)',
     );
+    await sql.query(
+      'ALTER TABLE conversations ADD COLUMN IF NOT EXISTS onboarding_revision integer',
+    );
+    await sql.query(
+      'UPDATE conversations SET onboarding_revision=revision WHERE onboarding_revision IS NULL',
+    );
+    await sql.query(
+      'ALTER TABLE conversations ALTER COLUMN onboarding_revision SET DEFAULT 0, ALTER COLUMN onboarding_revision SET NOT NULL',
+    );
   });
 }

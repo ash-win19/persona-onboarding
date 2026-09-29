@@ -36,6 +36,7 @@ export type CaptureResult = {
   state: OnboardingState;
   question: string | null;
   source?: { turnId: string; text: string };
+  sources?: { turnId: string; text: string }[];
 };
 export interface OnboardingTools {
   state: OnboardingState;
@@ -86,6 +87,28 @@ const exactKeys = (value: Record<string, unknown>, keys: string[]) =>
   keys.every((key) => key in value);
 const normalized = (value: string) =>
   value.normalize('NFKC').toLocaleLowerCase();
+
+// Speech transcription may choose different sentence punctuation than the
+// realtime model. Match contiguous words, retaining the canonical source span.
+function spokenQuote(source: string, quote: string): string | undefined {
+  const tokens = (text: string) => [
+    ...text.matchAll(/[^\s.,!?;:\u201c\u201d"()]+/gu),
+  ];
+  const haystack = tokens(source),
+    needle = tokens(quote);
+  if (!needle.length) return;
+  for (let i = 0; i <= haystack.length - needle.length; i++) {
+    if (
+      needle.every(
+        (token, offset) =>
+          normalized(token[0]) === normalized(haystack[i + offset][0]),
+      )
+    ) {
+      const last = haystack[i + needle.length - 1];
+      return source.slice(haystack[i].index, last.index + last[0].length);
+    }
+  }
+}
 function validCommand(value: unknown): value is Command {
   if (
     !object(value) ||
@@ -276,8 +299,8 @@ export class OnboardingService {
   ): Promise<CaptureResult> {
     return this.db.transaction(async (sql) => {
       const conversation = (
-        await sql.query<{ revision: number }>(
-          'SELECT revision FROM conversations WHERE id = $1 FOR UPDATE',
+        await sql.query<{ revision: number; onboarding_revision: number }>(
+          'SELECT revision, onboarding_revision FROM conversations WHERE id = $1 FOR UPDATE',
           [context.conversationId],
         )
       ).rows[0];
@@ -297,9 +320,13 @@ export class OnboardingService {
         ...(source
           ? { source: { turnId: source.id, text: source.content } }
           : {}),
+        ...(sources.length
+          ? { sources: sources.map((s) => ({ turnId: s.id, text: s.content })) }
+          : {}),
       });
-      let source:
-        { id: string; content: string; submission_id?: string } | undefined;
+      type Source = { id: string; content: string; submission_id?: string };
+      let sources: Source[] = [];
+      let source: Source | undefined;
       if (!context.callId)
         source = (
           await sql.query<{ id: string; content: string }>(
@@ -320,7 +347,7 @@ export class OnboardingService {
       else {
         const current = (
           await sql.query<{ id: string }>(
-            "SELECT id FROM calls WHERE id=$1 AND conversation_id=$2 AND generation=$3 AND source_item_id=$4 AND status='active' AND owner_epoch=(SELECT owner_epoch FROM conversations WHERE id=$2 AND owner_until>$5)",
+            "SELECT id FROM calls WHERE id=$1 AND conversation_id=$2 AND generation=$3 AND source_item_id=$4 AND status='active' AND deadline>$5 AND owner_epoch=(SELECT owner_epoch FROM conversations WHERE id=$2 AND owner_until>$5)",
             [
               context.callId,
               context.conversationId,
@@ -359,17 +386,65 @@ export class OnboardingService {
           state,
           question: receipt.question,
         };
-      if (command.expectedRevision !== conversation.revision)
-        return reject('stale');
+      sources = [source];
+      if (context.callId) {
+        // A pause may split one volunteered answer into several provider items.
+        // Use only the unassessed suffix of this call, never a previous call or
+        // an already-consumed answer. Reserved sequence survives delayed ASR.
+        const batch = await sql.query<Source & { finalized: boolean }>(
+          `SELECT v.turn_id AS id,t.content,v.submission_id,v.finalized FROM voice_items v
+           LEFT JOIN turns t ON t.id=v.turn_id
+           WHERE v.call_id=$1 AND v.role='user'
+           AND v.sequence <= (SELECT sequence FROM voice_items WHERE call_id=$1 AND item_id=$2)
+           AND v.sequence > COALESCE((SELECT max(prior.sequence) FROM voice_items prior
+             JOIN onboarding_assessments a ON a.submission_id=prior.submission_id AND a.conversation_id=$3
+             WHERE prior.call_id=$1 AND prior.role='user'),0)
+           ORDER BY v.sequence DESC LIMIT 8`,
+          [context.callId, context.sourceItem, context.conversationId],
+        );
+        if (batch.rows.some((s) => !s.finalized)) return reject('pending');
+        sources = batch.rows.reverse();
+      }
+      const onboardingUnchanged =
+        !!context.callId &&
+        command.changes.length > 0 &&
+        !command.askOnboarding &&
+        !command.preferences?.length &&
+        command.expectedRevision >= conversation.onboarding_revision &&
+        command.expectedRevision <= conversation.revision;
       if (
-        command.changes.some(
-          (change) =>
-            !normalized(source.content).includes(normalized(change.evidence)) ||
-            (change.value !== null &&
-              !normalized(change.evidence).includes(normalized(change.value))),
-        )
+        command.expectedRevision !== conversation.revision &&
+        !onboardingUnchanged
       )
-        return reject('invalid');
+        return reject('stale');
+      const changes: (Change & { source: Source })[] = [];
+      for (const change of command.changes) {
+        let match: (Change & { source: Source }) | undefined;
+        for (const candidate of sources) {
+          const evidence = context.callId
+            ? spokenQuote(candidate.content, change.evidence)
+            : normalized(candidate.content).includes(
+                  normalized(change.evidence),
+                )
+              ? change.evidence
+              : undefined;
+          if (!evidence) continue;
+          const value =
+            change.value === null
+              ? null
+              : context.callId
+                ? spokenQuote(evidence, change.value)
+                : normalized(evidence).includes(normalized(change.value))
+                  ? change.value
+                  : undefined;
+          if (value !== undefined) {
+            match = { ...change, evidence, value, source: candidate };
+            break;
+          }
+        }
+        if (!match) return reject('invalid');
+        changes.push(match);
+      }
       if (
         (command.preferences ?? []).some(
           (p) => !normalized(source.content).includes(normalized(p.evidence)),
@@ -381,9 +456,9 @@ export class OnboardingService {
         context.conversationId,
         command.preferences ?? [],
       );
-      if (command.changes.length || command.preferences?.length) {
+      {
         const revision = conversation.revision + 1;
-        for (const change of command.changes) {
+        for (const change of changes) {
           const prior = state.facts[change.goal];
           const ambiguous =
             change.action === 'clarify' ||
@@ -399,14 +474,14 @@ export class OnboardingService {
               change.goal,
               ambiguous ? null : change.value?.trim(),
               ambiguous ? 'ambiguous' : 'known',
-              source.id,
+              change.source.id,
               revision,
               change.evidence,
             ],
           );
         }
         await sql.query(
-          'UPDATE conversations SET revision = $2 WHERE id = $1',
+          'UPDATE conversations SET revision = $2, onboarding_revision = $2 WHERE id = $1',
           [context.conversationId, revision],
         );
         state = await this.read(sql, context.conversationId, revision);
@@ -432,10 +507,16 @@ export class OnboardingService {
         !!context.callId,
       );
       state = await this.read(sql, context.conversationId, state.revision);
-      await sql.query(
-        'INSERT INTO onboarding_assessments(conversation_id,submission_id,ask_onboarding,question) VALUES($1,$2,$3,$4)',
-        [context.conversationId, submissionId, command.askOnboarding, question],
-      );
+      for (const assessed of sources)
+        await sql.query(
+          'INSERT INTO onboarding_assessments(conversation_id,submission_id,ask_onboarding,question) VALUES($1,$2,$3,$4)',
+          [
+            context.conversationId,
+            assessed.submission_id ?? submissionId,
+            command.askOnboarding,
+            question,
+          ],
+        );
       return {
         ok: true,
         code: 'committed',
