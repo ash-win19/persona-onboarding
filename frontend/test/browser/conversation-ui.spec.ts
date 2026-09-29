@@ -132,3 +132,52 @@ test("mobile has one usable composer and details close without losing a draft", 
   await expect(input).toHaveValue("Prepare for an interview");
   await expect(page.getByRole("textbox")).toHaveCount(1);
 });
+
+test("a failed reset explains recovery inside the dialog and retries the same request", async ({
+  page,
+}) => {
+  await conversation(page, true);
+  const operations: string[] = [];
+  await page.route("**/api/reset", async (route) => {
+    operations.push(route.request().postDataJSON().operationId);
+    return route.fulfill({ status: 503, json: {} });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "What I remember" }).click();
+  await page.getByRole("button", { name: "Start over", exact: true }).click();
+  await page.getByRole("button", { name: "Delete saved conversation" }).click();
+  const dialog = page.getByRole("dialog", { name: "Your conversation" });
+  await expect(
+    dialog.getByText(/Start over could not be confirmed/),
+  ).toBeVisible();
+  await dialog.getByRole("button", { name: "Retry start over" }).click();
+  await expect(
+    dialog.getByText(/Start over could not be confirmed/),
+  ).toBeVisible();
+  expect(operations).toHaveLength(2);
+  expect(operations[1]).toBe(operations[0]);
+});
+
+test("a short viewport can scroll to Send with an expanded draft and a recovery notice", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 350 });
+  await conversation(page);
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
+      value: () =>
+        Promise.reject(new DOMException("Declined", "NotAllowedError")),
+    });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Start a call" }).click();
+  await expect(page.getByText(/Microphone access was declined/)).toBeVisible();
+  await page
+    .getByRole("textbox", { name: "Message Persona" })
+    .fill(Array(10).fill("Keep my draft.").join("\n"));
+  await page.mouse.move(300, 330);
+  await page.mouse.wheel(0, 1000);
+  await expect(
+    page.getByRole("button", { name: "Send message" }),
+  ).toBeInViewport();
+});

@@ -112,6 +112,7 @@ export default function Chat() {
   const resetAttempt = useRef<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [resetNotice, setResetNotice] = useState("");
   const headers = () => ({
     "Content-Type": "application/json",
     "X-Persona-Client": "web",
@@ -157,6 +158,7 @@ export default function Chat() {
     ) {
       setPending(null);
       setDraft("");
+      setResetNotice("");
       voiceRef.current.controlLost();
     }
     conversationRef.current = data.conversationId;
@@ -366,6 +368,7 @@ export default function Chat() {
     if (resetting) return;
     setResetting(true);
     setConfirmReset(false);
+    setResetNotice("");
     resetAttempt.current ??= crypto.randomUUID();
     active.current?.abort();
     voiceRef.current.controlLost();
@@ -385,8 +388,8 @@ export default function Chat() {
       setNotice("A fresh conversation is ready.");
       resetAttempt.current = null;
     } catch {
-      setNotice(
-        "Start over could not be confirmed. Use Start over again to retry safely.",
+      setResetNotice(
+        "Start over could not be confirmed. Retry to check the result safely.",
       );
     } finally {
       setResetting(false);
@@ -474,7 +477,7 @@ export default function Chat() {
               ? "Connected"
               : connection === "connecting"
                 ? "Connecting"
-                : "Reconnecting needed"}
+                : "Connection interrupted"}
           </div>
           <button
             className="details-button"
@@ -598,6 +601,14 @@ export default function Chat() {
       </section>
 
       <footer className="composer-area">
+        {!detailsOpen && resetNotice && (
+          <div className="notice" role="status">
+            <p>{resetNotice}</p>
+            <button type="button" onClick={() => setDetailsOpen(true)}>
+              Review start over
+            </button>
+          </div>
+        )}
         {showJump && (
           <button
             className="jump-button"
@@ -812,7 +823,18 @@ export default function Chat() {
         </div>
         {snapshot?.control && (
           <div className="reset-controls">
-            {confirmReset ? (
+            {resetNotice ? (
+              <div className="notice" role="alert">
+                <p>{resetNotice}</p>
+                <button
+                  type="button"
+                  disabled={!hasControl || resetting}
+                  onClick={() => void startOver()}
+                >
+                  Retry start over
+                </button>
+              </div>
+            ) : confirmReset ? (
               <div role="alertdialog" aria-label="Start over confirmation">
                 <h3>Start over?</h3>
                 <p>

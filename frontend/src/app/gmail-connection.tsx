@@ -89,7 +89,9 @@ export function GmailConnection({
   }, [conversationId, refresh]);
   useEffect(() => {
     if (!busy) return;
+    const life = lifecycle.current;
     const timer = setInterval(() => {
+      if (life.signal.aborted) return;
       if (popup.current?.closed && attempt.current) {
         const id = attempt.current;
         attempt.current = null;
@@ -98,20 +100,24 @@ export function GmailConnection({
           method: "POST",
           headers: headersRef.current(),
           body: JSON.stringify({ id }),
-          signal: AbortSignal.timeout(10000),
+          signal: AbortSignal.any([life.signal, AbortSignal.timeout(10000)]),
         })
-          .then(() => refresh())
-          .catch(() =>
-            noticeRef.current(
-              "The window closed. Check connection status before retrying.",
-            ),
-          );
+          .then(() => {
+            if (!life.signal.aborted) return refresh();
+          })
+          .catch(() => {
+            if (!life.signal.aborted)
+              noticeRef.current(
+                "The window closed. Check connection status before retrying.",
+              );
+          });
       } else
-        void refresh().catch(() =>
-          noticeRef.current(
-            "Could not check Gmail yet. Your conversation is still here.",
-          ),
-        );
+        void refresh().catch(() => {
+          if (!life.signal.aborted)
+            noticeRef.current(
+              "Could not check Gmail yet. Your conversation is still here.",
+            );
+        });
     }, 2000);
     return () => clearInterval(timer);
   }, [busy, refresh]);

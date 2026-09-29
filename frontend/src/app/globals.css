@@ -56,7 +56,8 @@ summary svg {
   display: flex;
   flex-direction: column;
   width: 100%;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 .chat-header {
   flex-shrink: 0;
@@ -924,6 +925,24 @@ h1 {
   }
   .welcome-mark {
     display: none;
+  }
+}
+@media (max-height: 500px) {
+  .chat-shell {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+  .conversation {
+    flex: none;
+    min-height: 100px;
+    max-height: 45dvh;
+  }
+  .is-empty .conversation {
+    display: block;
+  }
+  .composer textarea {
+    max-height: 100px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
