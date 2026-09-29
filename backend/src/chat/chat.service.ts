@@ -1,16 +1,10 @@
-import {
-  ConflictException,
-  Inject,
-  Injectable,
-  UnauthorizedException,
-} from '@nestjs/common';
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { DATABASE, type Database, type Sql } from './database.js';
+import { ConflictException, Inject, Injectable } from '@nestjs/common';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { DATABASE, type Database } from './database.js';
 import { OnboardingService } from './onboarding.js';
 import { MODEL, type ReplyModel } from './model.js';
-import { Authority, type Owner } from './authority.js';
+import { Authority, credentialHash, type Owner } from './authority.js';
 
-type Conversation = { id: string; revision: number };
 export type Turn = {
   role: 'user' | 'assistant';
   content: string;
@@ -26,9 +20,6 @@ type Operation = {
   lease_until: Date;
   error_code: string | null;
 };
-const hash = (credential: string) =>
-  createHash('sha256').update(credential).digest('hex');
-
 @Injectable()
 export class ChatService {
   constructor(
@@ -41,22 +32,9 @@ export class ChatService {
     const credential = randomBytes(32).toString('base64url');
     await this.db.query(
       'INSERT INTO conversations(id, credential_hash) VALUES ($1, $2)',
-      [randomUUID(), hash(credential)],
+      [randomUUID(), credentialHash(credential)],
     );
     return { credential, snapshot: await this.read(credential) };
-  }
-  private async authorize(
-    credential: string | undefined,
-    sql: Sql = this.db,
-  ): Promise<Conversation> {
-    if (!credential || !/^[A-Za-z0-9_-]{43}$/.test(credential))
-      throw new UnauthorizedException();
-    const result = await sql.query<Conversation>(
-      'SELECT id, revision FROM conversations WHERE credential_hash = $1',
-      [hash(credential)],
-    );
-    if (!result.rows[0]) throw new UnauthorizedException();
-    return result.rows[0];
   }
   async read(credential: string | undefined) {
     return this.db.transaction(async (sql) => {
@@ -102,7 +80,7 @@ export class ChatService {
     content: string,
     owner?: Owner,
   ) {
-    const conversation = await this.authorize(credential);
+    const conversation = await this.authority.authorize(credential);
     const attempt = randomUUID();
     const claimed = await this.db.transaction(async (sql) => {
       const controlled = await this.authority.authorize(credential, sql, true);

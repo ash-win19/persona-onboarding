@@ -344,10 +344,8 @@ export default function Chat() {
     !!draft.trim();
   const visibleNotice =
     notice ||
-    (pending &&
-    snapshot?.operation?.status === "completed" &&
-    pending.submissionId !== snapshot.operation.id
-      ? "The earlier reply is saved. Retry to send your waiting message."
+    (!busy && retryPayload
+      ? "Your latest result is not confirmed. Retry safely with the same message."
       : "");
   const shownPending =
     pending &&

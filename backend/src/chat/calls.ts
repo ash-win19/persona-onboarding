@@ -70,7 +70,8 @@ export class Calls implements OnModuleDestroy {
       deadline: call.deadline,
       warningAt: new Date(new Date(call.deadline).getTime() - 60000),
       controlReady:
-        call.status === 'active' && !!this.live.get(call.id)?.connection,
+        call.status === 'active' &&
+        !!this.live.get(call.id)?.connection?.healthy(),
       toolAcknowledged: call.tool_acknowledged,
     };
   }
@@ -79,7 +80,7 @@ export class Calls implements OnModuleDestroy {
     const conversation = await this.authority.authorize(credential);
     let call = (
       await this.db.query<Call>(
-        'SELECT * FROM calls WHERE conversation_id=$1 ORDER BY created_at DESC LIMIT 1',
+        "SELECT * FROM calls WHERE conversation_id=$1 ORDER BY (status IN ('connecting','active')) DESC, created_at DESC LIMIT 1",
         [conversation.id],
       )
     ).rows[0];
@@ -87,15 +88,18 @@ export class Calls implements OnModuleDestroy {
       const reason =
         call.instance_id !== this.instance || !this.live.has(call.id)
           ? 'backend_restart'
-          : new Date(call.deadline).getTime() <= this.authority.now()
-            ? 'time_limit'
-            : conversation.owner_epoch !== call.owner_epoch
-              ? 'takeover'
-              : !conversation.owner_until ||
-                  new Date(conversation.owner_until).getTime() <=
-                    this.authority.now()
-                ? 'control_lost'
-                : null;
+          : call.status === 'active' &&
+              !this.live.get(call.id)?.connection?.healthy()
+            ? 'control_lost'
+            : new Date(call.deadline).getTime() <= this.authority.now()
+              ? 'time_limit'
+              : conversation.owner_epoch !== call.owner_epoch
+                ? 'takeover'
+                : !conversation.owner_until ||
+                    new Date(conversation.owner_until).getTime() <=
+                      this.authority.now()
+                  ? 'control_lost'
+                  : null;
       if (reason) {
         await this.finish(call.id, reason);
         call = (await this.get(this.db, call.id))!;
@@ -229,7 +233,9 @@ export class Calls implements OnModuleDestroy {
           ? 'time_limit'
           : new Date(c.owner_until).getTime() <= this.authority.now()
             ? 'control_lost'
-            : null;
+            : !this.live.get(id)?.connection?.healthy()
+              ? 'control_lost'
+              : null;
     if (reason) {
       await this.finish(id, reason);
       return;
@@ -250,36 +256,51 @@ export class Calls implements OnModuleDestroy {
       this.authority.assertOwner(c, owner);
       const call = await this.get(sql, id);
       if (
-        !call ||
-        call.conversation_id !== c.id ||
-        call.owner_epoch !== owner.epoch
+        call &&
+        (call.conversation_id !== c.id || call.owner_epoch !== owner.epoch)
       )
         throw new ConflictException('CALL_NOT_CURRENT');
-    });
-    await this.finish(id, reason);
-    return this.status(credential);
-  }
-  private async finish(id: string, reason: string) {
-    try {
-      await this.db.transaction(async (sql) => {
+      if (!call) {
+        // A cancellation can arrive before its delayed setup request. Reserve the
+        // attempt as terminal so that setup can never resurrect it.
         await sql.query(
-          "UPDATE calls SET status=$2,reason=$3,ended_at=$4 WHERE id=$1 AND status IN ('connecting','active')",
+          `INSERT INTO calls(id,conversation_id,owner_tab,owner_epoch,instance_id,status,reason,created_at,deadline,ended_at)
+           VALUES($1,$2,$3,$4,$5,'ended',$6,$7,$7,$7)`,
           [
             id,
-            ['user_hangup', 'page_exit', 'takeover', 'time_limit'].includes(
-              reason,
-            )
-              ? 'ended'
-              : 'failed',
+            c.id,
+            owner.tabId,
+            owner.epoch,
+            this.instance,
             reason,
             new Date(this.authority.now()),
           ],
         );
-        await sql.query(
-          "UPDATE turns SET delivery='interrupted' WHERE call_id=$1 AND role='assistant' AND delivery='generated'",
-          [id],
-        );
-      });
+      } else await this.markFinished(sql, id, reason);
+    });
+    await this.stopTransport(id);
+    return this.status(credential);
+  }
+  private async markFinished(sql: Sql, id: string, reason: string) {
+    await sql.query(
+      "UPDATE calls SET status=$2,reason=$3,ended_at=$4 WHERE id=$1 AND status IN ('connecting','active')",
+      [
+        id,
+        ['user_hangup', 'page_exit', 'takeover', 'time_limit'].includes(reason)
+          ? 'ended'
+          : 'failed',
+        reason,
+        new Date(this.authority.now()),
+      ],
+    );
+    await sql.query(
+      "UPDATE turns SET delivery='interrupted' WHERE call_id=$1 AND role='assistant' AND delivery='generated'",
+      [id],
+    );
+  }
+  private async finish(id: string, reason: string) {
+    try {
+      await this.db.transaction((sql) => this.markFinished(sql, id, reason));
     } finally {
       await this.stopTransport(id);
     }

@@ -25,6 +25,7 @@ describe('browser call API', () => {
     disconnect: () => void;
     sent: Record<string, unknown>[];
     closed: boolean;
+    stalled: boolean;
   }[] = [];
   const provider: VoiceProvider = {
     connect: async (_sdp, _instructions, onEvent, onClose) => {
@@ -33,9 +34,11 @@ describe('browser call API', () => {
         disconnect: onClose,
         sent: [] as Record<string, unknown>[],
         closed: false,
+        stalled: false,
       };
       connections.push(c);
       return {
+        healthy: () => !c.closed && !c.stalled,
         providerId: 'rtc_test' + connections.length,
         sdp: 'v=0\r\nanswer',
         send: (event) => {
@@ -208,7 +211,7 @@ describe('browser call API', () => {
       .expect(403);
     expect((await s.read()).body.turns).toHaveLength(0);
   });
-  it('ends at the persisted deadline and does not let an old timer end a new call', async () => {
+  it('ends at the persisted ten-minute deadline with a one-minute warning', async () => {
     const s = await session();
     const id = randomUUID();
     const start = await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
@@ -221,6 +224,48 @@ describe('browser call API', () => {
       reason: 'time_limit',
     });
     expect(connections.at(-1)!.closed).toBe(true);
+  });
+  it('cancels an attempt before setup arrives and keeps a later call active', async () => {
+    const s = await session();
+    const cancelled = randomUUID();
+    await s
+      .post('/calls/end', { id: cancelled, reason: 'connection_lost' })
+      .expect(200);
+    await s.post('/calls/start', { id: cancelled, sdp: 'v=0' }).expect(409);
+    const current = randomUUID();
+    await s.post('/calls/start', { id: current, sdp: 'v=0' }).expect(200);
+    await s
+      .post('/calls/end', { id: cancelled, reason: 'connection_lost' })
+      .expect(200);
+    await s
+      .post('/calls/end', { id: randomUUID(), reason: 'connection_lost' })
+      .expect(200);
+    expect((await s.status()).body.call).toMatchObject({
+      id: current,
+      status: 'active',
+    });
+    await s
+      .post('/calls/end', { id: current, reason: 'user_hangup' })
+      .expect(200);
+  });
+  it('ends a silently stalled sideband before allowing more voice', async () => {
+    const s = await session();
+    const id = randomUUID();
+    await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
+    const c = connections.at(-1)!;
+    c.stalled = true;
+    expect((await s.status()).body.call).toMatchObject({
+      status: 'failed',
+      reason: 'control_lost',
+      controlReady: false,
+    });
+    expect(c.closed).toBe(true);
+    await s
+      .post('/turns', {
+        submissionId: randomUUID(),
+        content: 'Continue in text.',
+      })
+      .expect(200);
   });
   it('reports lost sideband control and leaves committed chat usable', async () => {
     const s = await session();

@@ -34,6 +34,7 @@ export interface VoiceConnection {
   providerId: string;
   sdp: string;
   send(event: Record<string, unknown>): void;
+  healthy(): boolean;
   close(): Promise<void>;
 }
 export interface VoiceProvider {
@@ -114,9 +115,19 @@ export class OpenAIVoiceProvider implements VoiceProvider {
       },
     );
     let closing = false;
+    let lastPong = Date.now();
+    let heartbeat: NodeJS.Timeout | undefined;
+    const healthy = () =>
+      !closing &&
+      socket.readyState === WebSocket.OPEN &&
+      Date.now() - lastPong < 10000;
+    socket.on('pong', () => {
+      lastPong = Date.now();
+    });
     const close = async () => {
       if (closing) return;
       closing = true;
+      clearInterval(heartbeat);
       socket.close();
       await fetch(
         `https://api.openai.com/v1/realtime/calls/${encodeURIComponent(providerId)}/hangup`,
@@ -129,7 +140,12 @@ export class OpenAIVoiceProvider implements VoiceProvider {
     };
     socket.on('message', (data) => {
       try {
-        onEvent(JSON.parse(data.toString()) as VoiceEvent);
+        const bytes = Array.isArray(data)
+          ? Buffer.concat(data)
+          : Buffer.isBuffer(data)
+            ? data
+            : Buffer.from(data);
+        onEvent(JSON.parse(bytes.toString('utf8')) as VoiceEvent);
       } catch {
         onClose();
       }
@@ -155,7 +171,17 @@ export class OpenAIVoiceProvider implements VoiceProvider {
           reject(new Error('VOICE_CONTROL_FAILED'));
         });
       });
+      lastPong = Date.now();
+      heartbeat = setInterval(() => {
+        if (!healthy()) {
+          clearInterval(heartbeat);
+          socket.terminate();
+          onClose();
+        } else socket.ping();
+      }, 3000);
+      heartbeat.unref();
       return {
+        healthy,
         providerId,
         sdp: answer,
         send: (event) => {
