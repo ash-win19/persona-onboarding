@@ -1,6 +1,27 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChatIcon } from "./chat-icons";
+import Image from "next/image";
+import localFont from "next/font/local";
+
+const gmailFont = localFont({
+  src: "./fonts/google-sans-latin.woff2",
+  weight: "400 700",
+  display: "swap",
+  preload: false,
+});
+
+function GmailIcon() {
+  return (
+    <Image
+      className="gmail-icon"
+      src="/gmail.svg"
+      alt=""
+      width={20}
+      height={20}
+    />
+  );
+}
 type GmailStatus = {
   available: boolean;
   status: "connected" | "not_connected" | "reconnect_needed";
@@ -163,7 +184,7 @@ export function GmailConnection({
   )
     return null;
   return (
-    <div className="gmail-controls">
+    <div className={`gmail-controls ${gmailFont.className}`}>
       {gmail.status !== "connected" && (
         <button
           type="button"
@@ -171,7 +192,7 @@ export function GmailConnection({
           disabled={!enabled || busy || !gmail.available}
           onClick={() => void connect()}
         >
-          <ChatIcon name="mail" />
+          <GmailIcon />
           {busy
             ? "Connecting Gmail…"
             : gmail.status === "reconnect_needed"
@@ -192,7 +213,11 @@ export function GmailConnection({
               : "About Gmail connection"
           }
         >
-          <ChatIcon name={gmail.status === "connected" ? "check" : "info"} />
+          {gmail.status === "connected" ? (
+            <GmailIcon />
+          ) : (
+            <ChatIcon name="info" />
+          )}
           {gmail.status === "connected" && <span>Gmail connected</span>}
         </summary>
         <div className="gmail-popover">
