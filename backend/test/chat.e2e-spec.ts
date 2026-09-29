@@ -5,6 +5,7 @@ import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
+import { streamText } from './fake-responses.js';
 import { OpenAIReplyModel } from '../src/chat/model.js';
 import { ChatModule } from '../src/chat/chat.module.js';
 import { DATABASE, type Database } from '../src/chat/database.js';
@@ -221,11 +222,8 @@ describe('saved conversation API', () => {
     'uses the $label provider tool result before replying',
     async ({ name, evidence, answer, expectedName, question }) => {
       let receivedAuthoritativeState = false;
-      const providerReply = JSON.stringify({
-        answer:
-          answer + (question ? ' What is your name? What do you need?' : ''),
-        followUp: null,
-      });
+      const providerReply =
+        answer + (question ? ' What is your name? What do you need?' : '');
       const provider = createServer(async (req, res) => {
         let body = '';
         for await (const chunk of req) body += chunk;
@@ -233,49 +231,37 @@ describe('saved conversation API', () => {
         const toolOutput = input.input.find(
           (item: { type?: string }) => item.type === 'function_call_output',
         );
-        if (toolOutput)
+        if (toolOutput) {
           receivedAuthoritativeState =
             JSON.parse(toolOutput.output).state.facts.agentName.value ===
             expectedName;
+          return streamText(res, providerReply.split(/(?<= )/));
+        }
         res.setHeader('Content-Type', 'application/json');
         res.end(
           JSON.stringify({
-            id: toolOutput ? 'resp_reply' : 'resp_capture',
+            id: 'resp_capture',
             object: 'response',
             status: 'completed',
-            output: toolOutput
-              ? [
-                  {
-                    type: 'message',
-                    role: 'assistant',
-                    content: [
-                      {
-                        type: 'output_text',
-                        text: providerReply,
-                        annotations: [],
-                      },
-                    ],
-                  },
-                ]
-              : [
-                  {
-                    type: 'function_call',
-                    name: 'capture_onboarding',
-                    call_id: 'call_fact',
-                    arguments: JSON.stringify({
-                      expectedRevision: 1,
-                      askOnboarding: true,
-                      changes: [
-                        {
-                          goal: 'agentName',
-                          action: 'set',
-                          value: name,
-                          evidence,
-                        },
-                      ],
-                    }),
-                  },
-                ],
+            output: [
+              {
+                type: 'function_call',
+                name: 'capture_onboarding',
+                call_id: 'call_fact',
+                arguments: JSON.stringify({
+                  expectedRevision: 1,
+                  askOnboarding: true,
+                  changes: [
+                    {
+                      goal: 'agentName',
+                      action: 'set',
+                      value: name,
+                      evidence,
+                    },
+                  ],
+                }),
+              },
+            ],
           }),
         );
       });

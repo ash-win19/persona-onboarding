@@ -48,6 +48,24 @@ export class ChatErrors implements ExceptionFilter {
   }
 }
 
+function turn(body: unknown) {
+  if (
+    !body ||
+    typeof body !== 'object' ||
+    !('submissionId' in body) ||
+    typeof body.submissionId !== 'string' ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      body.submissionId,
+    ) ||
+    !('content' in body) ||
+    typeof body.content !== 'string' ||
+    !body.content.trim() ||
+    body.content.length > 8000
+  )
+    throw new BadRequestException();
+  return { submissionId: body.submissionId, content: body.content.trim() };
+}
+
 @Controller()
 @UseFilters(ChatErrors)
 export class ChatController {
@@ -90,34 +108,59 @@ export class ChatController {
     res.set('Cache-Control', 'no-store');
     return this.chat.read(credential(req));
   }
+  // With Accept: text/event-stream the reply streams as server-sent events: a
+  // snapshot once the message is saved, reply deltas, then the saved snapshot.
+  // Rejections before the message is saved keep their status codes, and a
+  // duplicate submission, like any other request, receives plain JSON.
   @Post('turns')
-  @HttpCode(200)
-  submit(
+  async submit(
     @Req() req: Request,
     @Body() body: unknown,
-    @Res({ passthrough: true }) res: Response,
+    @Res() res: Response,
   ) {
     browserWrite(req, this.config);
-    res.set('Cache-Control', 'no-store');
-    if (
-      !body ||
-      typeof body !== 'object' ||
-      !('submissionId' in body) ||
-      typeof body.submissionId !== 'string' ||
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-        body.submissionId,
-      ) ||
-      !('content' in body) ||
-      typeof body.content !== 'string' ||
-      !body.content.trim() ||
-      body.content.length > 8000
-    )
-      throw new BadRequestException();
-    return this.chat.submit(
-      credential(req),
-      body.submissionId,
-      body.content.trim(),
-      owner(req),
-    );
+    const { submissionId, content } = turn(body);
+    const streaming = !!req.headers.accept?.includes('text/event-stream');
+    let open = false;
+    const send = (event: string, data: unknown) => {
+      if (!open) {
+        open = true;
+        res.status(200).set({
+          'Content-Type': 'text/event-stream; charset=utf-8',
+          // no-transform stops proxies, including Next.js, compressing and
+          // therefore buffering the stream.
+          'Cache-Control': 'no-store, no-transform',
+          'X-Accel-Buffering': 'no',
+        });
+        res.flushHeaders();
+      }
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+    let snapshot: Awaited<ReturnType<ChatService['submit']>>;
+    try {
+      snapshot = await this.chat.submit(
+        credential(req),
+        submissionId,
+        content,
+        owner(req),
+        streaming
+          ? {
+              start: (current) => send('snapshot', current),
+              delta: (text) => send('delta', { text }),
+            }
+          : undefined,
+      );
+    } catch (error) {
+      if (!open) throw error;
+      send('error', { code: 'SERVICE_UNAVAILABLE' });
+      res.end();
+      return;
+    }
+    if (!open) {
+      res.status(200).set('Cache-Control', 'no-store').json(snapshot);
+      return;
+    }
+    send('done', snapshot);
+    res.end();
   }
 }

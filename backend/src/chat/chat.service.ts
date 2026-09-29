@@ -13,6 +13,10 @@ import {
   type ConversationMemory,
 } from './memory.js';
 
+export interface ReplyStream {
+  start(snapshot: Awaited<ReturnType<ChatService['read']>>): void;
+  delta(text: string): void;
+}
 export type Turn = {
   role: 'user' | 'assistant';
   content: string;
@@ -115,6 +119,7 @@ export class ChatService {
     submissionId: string,
     content: string,
     owner?: Owner,
+    stream?: ReplyStream,
   ) {
     const conversation = await this.authority.authorize(credential);
     const attempt = randomUUID();
@@ -176,6 +181,7 @@ export class ChatService {
     });
     if (!claimed) return this.read(credential);
     const snapshot = await this.read(credential);
+    stream?.start(snapshot);
     const memory = await this.memory.context(conversation.id);
     let reply: string;
     try {
@@ -198,6 +204,7 @@ export class ChatService {
               command,
             ),
         },
+        stream && ((text) => stream.delta(text)),
       );
     } catch {
       await this.db.query(
