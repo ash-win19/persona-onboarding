@@ -8,6 +8,7 @@ import { OnboardingPolicy } from './onboarding-policy.js';
 import { Calls } from './calls.js';
 import { lockSession } from './account-sessions.js';
 import { saveOpening } from './opening.js';
+import { CONVERSATION_MEMORY, type ConversationMemory } from './memory.js';
 
 export async function removeConversation(sql: Sql, id: string) {
   const calls = (
@@ -28,6 +29,7 @@ export class Reset {
     @Inject(ChatService) private readonly chat: ChatService,
     @Inject(OnboardingPolicy) private readonly policy: OnboardingPolicy,
     @Inject(Calls) private readonly calls: Calls,
+    @Inject(CONVERSATION_MEMORY) private readonly memory: ConversationMemory,
   ) {}
   async start(
     credential: string | undefined,
@@ -38,6 +40,7 @@ export class Reset {
       throw new UnauthorizedException();
     const oldHash = credentialHash(credential);
     let callIds: string[] = [];
+    let removed: string | undefined;
     const next = await this.db.transaction(async (sql) => {
       // Serialize retries even when the first request has already deleted the old row.
       await sql.query('SELECT pg_advisory_xact_lock(hashtext($1))', [oldHash]);
@@ -72,6 +75,7 @@ export class Reset {
           .digest('base64url'),
         id = randomUUID();
       callIds = await removeConversation(sql, current.id);
+      removed = current.id;
       await sql.query(
         'INSERT INTO conversations(id,credential_hash,owner_tab,owner_epoch,owner_until) VALUES($1,$2,$3,$4,$5)',
         [
@@ -109,6 +113,7 @@ export class Reset {
       return newCredential;
     });
     await this.calls.closeDeleted(callIds);
+    if (removed) await this.memory.forget(removed);
     const snapshot = await this.chat.read(next);
     void this.diagnostics.record('SESSION_RESET', snapshot.conversationId);
     return { credential: next, snapshot };

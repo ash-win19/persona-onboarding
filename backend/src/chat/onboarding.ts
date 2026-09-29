@@ -1,4 +1,5 @@
 import { Gmail } from './gmail.js';
+import type { MemoryContext } from './memory.js';
 import { Authority } from './authority.js';
 import { Inject, Injectable } from '@nestjs/common';
 import {
@@ -9,6 +10,12 @@ import {
 } from './onboarding-policy.js';
 import { randomUUID } from 'node:crypto';
 import { DATABASE, type Database, type Sql } from './database.js';
+import {
+  CONVERSATION_MEMORY,
+  noteKinds,
+  type ConversationMemory,
+  type MemoryNote,
+} from './memory.js';
 
 export const goals = ['agentName', 'userName', 'helpRequest'] as const;
 export type Goal = (typeof goals)[number];
@@ -37,9 +44,11 @@ export type CaptureResult = {
   question: string | null;
   source?: { turnId: string; text: string };
   sources?: { turnId: string; text: string }[];
+  remembered?: MemoryNote[];
 };
 export interface OnboardingTools {
   state: OnboardingState;
+  memory?: MemoryContext | null;
   capture(command: unknown): Promise<CaptureResult>;
 }
 // Only the authenticated coordinator supplies this context, never model arguments.
@@ -174,6 +183,7 @@ export class OnboardingService {
     @Inject(OnboardingPolicy) private readonly policy: OnboardingPolicy,
     @Inject(Authority) private readonly authority: Authority,
     @Inject(Gmail) private readonly gmail: Gmail,
+    @Inject(CONVERSATION_MEMORY) private readonly memory: ConversationMemory,
   ) {}
 
   async read(
@@ -303,11 +313,13 @@ export class OnboardingService {
     return null;
   }
 
-  async capture(
-    context: FactContext,
-    command: unknown,
-  ): Promise<CaptureResult> {
-    return this.db.transaction(async (sql) => {
+  async capture(context: FactContext, input: unknown): Promise<CaptureResult> {
+    // Working memory is optional and never invalidates an otherwise valid capture.
+    const { memory, ...command }: Record<string, unknown> = object(input)
+      ? input
+      : {};
+    let notes: MemoryNote[] = [];
+    const result = await this.db.transaction<CaptureResult>(async (sql) => {
       const conversation = (
         await sql.query<{ revision: number; onboarding_revision: number }>(
           'SELECT revision, onboarding_revision FROM conversations WHERE id = $1 FOR UPDATE',
@@ -415,6 +427,12 @@ export class OnboardingService {
         sources = batch.rows.reverse();
       }
       if (!validCommand(command)) return reject('invalid');
+      const quote = (text: string, part: string) =>
+        context.callId
+          ? spokenQuote(text, part)
+          : normalized(text).includes(normalized(part))
+            ? part
+            : undefined;
       const onboardingUnchanged =
         !!context.callId &&
         command.changes.length > 0 &&
@@ -431,22 +449,10 @@ export class OnboardingService {
       for (const change of command.changes) {
         let match: (Change & { source: Source }) | undefined;
         for (const candidate of sources.toReversed()) {
-          const evidence = context.callId
-            ? spokenQuote(candidate.content, change.evidence)
-            : normalized(candidate.content).includes(
-                  normalized(change.evidence),
-                )
-              ? change.evidence
-              : undefined;
+          const evidence = quote(candidate.content, change.evidence);
           if (!evidence) continue;
           const value =
-            change.value === null
-              ? null
-              : context.callId
-                ? spokenQuote(evidence, change.value)
-                : normalized(evidence).includes(normalized(change.value))
-                  ? change.value
-                  : undefined;
+            change.value === null ? null : quote(evidence, change.value);
           if (value !== undefined) {
             match = { ...change, evidence, value, source: candidate };
             break;
@@ -457,13 +463,34 @@ export class OnboardingService {
       }
       const preferences = (command.preferences ?? []).map((p) => ({
         ...p,
-        sourceIndex: sources.findLastIndex((candidate) =>
-          context.callId
-            ? spokenQuote(candidate.content, p.evidence) !== undefined
-            : normalized(candidate.content).includes(normalized(p.evidence)),
+        sourceIndex: sources.findLastIndex(
+          (candidate) => quote(candidate.content, p.evidence) !== undefined,
         ),
       }));
       if (preferences.some((p) => p.sourceIndex < 0)) return reject('invalid');
+      notes = (Array.isArray(memory) ? memory.slice(0, 3) : []).flatMap(
+        (note: unknown) => {
+          if (
+            !object(note) ||
+            !exactKeys(note, ['kind', 'value', 'evidence']) ||
+            !noteKinds.includes(note.kind as never) ||
+            typeof note.value !== 'string' ||
+            !note.value.trim() ||
+            note.value.length > 300 ||
+            typeof note.evidence !== 'string' ||
+            !note.evidence.trim() ||
+            note.evidence.length > 8000
+          )
+            return [];
+          for (const candidate of sources.toReversed()) {
+            const evidence = quote(candidate.content, note.evidence);
+            const value = evidence && quote(evidence, note.value);
+            if (value)
+              return [{ kind: note.kind as MemoryNote['kind'], value }];
+          }
+          return [];
+        },
+      );
       await this.policy.apply(
         sql,
         context.conversationId,
@@ -546,5 +573,10 @@ export class OnboardingService {
         question,
       };
     });
+    if (result.code !== 'committed' || !notes.length) return result;
+    const remembered = await this.memory
+      .remember(context.conversationId, notes)
+      .catch(() => false);
+    return remembered ? { ...result, remembered: notes } : result;
   }
 }

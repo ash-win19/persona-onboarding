@@ -72,7 +72,7 @@ describe('browser call API', () => {
             query: (statement, values) => {
               if (
                 failOpeningContext &&
-                statement.startsWith('SELECT role,content FROM turns')
+                statement.startsWith('SELECT id,role,content,created_at')
               ) {
                 failOpeningContext = false;
                 throw new Error('CONTEXT_UNAVAILABLE');
