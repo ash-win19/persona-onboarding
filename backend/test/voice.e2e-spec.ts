@@ -9,6 +9,7 @@ import { MODEL, type ModelTurn, type ReplyModel } from '../src/chat/model.js';
 import { CHAT_CONFIG } from '../src/chat/config.js';
 import { CLOCK } from '../src/chat/authority.js';
 import { migrate } from '../src/chat/migration.js';
+import { FACT_REPAIR, type FactRepair } from '../src/chat/fact-repair.js';
 import {
   VOICE_PROVIDER,
   type VoiceEvent,
@@ -22,6 +23,11 @@ describe('browser call API', () => {
   const origin = 'https://persona.example';
   let textContext: ModelTurn[] = [];
   const model: ReplyModel = { reply: async () => 'Ready to help in text.' };
+  const repair: FactRepair = {
+    interpret: async () => {
+      throw new Error('REPAIR_UNAVAILABLE');
+    },
+  };
   const connections: {
     emit: (event: VoiceEvent) => void;
     disconnect: () => void;
@@ -72,6 +78,8 @@ describe('browser call API', () => {
       .useValue(() => now)
       .overrideProvider(VOICE_PROVIDER)
       .useValue(provider)
+      .overrideProvider(FACT_REPAIR)
+      .useValue(repair)
       .compile();
     app = module.createNestApplication();
     await app.init();
@@ -82,6 +90,9 @@ describe('browser call API', () => {
   });
   beforeEach(() => {
     now = Date.now();
+    repair.interpret = async () => {
+      throw new Error('REPAIR_UNAVAILABLE');
+    };
     model.reply = async (turns) => {
       textContext = turns;
       return 'Ready to help in text.';
@@ -897,6 +908,170 @@ describe('browser call API', () => {
         before.turns[sourceIndex].id,
       );
       await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
+    },
+  );
+  it('reinterprets a rejected proposal from canonical split sources before continuing', async () => {
+    const s = await session(),
+      id = randomUUID();
+    await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
+    const c = connections.at(-1)!;
+    repair.interpret = async ({ state, sources }) => {
+      expect(sources.map((source) => source.text)).toEqual([
+        'Call me Sam.',
+        'Help me prepare for an interview.',
+      ]);
+      return {
+        expectedRevision: state.revision,
+        askOnboarding: false,
+        preferences: [],
+        changes: [
+          {
+            goal: 'userName',
+            action: 'set',
+            value: 'Sam',
+            evidence: 'Call me Sam',
+          },
+          {
+            goal: 'helpRequest',
+            action: 'set',
+            value: 'prepare for an interview',
+            evidence: 'Help me prepare for an interview',
+          },
+        ],
+      };
+    };
+    for (const [item, transcript] of [
+      ['repair-name', 'Call me Sam.'],
+      ['repair-task', 'Help me prepare for an interview.'],
+    ]) {
+      c.emit({ type: 'input_audio_buffer.committed', item_id: item });
+      c.emit({
+        type: 'conversation.item.input_audio_transcription.completed',
+        item_id: item,
+        transcript,
+      });
+    }
+    c.emit({
+      type: 'response.created',
+      response: {
+        id: 'malformed-response',
+        status: 'in_progress',
+        metadata: { generation: '2', sourceItem: 'repair-task' },
+      },
+    });
+    c.emit({
+      type: 'response.function_call_arguments.done',
+      response_id: 'malformed-response',
+      call_id: 'malformed-tool',
+      name: 'capture_onboarding',
+      arguments: '{}',
+    });
+    await vi.waitFor(async () =>
+      expect((await s.read()).body.onboarding.facts.userName.value).toBe('Sam'),
+    );
+    const saved = (await s.read()).body;
+    expect(saved.onboarding.graduated).toBe(true);
+    expect(saved.onboarding.facts.userName.sourceTurnId).toBe(
+      saved.turns[0].id,
+    );
+    expect(saved.onboarding.facts.helpRequest.sourceTurnId).toBe(
+      saved.turns[1].id,
+    );
+    await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
+  });
+  it.each(['typing', 'hangup', 'takeover', 'reset'])(
+    'keeps %s responsive and rejects a late interpretation',
+    async (action) => {
+      const s = await session(),
+        id = randomUUID();
+      await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
+      const c = connections.at(-1)!;
+      let complete!: (command: unknown) => void;
+      let started = 0;
+      repair.interpret = async () => {
+        started++;
+        return new Promise((resolve) => {
+          complete = resolve;
+        });
+      };
+      c.emit({ type: 'input_audio_buffer.committed', item_id: 'slow-source' });
+      c.emit({
+        type: 'conversation.item.input_audio_transcription.completed',
+        item_id: 'slow-source',
+        transcript: 'Call me Sam.',
+      });
+      c.emit({
+        type: 'response.created',
+        response: {
+          id: 'slow-response',
+          status: 'in_progress',
+          metadata: { generation: '1', sourceItem: 'slow-source' },
+        },
+      });
+      const toolEvent = {
+        type: 'response.function_call_arguments.done',
+        response_id: 'slow-response',
+        call_id: 'slow-tool',
+        name: 'capture_onboarding',
+        arguments: '{}',
+      };
+      c.emit(toolEvent);
+      c.emit(toolEvent);
+      await vi.waitFor(() => expect(started).toBe(1));
+      let cookie = s.cookie;
+      if (action === 'typing')
+        await s
+          .post('/calls/turns', {
+            id,
+            submissionId: randomUUID(),
+            content: 'Actually, call me Jordan.',
+          })
+          .expect(200);
+      if (action === 'hangup')
+        await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
+      if (action === 'takeover')
+        await request(app.getHttpServer())
+          .post('/control')
+          .set('Origin', origin)
+          .set('X-Persona-Client', 'web')
+          .set('Cookie', cookie)
+          .send({ tabId: randomUUID(), takeover: true })
+          .expect(200);
+      if (action === 'reset')
+        cookie = (
+          await s.post('/reset', { operationId: randomUUID() }).expect(200)
+        ).headers['set-cookie'][0];
+      complete({
+        expectedRevision: 1,
+        askOnboarding: false,
+        preferences: [],
+        changes: [
+          {
+            goal: 'userName',
+            action: 'set',
+            value: 'Sam',
+            evidence: 'Call me Sam',
+          },
+        ],
+      });
+      // A later public event/status read observes the queue after the retry settles.
+      await request(app.getHttpServer())
+        .get('/calls/status')
+        .set('Cookie', cookie)
+        .expect(200);
+      const saved = await request(app.getHttpServer())
+        .get('/session')
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(saved.body.onboarding.facts.userName.value).toBeNull();
+      expect(
+        c.sent.some(
+          (e) => (e.item as { call_id?: string })?.call_id === 'slow-tool',
+        ),
+      ).toBe(false);
+      expect(started).toBe(1);
+      if (action === 'typing')
+        await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
     },
   );
   it('repairs rejected voice facts before replying and bounds malformed retries', async () => {
