@@ -2,11 +2,8 @@
 
 import dynamic from "next/dynamic";
 import { useSyncExternalStore } from "react";
+import { ThinkingOrb } from "thinking-orbs";
 
-const Orb = dynamic(
-  () => import("thinking-orbs").then((module) => module.ThinkingOrb),
-  { ssr: false },
-);
 const Beam = dynamic(
   () => import("voice-glow").then((module) => module.VoiceBeam),
   { ssr: false },
@@ -33,10 +30,10 @@ function useMotionPaused() {
 
 export function ThinkingIndicator({
   text,
-  thinking,
+  active,
 }: {
   text: string;
-  thinking: boolean;
+  active: boolean;
 }) {
   const paused = useMotionPaused();
   return (
@@ -44,13 +41,13 @@ export function ThinkingIndicator({
       <span
         className="thinking-orb"
         aria-hidden="true"
-        data-paused={paused || !thinking}
+        data-paused={paused || !active}
       >
-        <Orb
+        <ThinkingOrb
           state="working"
           size={20}
           theme="light"
-          paused={paused || !thinking}
+          paused={paused || !active}
         />
       </span>
       <span>{text}</span>

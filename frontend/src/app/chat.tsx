@@ -591,7 +591,10 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
               </article>
             )}
             {waitingText && (
-              <ThinkingIndicator text={waitingText} thinking={generating} />
+              <ThinkingIndicator
+                text={waitingText}
+                active={generating || (connection === "ready" && !!submitting)}
+              />
             )}
           </div>
           {snapshot?.control && (

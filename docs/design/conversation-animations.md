@@ -63,20 +63,20 @@ The agreed activity terms are recorded in `CONTEXT.md`. Rendering and implementa
 
 ## Implementation
 
-`conversation-animation.tsx` loads the two renderers on the client. The voice beam sits behind the call banner's text and controls. Reduced motion uses a static line; hidden tabs unmount the beam while the call continues. Neither renderer requests microphone access.
+`conversation-animation.tsx` includes the orb renderer with the chat bundle so the first message does not wait for another script download. The voice beam remains lazy-loaded on the client. The voice beam sits behind the call banner's text and controls. Reduced motion uses a static line; hidden tabs unmount the beam while the call continues. Neither renderer requests microphone access.
 
 `voice-activity.ts` maps provider events to the agreed phases and rejects events for retired replies. Speaking requires both an output-audio event and local playback readiness. Generation completion keeps the speaking state until output drains. Spoken and submitted-text interruptions retire the previous reply, while tool work retains thinking.
 
 `voice-meter.ts` analyses the existing input and output streams without connecting them to an audio destination. A per-frame getter samples the current speaker without React state updates for each audio sample. The call closes its analyser nodes and audio context on cleanup.
 
-The text row uses confirmed backend generation state, including after a request timeout. Sending and connection recovery have separate text and a paused orb. Failed and completed operations stop the thinking indicator.
+The text row animates immediately while a message is being submitted on a healthy connection, then continues during confirmed backend generation, including after a request timeout. Waiting for the first generation status poll left the orb frozen for replies that completed before that poll. Sending and connection recovery retain separate text; recovery pauses the orb until backend generation is confirmed again. Reduced motion and hidden tabs also pause it. Failed and completed operations stop the thinking indicator.
 
 Provider event semantics were checked against the [Realtime server events reference](https://developers.openai.com/api/reference/resources/realtime/server-events#output_audio_buffer.started).
 
 ## Verification
 
 - Nineteen unit checks passed, covering activity ordering, late events, tool work, audio-source selection, and meter cleanup alongside the existing API tests.
-- All 29 browser checks passed. The eight voice checks were repeated after the final event-handling changes and passed. Coverage includes microphone denial, setup races, typed and spoken interruption, blocked playback recovery, hidden tabs, reduced motion, long text replies, and existing sign-in and Gmail recovery.
+- All 32 browser checks passed. The pending-message regression checks actual canvas movement before a generation status poll and a static orb with reduced motion. Coverage includes microphone denial, setup races, typed and spoken interruption, blocked playback recovery, hidden tabs, reduced motion, long text replies, and existing sign-in and Gmail recovery.
 - Type checking and lint passed. Desktop orb and call-banner screenshots and the 375-pixel mobile fallback were inspected.
 - The production build succeeds with `BACKEND_URL=http://localhost:3001 npm run build -- --webpack`. The default Turbopack production build hit an environment permission error when its CSS worker tried to bind a local port. The package's build command remains unchanged.
 - Voice events and media behavior were simulated in browser tests. A live provider call and microphone calibration have not been verified in this change.
