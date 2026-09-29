@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { GmailConnection } from "./gmail-connection";
+import { AssistantMessage } from "./assistant-message";
 import { useVoice, type Control, type CallState } from "./use-voice";
 import { ChatIcon } from "./chat-icons";
 import { PersonaLogo, PersonaMark } from "./persona-logo";
@@ -534,6 +535,8 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
     (!busy && retryPayload && !generating
       ? "Your latest result is not confirmed. Retry safely with the same message."
       : "");
+  const hasUserMessage =
+    !!pending || !!snapshot?.turns.some((turn) => turn.role === "user");
   const shownPending =
     pending &&
     !snapshot?.turns.some(
@@ -676,7 +679,11 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
                 aria-label={turn.role === "user" ? "You" : agentName}
               >
                 <div className="turn-body">
-                  <p>{turn.content}</p>
+                  {turn.role === "assistant" ? (
+                    <AssistantMessage content={turn.content} />
+                  ) : (
+                    <p>{turn.content}</p>
+                  )}
                 </div>
               </article>
             ))}
@@ -684,14 +691,13 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
               <article className="turn user pending" aria-label="You">
                 <div className="turn-body">
                   <p>{pending.content}</p>
-                  <span className="delivery-note">Not yet confirmed</span>
                 </div>
               </article>
             )}
             {streamed && (
               <article className="turn assistant" aria-label={agentName}>
                 <div className="turn-body">
-                  <p>{streamed.text}</p>
+                  <AssistantMessage content={streamed.text} />
                 </div>
               </article>
             )}
@@ -702,19 +708,6 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
               />
             )}
           </div>
-          {snapshot?.control && (
-            <div className="conversation-tools">
-              <GmailConnection
-                key={snapshot.conversationId}
-                headers={headers}
-                enabled={hasControl && connection === "ready"}
-                introduced={!!gmailIntroduced}
-                conversationId={snapshot.conversationId}
-                onChanged={refresh}
-                onNotice={setGmailNotice}
-              />
-            </div>
-          )}
         </div>
       </section>
 
@@ -723,6 +716,8 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
           <button
             className="jump-button"
             type="button"
+            aria-label="Back to latest"
+            title="Back to latest"
             onClick={() => {
               followLatest.current = true;
               setShowJump(false);
@@ -735,7 +730,7 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
               });
             }}
           >
-            <ChatIcon name="arrowDown" /> Back to latest
+            <ChatIcon name="arrowDown" />
           </button>
         )}
         {!hasControl && snapshot?.control && (
@@ -802,6 +797,19 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
             </button>
           </div>
         )}
+        {snapshot?.control && (
+          <div className="composer-connections">
+            <GmailConnection
+              key={snapshot.conversationId}
+              headers={headers}
+              enabled={hasControl && connection === "ready"}
+              introduced={!!gmailIntroduced}
+              conversationId={snapshot.conversationId}
+              onChanged={refresh}
+              onNotice={setGmailNotice}
+            />
+          </div>
+        )}
         <form
           className="composer"
           onSubmit={(event) => {
@@ -819,9 +827,11 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
             rows={1}
             maxLength={8000}
             placeholder={
-              voice.active
-                ? "Type to join the conversation…"
-                : "What's on your mind?"
+              !snapshot || hasUserMessage
+                ? ""
+                : voice.active
+                  ? "Type to join the conversation…"
+                  : "What's on your mind?"
             }
             onChange={(event) => {
               finishIntroduction();

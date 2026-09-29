@@ -6,6 +6,6 @@ Typing or starting a call ends the animation immediately without remounting the 
 
 Start a call stays available beside the composer. After the browser connection is ready, Persona speaks first using confirmed context. It asks for the user's name when appropriate or continues an existing task. Assistant naming is never required to start a call and stays outside voice. Existing refusal, deferral, interruption and hangup behavior still applies.
 
-Gmail appears in context after it is introduced in the conversation, or when an existing connection needs attention. Its consent explanation remains accurate for the trial's metadata permission and account-address verification.
+One Gmail control sits directly above the composer, outside the transcript. It appears after Gmail is introduced in the conversation, or when an existing connection needs attention. Its action uses the official Gmail icon and Google Sans. The initial input hint disappears after the first pending or saved user message, typed or spoken, and stays blank when that conversation is restored. Its consent explanation remains accurate for the trial's metadata permission and account-address verification.
 
 Verification covers opening persistence and duplicate prevention, restoring history, typing during the transition, reduced motion, contextual Gmail, and initiating/interruption of a voice opening. Existing account isolation, text, call, Gmail and reset checks remain required.

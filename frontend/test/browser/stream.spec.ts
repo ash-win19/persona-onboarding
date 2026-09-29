@@ -40,7 +40,35 @@ async function mock(
   });
 }
 
-test("a streamed reply ends as the saved reply", async ({ page }) => {
+test("a streamed Markdown reply keeps its formatting when saved", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const fetch = window.fetch.bind(window);
+    window.fetch = async (input, init) => {
+      const response = await fetch(input, init);
+      if (String(input) !== "/api/turns") return response;
+      const body = await response.text();
+      const done = body.indexOf("event: done");
+      const encoder = new TextEncoder();
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(encoder.encode(body.slice(0, done)));
+            window.addEventListener(
+              "finish-test-stream",
+              () => {
+                controller.enqueue(encoder.encode(body.slice(done)));
+                controller.close();
+              },
+              { once: true },
+            );
+          },
+        }),
+        { headers: response.headers },
+      );
+    };
+  });
   await mock(
     page,
     ({ submissionId, content }) => {
@@ -50,8 +78,8 @@ test("a streamed reply ends as the saved reply", async ({ page }) => {
           "snapshot",
           snapshot([user], { id: submissionId, status: "generating" }),
         ],
-        ["delta", { text: "Here is " }],
-        ["delta", { text: "a plan." }],
+        ["delta", { text: "Here is **a " }],
+        ["delta", { text: "plan**.\n\n- First step\n- Second step" }],
         [
           "done",
           snapshot(
@@ -61,7 +89,7 @@ test("a streamed reply ends as the saved reply", async ({ page }) => {
                 id: "a",
                 submissionId,
                 role: "assistant",
-                content: "Here is a plan.",
+                content: "Here is **a plan**.\n\n- First step\n- Second step",
               },
             ],
             { id: submissionId, status: "completed" },
@@ -76,7 +104,19 @@ test("a streamed reply ends as the saved reply", async ({ page }) => {
     .getByRole("textbox", { name: "Message Persona" })
     .fill("Plan my week.");
   await page.getByRole("button", { name: "Send message" }).click();
+  const reply = page.locator(".assistant-markdown");
+  await expect(page.getByRole("log", { name: "Messages" })).toHaveAttribute(
+    "aria-busy",
+    "true",
+  );
+  await expect(reply.locator("strong")).toHaveText("a plan");
+  await expect(reply.locator("li")).toHaveText(["First step", "Second step"]);
+  await page.evaluate(() =>
+    window.dispatchEvent(new Event("finish-test-stream")),
+  );
   await expect(page.getByText("Here is a plan.")).toHaveCount(1);
+  await expect(reply.locator("strong")).toHaveText("a plan");
+  await expect(reply.locator("li")).toHaveText(["First step", "Second step"]);
   await expect(page.getByText("Plan my week.")).toBeVisible();
   await expect(page.getByText("Not yet confirmed")).toHaveCount(0);
   await expect(page.locator(".thinking")).toHaveCount(0);
