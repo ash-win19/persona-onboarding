@@ -4,6 +4,21 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import Chat from "./chat";
 import { PersonaLogo } from "./persona-logo";
 
+// Fresh-start test accounts begin a new conversation on every page load. The
+// request is shared so React's development double-mount sends it only once.
+let freshStart: Promise<unknown> | undefined;
+function startFresh() {
+  // Gmail's consent window returns to this page and must keep the current one.
+  if (new URLSearchParams(window.location.search).has("gmail")) return;
+  freshStart ??= fetch("/api/auth/fresh-start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Persona-Client": "web" },
+    body: "{}",
+    signal: AbortSignal.timeout(65000),
+  }).catch(() => undefined);
+  return freshStart;
+}
+
 export default function SignIn() {
   const [conversation, setConversation] = useState<string | null>(null);
   const [checking, setChecking] = useState(true);
@@ -16,24 +31,7 @@ export default function SignIn() {
     const check = async (pageLoad = false) => {
       const attempt = generation.current;
       try {
-        // Fresh-start test accounts begin a new conversation on every page load.
-        // Gmail's consent window returns to this page and must keep the current one.
-        if (
-          pageLoad &&
-          !new URLSearchParams(window.location.search).has("gmail")
-        )
-          await fetch("/api/auth/fresh-start", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "X-Persona-Client": "web",
-            },
-            body: "{}",
-            signal: AbortSignal.any([
-              controller.signal,
-              AbortSignal.timeout(65000),
-            ]),
-          }).catch(() => undefined);
+        if (pageLoad) await startFresh();
         const response = await fetch("/api/session", {
           cache: "no-store",
           signal: AbortSignal.any([

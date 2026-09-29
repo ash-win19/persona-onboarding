@@ -9,6 +9,8 @@ test("a concurrent reply finishing during reconciliation keeps the waiting messa
     const path = new URL(route.request().url()).pathname;
     if (path.endsWith("/ready"))
       return route.fulfill({ json: { ready: true } });
+    if (path.endsWith("/auth/fresh-start"))
+      return route.fulfill({ json: { conversationId: "one" } });
     if (path.endsWith("/session"))
       return route.fulfill({
         json: {
@@ -87,6 +89,8 @@ test("a stale tab recovers the saved operation without losing its waiting messag
     const path = new URL(route.request().url()).pathname;
     if (path.endsWith("/ready"))
       return route.fulfill({ json: { ready: true } });
+    if (path.endsWith("/auth/fresh-start"))
+      return route.fulfill({ json: { conversationId: "one" } });
     if (path.endsWith("/session"))
       return route.fulfill({
         json: {
@@ -233,6 +237,8 @@ test("retry keeps the same submission identifier after losing a committed respon
     const path = new URL(route.request().url()).pathname;
     if (path.endsWith("/ready"))
       return route.fulfill({ json: { ready: true } });
+    if (path.endsWith("/auth/fresh-start"))
+      return route.fulfill({ json: { conversationId: "one" } });
     if (path.endsWith("/session"))
       return route.fulfill({
         json: {
