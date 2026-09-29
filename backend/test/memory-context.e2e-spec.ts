@@ -129,7 +129,8 @@ describe('memory in prompts', () => {
     expect(received!.turns).toHaveLength(14);
     expect(received!.turns[0]).toMatchObject({
       role: 'assistant',
-      content: "Hi, I'm Persona. What would you like to call me?",
+      content:
+        "Hi, I'm Persona. Let's make this yours and choose the first thing to take off your plate. What would you like to call me?",
     });
     expect(received!.memory).toBeNull();
 

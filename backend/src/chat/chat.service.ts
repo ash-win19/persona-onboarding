@@ -234,6 +234,12 @@ export class ChatService {
         'INSERT INTO turns(id, conversation_id, submission_id, role, content) VALUES ($1, $2, $3, $4, $5)',
         [randomUUID(), conversation.id, submissionId, 'assistant', reply],
       );
+      await this.onboarding.deliveredText(
+        sql,
+        conversation.id,
+        submissionId,
+        reply,
+      );
       await sql.query(
         'UPDATE conversations SET revision = revision + 1 WHERE id = $1',
         [conversation.id],

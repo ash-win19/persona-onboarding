@@ -131,7 +131,7 @@ describe('saved conversation API', () => {
     expect(reply.body.turns).toHaveLength(3);
   });
 
-  it('commits all volunteered facts before the reply and restores early graduation', async () => {
+  it('commits facts before the reply and graduates after the final eligible invitation', async () => {
     const content =
       "Call yourself Nova. I'm Ashwin. Help me prepare for a backend interview.";
     model.reply = async (_turns, tools) => {
@@ -160,10 +160,10 @@ describe('saved conversation API', () => {
         ],
       });
       expect(result.ok).toBe(true);
-      expect(result.state.graduated).toBe(true);
+      expect(result.state.graduated).toBe(false);
       expect(result.state.onboardingComplete).toBe(false);
-      expect(result.question).toContain('Would you like to talk');
-      return 'Ashwin, start by explaining how you would design an API.';
+      expect(result.permittedGoal).toBe('voice');
+      return result.question!;
     };
     const session = await request(app.getHttpServer())
       .post('/auth/login')
@@ -208,7 +208,16 @@ describe('saved conversation API', () => {
       answer: 'Nova it is.',
       expectedName: 'Nova',
       question:
-        'Would you like to talk this through on a call? You can use Start a call whenever you are ready.',
+        'Would you like to finish getting set up on a call? You can use Start a call whenever you are ready.',
+    },
+    {
+      label: 'contextual',
+      name: 'Nova',
+      evidence: 'Call yourself Nova',
+      answer: 'Nova it is.',
+      expectedName: 'Nova',
+      question:
+        'Want to finish setting up Nova on a call? Use Start a call whenever you are ready.',
     },
     {
       label: 'rejected',
@@ -220,7 +229,7 @@ describe('saved conversation API', () => {
     },
   ])(
     'uses the $label provider tool result before replying',
-    async ({ name, evidence, answer, expectedName, question }) => {
+    async ({ label, name, evidence, answer, expectedName, question }) => {
       let receivedAuthoritativeState = false;
       const providerReply =
         answer + (question ? ' What is your name? What do you need?' : '');
@@ -228,6 +237,33 @@ describe('saved conversation API', () => {
         let body = '';
         for await (const chunk of req) body += chunk;
         const input = JSON.parse(body);
+        if (
+          input.text?.format?.name === 'onboarding_question' &&
+          label === 'contextual'
+        ) {
+          res.setHeader('Content-Type', 'application/json');
+          return res.end(
+            JSON.stringify({
+              id: 'resp_question',
+              object: 'response',
+              status: 'completed',
+              output: [
+                {
+                  type: 'message',
+                  role: 'assistant',
+                  status: 'completed',
+                  content: [
+                    {
+                      type: 'output_text',
+                      text: JSON.stringify({ goal: 'voice', question }),
+                      annotations: [],
+                    },
+                  ],
+                },
+              ],
+            }),
+          );
+        }
         const toolOutput = input.input.find(
           (item: { type?: string }) => item.type === 'function_call_output',
         );
@@ -401,7 +437,7 @@ describe('saved conversation API', () => {
     expect(isolated.body.onboarding.facts.userName.value).toBeNull();
   });
 
-  it('starts helping with missing names while rejecting stale, forged and integration changes', async () => {
+  it('prepares a first task while rejecting stale, forged and integration changes', async () => {
     const cookie = await newSession();
     const results: string[] = [];
     model.reply = async (_turns, tools) => {
@@ -455,8 +491,8 @@ describe('saved conversation API', () => {
       );
       const accepted = await tools.capture(command);
       if (!accepted.ok) throw new Error('Rejected help');
-      expect(accepted.question).toContain('Would you like to talk');
-      return 'Practice a 60-second introduction: background, one result, and why this role.';
+      expect(accepted.permittedGoal).toBe('voice');
+      return 'We can start with a 60-second introduction. ' + accepted.question;
     };
     const reply = await send(
       cookie,
@@ -465,8 +501,8 @@ describe('saved conversation API', () => {
     expect(reply.body.operation.status).toBe('completed');
     expect(results).toEqual(['stale', 'invalid', 'invalid', 'invalid']);
     expect(reply.body.onboarding).toMatchObject({
-      graduated: true,
-      mode: 'helping',
+      graduated: false,
+      mode: 'onboarding',
       onboardingComplete: false,
       gmail: 'not_connected',
       call: 'not_started',
@@ -560,7 +596,7 @@ describe('saved conversation API', () => {
     expect(
       restored.body.turns.map((turn: { content: string }) => turn.content),
     ).toEqual([
-      "Hi, I'm Persona. What would you like to call me?",
+      "Hi, I'm Persona. Let's make this yours and choose the first thing to take off your plate. What would you like to call me?",
       'Help me prepare for an interview.',
       'Let us practice your introduction.',
     ]);
@@ -619,7 +655,7 @@ describe('saved conversation API', () => {
     expect(
       retried.body.turns.map((t: { content: string }) => t.content),
     ).toEqual([
-      "Hi, I'm Persona. What would you like to call me?",
+      "Hi, I'm Persona. Let's make this yours and choose the first thing to take off your plate. What would you like to call me?",
       'Prepare me.',
       'We can try again.',
     ]);

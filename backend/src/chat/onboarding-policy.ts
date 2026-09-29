@@ -102,9 +102,10 @@ export class OnboardingPolicy {
         ],
       );
   }
-  async offer(sql: Sql, id: string, goal: PolicyGoal) {
+  async offer(sql: Sql, id: string, goal: PolicyGoal, visitId?: string) {
     const state = await this.read(sql, id);
-    if (!state.goals[goal].eligible) return false;
+    if ((visitId && visitId !== state.visitId) || !state.goals[goal].eligible)
+      return false;
     await sql.query(
       `INSERT INTO onboarding_policy(conversation_id,goal,outcome,offered_visit) VALUES($1,$2,'open',$3)
       ON CONFLICT(conversation_id,goal) DO UPDATE SET offered_visit=$3`,
