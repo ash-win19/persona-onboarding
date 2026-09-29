@@ -21,6 +21,8 @@ Use a Google Cloud project owned by the personal account. Enable the Gmail API a
 
 `https://usepersona.vercel.app/api/gmail/callback`
 
+Production uses the personal project `persona-onboarding-510100`, consent app `Persona`, and web client `Persona production web`. The Gmail API is enabled and `ashwinshan2001@gmail.com` is allowlisted. The client credentials are configured on the personal `persona-api` Render service. Real consent, denial, and persistence after refresh were verified on September 29, 2026. Add other evaluator addresses to the Google testing audience before they try connecting.
+
 Request only `https://www.googleapis.com/auth/gmail.metadata`. This is a restricted Gmail scope. Testing access is limited to allowlisted users; refresh tokens for this external testing setup normally expire after seven days. The app handles invalid grants by requiring reconnect while preserving the conversation. It does not request inbox bodies or sending permissions.
 
 The backend needs `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, and `GMAIL_TOKEN_KEY`. The last value is 32 random bytes encoded as base64, stored outside Postgres. Do not rotate it without handling existing encrypted credentials. Local values belong in ignored `backend/.env`; downloaded clients may be kept as ignored `backend/google-oauth-client.json`. Never paste credentials into tickets, chat, or logs. Only NestJS exchanges codes, refreshes tokens, and calls `users.getProfile?fields=emailAddress`.
