@@ -21,7 +21,7 @@ In a separate terminal:
 npm --prefix frontend run dev
 ```
 
-Open `http://localhost:3000`. A browser-owned HttpOnly credential creates or resumes an anonymous conversation. Submitted messages use stable IDs, so a retry after a lost response restores the accepted result. The UI distinguishes unconfirmed input from committed turns and offers explicit recovery when the backend, database or model is unavailable.
+Create a private trial account using the [account-management commands](docs/sign-in.md#managing-trial-accounts), then open `http://localhost:3000` and sign in with its email and password. Each account owns one saved conversation, resumed through an expiring HttpOnly session. Submitted messages use stable IDs, so a retry after a lost response restores the accepted result. The UI distinguishes unconfirmed input from committed turns and offers explicit recovery when the backend, database or model is unavailable.
 
 Production requires `NODE_ENV=production` on Render and `APP_ORIGINS=https://usepersona.vercel.app`. Set Vercel's `BACKEND_URL` to the Render service URL. The frontend proxy preserves cookies but does not replace backend authorization. Read [deployment and production verification](docs/deployment.md) before changing hosting or environment configuration.
 

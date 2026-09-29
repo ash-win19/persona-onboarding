@@ -30,8 +30,8 @@ Vercel uses `frontend/` as its root directory. Set production `BACKEND_URL` to t
 
 ## Production review
 
-- Open a fresh private browser session, send a concrete help request and wait for the real assistant reply. Both messages should show Saved only after the server returns them.
-- Refresh, close and reopen the same browser session. The committed transcript should remain in order. Another browser session must show a separate conversation.
+- Open a fresh private browser session, sign in with a disposable trial account, send a concrete help request and wait for the real assistant reply. Both messages should be committed before being treated as saved.
+- Refresh, close and reopen the same browser session. The committed transcript should remain in order. The same account in another browser resumes it; a different account must show a separate conversation.
 - Restart the backend, reconnect and confirm the committed transcript survives. Let the free backend idle naturally and open the frontend later to observe wake-up behavior.
 - In browser automation, allow a real `/api/turns` request to finish at the server, discard its response, then click Retry message. Confirm one user turn and one assistant turn. Repeated delivery of the same identifier must not call the model again after completion.
 - Simulate database unavailability through an isolated test configuration or a controlled test adapter. Check readiness and submit failure, visible pending content, and successful retry after recovery. Do not disrupt unrelated databases.
