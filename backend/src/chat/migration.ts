@@ -37,5 +37,30 @@ export async function migrate(db: Database) {
       PRIMARY KEY(conversation_id, submission_id),
       FOREIGN KEY(conversation_id, submission_id) REFERENCES submissions(conversation_id, id) ON DELETE CASCADE
     )`);
+    await sql.query(`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS owner_tab uuid,
+      ADD COLUMN IF NOT EXISTS owner_epoch integer NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS owner_until timestamptz`);
+    await sql.query(
+      'ALTER TABLE submissions ADD COLUMN IF NOT EXISTS owner_epoch integer NOT NULL DEFAULT 0',
+    );
+    await sql.query(`CREATE TABLE IF NOT EXISTS calls (
+      id uuid PRIMARY KEY, conversation_id uuid NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      owner_tab uuid NOT NULL, owner_epoch integer NOT NULL, instance_id uuid NOT NULL,
+      provider_id text, status text NOT NULL CHECK(status IN ('connecting','active','ended','failed')),
+      reason text, created_at timestamptz NOT NULL, deadline timestamptz NOT NULL, ended_at timestamptz,
+      control_seen_at timestamptz, tool_acknowledged boolean NOT NULL DEFAULT false
+    )`);
+    await sql.query(
+      `CREATE UNIQUE INDEX IF NOT EXISTS one_open_call ON calls(conversation_id) WHERE status IN ('connecting','active')`,
+    );
+    await sql.query(`CREATE TABLE IF NOT EXISTS voice_items (
+      call_id uuid NOT NULL REFERENCES calls(id) ON DELETE CASCADE, item_id text NOT NULL,
+      previous_item_id text, turn_id uuid NOT NULL UNIQUE, submission_id uuid NOT NULL,
+      sequence bigint NOT NULL DEFAULT nextval('turns_sequence_seq'), role text NOT NULL,
+      response_id text, finalized boolean NOT NULL DEFAULT false, interrupted boolean NOT NULL DEFAULT false,
+      PRIMARY KEY(call_id,item_id)
+    )`);
+    await sql.query(`ALTER TABLE turns ADD COLUMN IF NOT EXISTS channel text NOT NULL DEFAULT 'text',
+      ADD COLUMN IF NOT EXISTS delivery text NOT NULL DEFAULT 'text', ADD COLUMN IF NOT EXISTS call_id uuid`);
   });
 }

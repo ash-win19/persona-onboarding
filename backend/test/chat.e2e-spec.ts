@@ -45,6 +45,36 @@ describe('saved conversation API', () => {
     await postgres.close();
   });
 
+  it('keeps another tab read-only until explicit takeover and rejects stale writes', async () => {
+    const cookie = await newSession();
+    const a = randomUUID();
+    const b = randomUUID();
+    const control = (tabId: string, takeover = false) =>
+      request(app.getHttpServer())
+        .post('/control')
+        .set('Origin', origin)
+        .set('X-Persona-Client', 'web')
+        .set('Cookie', cookie)
+        .send({ tabId, takeover });
+    const first = await control(a).expect(200);
+    expect(first.body.control.tabId).toBe(a);
+    const other = await control(b).expect(200);
+    expect(other.body.control.tabId).toBe(a);
+    const taken = await control(b, true).expect(200);
+    expect(taken.body.control.tabId).toBe(b);
+    expect(taken.body.control.epoch).toBeGreaterThan(first.body.control.epoch);
+    await send(cookie, 'A bypass without ownership').expect(403);
+    await send(cookie, 'A stale tab write')
+      .set('X-Persona-Tab', a)
+      .set('X-Persona-Epoch', String(first.body.control.epoch))
+      .expect(403);
+    const reply = await send(cookie, 'Help me from the controlling tab')
+      .set('X-Persona-Tab', b)
+      .set('X-Persona-Epoch', String(taken.body.control.epoch))
+      .expect(200);
+    expect(reply.body.turns).toHaveLength(2);
+  });
+
   it('commits all volunteered facts before the reply and restores early graduation', async () => {
     const content =
       "Call yourself Nova. I'm Ashwin. Help me prepare for a backend interview.";
@@ -282,12 +312,14 @@ describe('saved conversation API', () => {
       const result = await tools.capture({
         expectedRevision: tools.state.revision,
         askOnboarding: false,
-        changes: [{
-          goal: 'helpRequest',
-          action: 'set',
-          value: 'Help me prepare for my interview',
-          evidence: 'Help me prepare for my interview',
-        }],
+        changes: [
+          {
+            goal: 'helpRequest',
+            action: 'set',
+            value: 'Help me prepare for my interview',
+            evidence: 'Help me prepare for my interview',
+          },
+        ],
       });
       expect(result.ok).toBe(true);
       expect(result.question).toBeNull();

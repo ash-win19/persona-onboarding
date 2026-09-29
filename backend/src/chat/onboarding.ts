@@ -203,7 +203,8 @@ export class OnboardingService {
           `SELECT t.id, t.content FROM turns t JOIN submissions s
         ON s.conversation_id = t.conversation_id AND s.id = t.submission_id
         WHERE t.conversation_id = $1 AND t.submission_id = $2 AND t.role = 'user'
-        AND s.attempt = $3 AND s.status = 'generating' AND s.lease_until > now()`,
+        AND s.attempt = $3 AND s.status = 'generating' AND s.lease_until > now()
+        AND s.owner_epoch = (SELECT owner_epoch FROM conversations WHERE id = $1)`,
           [context.conversationId, context.submissionId, context.attempt],
         )
       ).rows[0];

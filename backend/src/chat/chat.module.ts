@@ -1,4 +1,8 @@
 import { OnboardingService } from './onboarding.js';
+import { Authority, CLOCK } from './authority.js';
+import { Calls } from './calls.js';
+import { CallsController } from './calls.controller.js';
+import { OpenAIVoiceProvider, VOICE_PROVIDER } from './voice-provider.js';
 import { Module } from '@nestjs/common';
 import { ChatController } from './chat.controller.js';
 import { ChatService } from './chat.service.js';
@@ -7,10 +11,21 @@ import { CHAT_CONFIG, chatConfig, required } from './config.js';
 import { MODEL, OpenAIReplyModel } from './model.js';
 
 @Module({
-  controllers: [ChatController],
+  controllers: [ChatController, CallsController],
   providers: [
     ChatService,
     OnboardingService,
+    Authority,
+    Calls,
+    {
+      provide: VOICE_PROVIDER,
+      useFactory: () =>
+        new OpenAIVoiceProvider(
+          process.env.OPENAI_API_KEY ?? '',
+          process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime-mini',
+        ),
+    },
+    { provide: CLOCK, useValue: () => Date.now() },
     { provide: CHAT_CONFIG, useFactory: chatConfig },
     {
       provide: DATABASE,

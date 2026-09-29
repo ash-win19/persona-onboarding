@@ -18,9 +18,10 @@ import {
 import type { Request, Response } from 'express';
 import { CHAT_CONFIG, type ChatConfig } from './config.js';
 import { ChatService } from './chat.service.js';
+import { Authority, uuid, type Owner } from './authority.js';
 
 const COOKIE = 'persona_session';
-const credential = (req: Request) =>
+export const credential = (req: Request) =>
   req.headers.cookie
     ?.split(';')
     .map((part) => part.trim())
@@ -28,7 +29,7 @@ const credential = (req: Request) =>
     ?.slice(COOKIE.length + 1);
 
 @Catch()
-class ChatErrors implements ExceptionFilter {
+export class ChatErrors implements ExceptionFilter {
   catch(error: unknown, host: ArgumentsHost) {
     const status = error instanceof HttpException ? error.getStatus() : 503;
     host
@@ -53,6 +54,7 @@ export class ChatController {
   constructor(
     @Inject(ChatService) private readonly chat: ChatService,
     @Inject(CHAT_CONFIG) private readonly config: ChatConfig,
+    @Inject(Authority) private readonly authority: Authority,
   ) {}
   private allowWrite(req: Request) {
     if (
@@ -61,6 +63,21 @@ export class ChatController {
     )
       throw new ForbiddenException();
     if (!req.is('application/json')) throw new BadRequestException();
+  }
+  @Post('control')
+  @HttpCode(200)
+  control(@Req() req: Request, @Body() body: unknown) {
+    this.allowWrite(req);
+    if (
+      !body ||
+      typeof body !== 'object' ||
+      !('tabId' in body) ||
+      !uuid(body.tabId) ||
+      !('takeover' in body) ||
+      typeof body.takeover !== 'boolean'
+    )
+      throw new BadRequestException();
+    return this.authority.claim(credential(req), body.tabId, body.takeover);
   }
   @Get('ready')
   ready(@Res({ passthrough: true }) res: Response) {
@@ -117,6 +134,17 @@ export class ChatController {
       credential(req),
       body.submissionId,
       body.content.trim(),
+      owner(req),
     );
   }
+}
+
+export function owner(req: Request): Owner | undefined {
+  const tabId = req.headers['x-persona-tab'];
+  const epoch = Number(req.headers['x-persona-epoch']);
+  if (tabId === undefined && req.headers['x-persona-epoch'] === undefined)
+    return undefined;
+  if (!uuid(tabId) || !Number.isSafeInteger(epoch) || epoch < 1)
+    throw new BadRequestException();
+  return { tabId, epoch };
 }
