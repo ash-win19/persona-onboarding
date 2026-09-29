@@ -372,7 +372,6 @@ export class OnboardingService {
       }
       if (!source) return reject('stale');
       const submissionId = context.submissionId ?? source.submission_id!;
-      if (!validCommand(command)) return reject('invalid');
       const receipt = (
         await sql.query<{ ask_onboarding: boolean; question: string | null }>(
           'SELECT question, ask_onboarding FROM onboarding_assessments WHERE conversation_id = $1 AND submission_id = $2',
@@ -405,6 +404,7 @@ export class OnboardingService {
         if (batch.rows.some((s) => !s.finalized)) return reject('pending');
         sources = batch.rows.reverse();
       }
+      if (!validCommand(command)) return reject('invalid');
       const onboardingUnchanged =
         !!context.callId &&
         command.changes.length > 0 &&

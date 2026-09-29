@@ -9,6 +9,7 @@ import { MODEL, type ModelTurn, type ReplyModel } from '../src/chat/model.js';
 import { CHAT_CONFIG } from '../src/chat/config.js';
 import { CLOCK } from '../src/chat/authority.js';
 import { migrate } from '../src/chat/migration.js';
+import { FACT_REPAIR, type FactRepair } from '../src/chat/fact-repair.js';
 import {
   VOICE_PROVIDER,
   type VoiceEvent,
@@ -22,8 +23,13 @@ describe('browser call API', () => {
   const origin = 'https://persona.example';
   let textContext: ModelTurn[] = [];
   const model: ReplyModel = { reply: async () => 'Ready to help in text.' };
+  const repair: FactRepair = {
+    interpret: async () => {
+      throw new Error('REPAIR_UNAVAILABLE');
+    },
+  };
   const connections: {
-    emit: (event: VoiceEvent) => void;
+    emit: (event: VoiceEvent) => Promise<void>;
     disconnect: () => void;
     sent: Record<string, unknown>[];
     closed: boolean;
@@ -72,6 +78,8 @@ describe('browser call API', () => {
       .useValue(() => now)
       .overrideProvider(VOICE_PROVIDER)
       .useValue(provider)
+      .overrideProvider(FACT_REPAIR)
+      .useValue(repair)
       .compile();
     app = module.createNestApplication();
     await app.init();
@@ -82,6 +90,9 @@ describe('browser call API', () => {
   });
   beforeEach(() => {
     now = Date.now();
+    repair.interpret = async () => {
+      throw new Error('REPAIR_UNAVAILABLE');
+    };
     model.reply = async (turns) => {
       textContext = turns;
       return 'Ready to help in text.';
@@ -142,32 +153,32 @@ describe('browser call API', () => {
       controlReady: true,
     });
     const c = connections.at(-1)!;
-    c.emit({
+    void c.emit({
       type: 'conversation.item.created',
       item: { id: 'user-one', type: 'message', role: 'user' },
     });
-    c.emit({
+    void c.emit({
       type: 'conversation.item.created',
       previous_item_id: 'user-one',
       item: { id: 'assistant-one', type: 'message', role: 'assistant' },
     });
-    c.emit({
+    void c.emit({
       type: 'response.output_audio_transcript.done',
       item_id: 'assistant-one',
       response_id: 'response-one',
       transcript: 'Let us practice.',
     });
-    c.emit({
+    void c.emit({
       type: 'conversation.item.input_audio_transcription.completed',
       item_id: 'user-one',
       transcript: 'Help me with my interview.',
     });
-    c.emit({
+    void c.emit({
       type: 'conversation.item.input_audio_transcription.completed',
       item_id: 'user-one',
       transcript: 'Help me with my interview.',
     });
-    c.emit({
+    void c.emit({
       type: 'response.function_call_arguments.done',
       name: 'saved_context',
       call_id: 'tool-one',
@@ -214,7 +225,7 @@ describe('browser call API', () => {
       .set('Cookie', s.cookie)
       .send({ tabId: randomUUID(), takeover: true })
       .expect(200);
-    c.emit({
+    void c.emit({
       type: 'conversation.item.input_audio_transcription.completed',
       item_id: 'late-user',
       transcript: 'This must not appear.',
@@ -305,7 +316,7 @@ describe('browser call API', () => {
     const id = randomUUID();
     await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
     const c = connections.at(-1)!;
-    c.emit({
+    void c.emit({
       type: 'response.created',
       response: {
         id: 'old-response',
@@ -313,7 +324,7 @@ describe('browser call API', () => {
         metadata: { generation: '0' },
       },
     });
-    c.emit({
+    void c.emit({
       type: 'response.output_audio_transcript.done',
       item_id: 'old-output',
       response_id: 'old-response',
@@ -345,7 +356,7 @@ describe('browser call API', () => {
       c.sent.filter((e) => e.type === 'output_audio_buffer.clear'),
     ).toHaveLength(1);
     expect(c.closed).toBe(false);
-    c.emit({
+    void c.emit({
       type: 'output_audio_buffer.stopped',
       response_id: 'old-response',
     });
@@ -356,7 +367,7 @@ describe('browser call API', () => {
       ),
     ).toHaveLength(1);
     expect(saved.body.turns[0].delivery).toBe('interrupted');
-    c.emit({
+    void c.emit({
       type: 'response.done',
       response: { id: 'old-response', status: 'cancelled' },
     });
@@ -386,12 +397,15 @@ describe('browser call API', () => {
       id = randomUUID();
     await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
     const c = connections.at(-1)!;
-    c.emit({
+    void c.emit({
       type: 'input_audio_buffer.speech_started',
       item_id: 'fact-source',
     });
-    c.emit({ type: 'input_audio_buffer.committed', item_id: 'fact-source' });
-    c.emit({
+    void c.emit({
+      type: 'input_audio_buffer.committed',
+      item_id: 'fact-source',
+    });
+    void c.emit({
       type: 'conversation.item.input_audio_transcription.completed',
       item_id: 'fact-source',
       transcript: 'Call me Sam. Help me prepare for an interview.',
@@ -400,7 +414,7 @@ describe('browser call API', () => {
       expect((await s.read()).body.turns).toHaveLength(1),
     );
     const before = await s.read();
-    c.emit({
+    void c.emit({
       type: 'response.created',
       response: {
         id: 'facts-response',
@@ -408,7 +422,7 @@ describe('browser call API', () => {
         metadata: { generation: '1', sourceItem: 'fact-source' },
       },
     });
-    c.emit({
+    void c.emit({
       type: 'response.function_call_arguments.done',
       response_id: 'facts-response',
       call_id: 'facts-tool',
@@ -444,7 +458,7 @@ describe('browser call API', () => {
         content: 'Focus on the introduction.',
       })
       .expect(200);
-    c.emit({
+    void c.emit({
       type: 'response.function_call_arguments.done',
       response_id: 'facts-response',
       call_id: 'late-facts',
@@ -472,13 +486,13 @@ describe('browser call API', () => {
     await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
     const c = connections.at(-1)!;
     for (const item of ['split-name', 'split-task']) {
-      c.emit({ type: 'input_audio_buffer.committed', item_id: item });
-      c.emit({
+      void c.emit({ type: 'input_audio_buffer.committed', item_id: item });
+      void c.emit({
         type: 'conversation.item.created',
         item: { id: item, type: 'message', role: 'user' },
       });
     }
-    c.emit({
+    void c.emit({
       type: 'conversation.item.input_audio_transcription.completed',
       item_id: 'split-task',
       transcript:
@@ -494,7 +508,7 @@ describe('browser call API', () => {
       expectedRevision: number,
       changes: object[],
     ) => {
-      c.emit({
+      void c.emit({
         type: 'response.created',
         response: {
           id: responseId,
@@ -502,7 +516,7 @@ describe('browser call API', () => {
           metadata: { generation: String(generation), sourceItem },
         },
       });
-      c.emit({
+      void c.emit({
         type: 'response.function_call_arguments.done',
         response_id: responseId,
         call_id: responseId + '-tool',
@@ -533,7 +547,7 @@ describe('browser call API', () => {
       expect((await s.status()).body.call.generation).toBe(2),
     );
     expect((await s.read()).body.onboarding.facts.userName.value).toBeNull();
-    c.emit({
+    void c.emit({
       type: 'conversation.item.input_audio_transcription.completed',
       item_id: 'split-name',
       transcript: 'My name is Taylor.',
@@ -553,12 +567,15 @@ describe('browser call API', () => {
     expect(saved.onboarding.facts.helpRequest.sourceTurnId).toBe(
       saved.turns[1].id,
     );
-    c.emit({
+    void c.emit({
       type: 'response.done',
       response: { id: 'split-response', status: 'completed' },
     });
-    c.emit({ type: 'input_audio_buffer.committed', item_id: 'correct-name' });
-    c.emit({
+    void c.emit({
+      type: 'input_audio_buffer.committed',
+      item_id: 'correct-name',
+    });
+    void c.emit({
       type: 'conversation.item.input_audio_transcription.completed',
       item_id: 'correct-name',
       transcript:
@@ -645,13 +662,16 @@ describe('browser call API', () => {
         .expect(200);
       await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
       const c = connections.at(-1)!;
-      c.emit({ type: 'input_audio_buffer.committed', item_id: 'new-source' });
-      c.emit({
+      void c.emit({
+        type: 'input_audio_buffer.committed',
+        item_id: 'new-source',
+      });
+      void c.emit({
         type: 'conversation.item.input_audio_transcription.completed',
         item_id: 'new-source',
         transcript: 'Call me Jordan.',
       });
-      c.emit({
+      void c.emit({
         type: 'response.created',
         response: {
           id: 'outdated',
@@ -659,7 +679,7 @@ describe('browser call API', () => {
           metadata: { generation: '1', sourceItem: 'new-source' },
         },
       });
-      c.emit({
+      void c.emit({
         type: 'response.function_call_arguments.done',
         response_id: 'outdated',
         call_id: 'outdated-tool',
@@ -704,8 +724,8 @@ describe('browser call API', () => {
         id = randomUUID();
       await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
       const c = connections.at(-1)!;
-      c.emit({ type: 'input_audio_buffer.committed', item_id: 'noise' });
-      c.emit({
+      void c.emit({ type: 'input_audio_buffer.committed', item_id: 'noise' });
+      void c.emit({
         type:
           outcome === 'empty'
             ? 'conversation.item.input_audio_transcription.completed'
@@ -713,13 +733,16 @@ describe('browser call API', () => {
         item_id: 'noise',
         transcript: '',
       });
-      c.emit({ type: 'input_audio_buffer.committed', item_id: 'clear-name' });
-      c.emit({
+      void c.emit({
+        type: 'input_audio_buffer.committed',
+        item_id: 'clear-name',
+      });
+      void c.emit({
         type: 'conversation.item.input_audio_transcription.completed',
         item_id: 'clear-name',
         transcript: 'Call me Sam.',
       });
-      c.emit({
+      void c.emit({
         type: 'response.created',
         response: {
           id: 'after-noise',
@@ -727,7 +750,7 @@ describe('browser call API', () => {
           metadata: { generation: '2', sourceItem: 'clear-name' },
         },
       });
-      c.emit({
+      void c.emit({
         type: 'response.function_call_arguments.done',
         response_id: 'after-noise',
         call_id: 'after-noise-tool',
@@ -764,8 +787,8 @@ describe('browser call API', () => {
       ['refusal', 'Do not connect Gmail.'],
       ['task', 'Help me prepare for an interview.'],
     ]) {
-      c.emit({ type: 'input_audio_buffer.committed', item_id: item });
-      c.emit({
+      void c.emit({ type: 'input_audio_buffer.committed', item_id: item });
+      void c.emit({
         type: 'conversation.item.input_audio_transcription.completed',
         item_id: item,
         transcript,
@@ -775,7 +798,7 @@ describe('browser call API', () => {
       expect((await s.read()).body.turns).toHaveLength(2),
     );
     const before = (await s.read()).body;
-    c.emit({
+    void c.emit({
       type: 'response.created',
       response: {
         id: 'refusal-response',
@@ -783,7 +806,7 @@ describe('browser call API', () => {
         metadata: { generation: '2', sourceItem: 'task' },
       },
     });
-    c.emit({
+    void c.emit({
       type: 'response.function_call_arguments.done',
       response_id: 'refusal-response',
       call_id: 'refusal-tool',
@@ -838,8 +861,8 @@ describe('browser call API', () => {
       if (order === 'repeated-fact')
         inputs.push(['repeat', 'Actually, call me Sam.']);
       for (const [item, transcript] of inputs) {
-        c.emit({ type: 'input_audio_buffer.committed', item_id: item });
-        c.emit({
+        void c.emit({ type: 'input_audio_buffer.committed', item_id: item });
+        void c.emit({
           type: 'conversation.item.input_audio_transcription.completed',
           item_id: item,
           transcript,
@@ -849,7 +872,7 @@ describe('browser call API', () => {
         expect((await s.read()).body.turns).toHaveLength(inputs.length),
       );
       const before = (await s.read()).body;
-      c.emit({
+      void c.emit({
         type: 'response.created',
         response: {
           id: 'ordered-response',
@@ -860,7 +883,7 @@ describe('browser call API', () => {
           },
         },
       });
-      c.emit({
+      void c.emit({
         type: 'response.function_call_arguments.done',
         response_id: 'ordered-response',
         call_id: 'ordered-tool',
@@ -899,13 +922,274 @@ describe('browser call API', () => {
       await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
     },
   );
+  it.each(['ready', 'delayed'])(
+    'holds continuations and parallel captures when transcription is %s',
+    async (transcription) => {
+      const s = await session(),
+        id = randomUUID();
+      await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
+      const c = connections.at(-1)!;
+      let complete!: () => void;
+      const ready = new Promise<void>((resolve) => {
+        complete = resolve;
+      });
+      repair.interpret = async ({ state, sources }) => {
+        expect(sources.map((source) => source.text)).toEqual([
+          'Call me Sam.',
+          'Help me prepare for an interview.',
+        ]);
+        await ready;
+        return {
+          expectedRevision: state.revision,
+          askOnboarding: false,
+          preferences: [],
+          changes: [
+            {
+              goal: 'userName',
+              action: 'set',
+              value: 'Sam',
+              evidence: 'Call me Sam',
+            },
+            {
+              goal: 'helpRequest',
+              action: 'set',
+              value: 'prepare for an interview',
+              evidence: 'Help me prepare for an interview',
+            },
+          ],
+        };
+      };
+      const inputs = [
+        ['repair-name', 'Call me Sam.'],
+        ['repair-task', 'Help me prepare for an interview.'],
+      ];
+      for (const [item, transcript] of inputs) {
+        void c.emit({ type: 'input_audio_buffer.committed', item_id: item });
+        if (transcription === 'ready')
+          void c.emit({
+            type: 'conversation.item.input_audio_transcription.completed',
+            item_id: item,
+            transcript,
+          });
+      }
+      void c.emit({
+        type: 'response.created',
+        response: {
+          id: 'malformed-response',
+          status: 'in_progress',
+          metadata: { generation: '2', sourceItem: 'repair-task' },
+        },
+      });
+      await c.emit({
+        type: 'response.function_call_arguments.done',
+        response_id: 'malformed-response',
+        call_id: 'context-before-repair',
+        name: 'saved_context',
+        arguments: '{}',
+      });
+      await c.emit({
+        type: 'response.function_call_arguments.done',
+        response_id: 'malformed-response',
+        call_id: 'malformed-tool',
+        name: 'capture_onboarding',
+        arguments: '{}',
+      });
+      const before = c.sent.filter(
+        (event) => event.type === 'response.create',
+      ).length;
+      await c.emit({
+        type: 'response.done',
+        response: { id: 'malformed-response', status: 'completed' },
+      });
+      expect(
+        c.sent.filter((event) => event.type === 'response.create'),
+      ).toHaveLength(before);
+      if (transcription === 'delayed')
+        for (const [item, transcript] of inputs)
+          await c.emit({
+            type: 'conversation.item.input_audio_transcription.completed',
+            item_id: item,
+            transcript,
+          });
+      await c.emit({
+        type: 'response.function_call_arguments.done',
+        response_id: 'malformed-response',
+        call_id: 'parallel-empty-capture',
+        name: 'capture_onboarding',
+        arguments: JSON.stringify({
+          expectedRevision: 2,
+          askOnboarding: false,
+          changes: [],
+          preferences: [],
+        }),
+      });
+      expect(
+        c.sent.some(
+          (event) =>
+            (event.item as { call_id?: string })?.call_id ===
+            'parallel-empty-capture',
+        ),
+      ).toBe(false);
+      complete();
+      await vi.waitFor(async () =>
+        expect((await s.read()).body.onboarding.facts.userName.value).toBe(
+          'Sam',
+        ),
+      );
+      const saved = (await s.read()).body;
+      expect(saved.onboarding.graduated).toBe(true);
+      expect(saved.onboarding.facts.userName.sourceTurnId).toBe(
+        saved.turns[0].id,
+      );
+      expect(saved.onboarding.facts.helpRequest.sourceTurnId).toBe(
+        saved.turns[1].id,
+      );
+      await vi.waitFor(() =>
+        expect(
+          c.sent.some(
+            (event) =>
+              (event.item as { call_id?: string })?.call_id ===
+              'parallel-empty-capture',
+          ),
+        ).toBe(true),
+      );
+      expect(
+        c.sent.filter((event) => event.type === 'response.create'),
+      ).toHaveLength(before + 1);
+      await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
+    },
+  );
+  it.each(['typing', 'speech', 'hangup', 'takeover', 'reset', 'deadline'])(
+    'keeps %s responsive and rejects a late interpretation',
+    async (action) => {
+      const s = await session(),
+        id = randomUUID();
+      await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
+      const c = connections.at(-1)!;
+      let complete!: (command: unknown) => void;
+      let started = 0;
+      const interpretation = new Promise<unknown>((resolve) => {
+        complete = resolve;
+      });
+      repair.interpret = () => {
+        started++;
+        return interpretation;
+      };
+      void c.emit({
+        type: 'input_audio_buffer.committed',
+        item_id: 'slow-source',
+      });
+      void c.emit({
+        type: 'conversation.item.input_audio_transcription.completed',
+        item_id: 'slow-source',
+        transcript: 'Call me Sam.',
+      });
+      void c.emit({
+        type: 'response.created',
+        response: {
+          id: 'slow-response',
+          status: 'in_progress',
+          metadata: { generation: '1', sourceItem: 'slow-source' },
+        },
+      });
+      const toolEvent = {
+        type: 'response.function_call_arguments.done',
+        response_id: 'slow-response',
+        call_id: 'slow-tool',
+        name: 'capture_onboarding',
+        arguments: '{}',
+      };
+      void c.emit(toolEvent);
+      void c.emit(toolEvent);
+      await vi.waitFor(() => expect(started).toBe(1));
+      let cookie = s.cookie;
+      if (action === 'typing')
+        await s
+          .post('/calls/turns', {
+            id,
+            submissionId: randomUUID(),
+            content: 'Actually, call me Jordan.',
+          })
+          .expect(200);
+      if (action === 'speech')
+        await c.emit({
+          type: 'input_audio_buffer.committed',
+          item_id: 'new-speech',
+        });
+      if (action === 'typing' || action === 'speech') {
+        await c.emit({
+          type: 'response.done',
+          response: { id: 'slow-response', status: 'cancelled' },
+        });
+        expect(c.sent).toContainEqual(
+          expect.objectContaining({
+            type: 'response.create',
+            response: expect.objectContaining({
+              metadata: expect.objectContaining({ generation: '2' }),
+            }),
+          }),
+        );
+      }
+      if (action === 'hangup')
+        await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
+      if (action === 'takeover')
+        await request(app.getHttpServer())
+          .post('/control')
+          .set('Origin', origin)
+          .set('X-Persona-Client', 'web')
+          .set('Cookie', cookie)
+          .send({ tabId: randomUUID(), takeover: true })
+          .expect(200);
+      if (action === 'reset')
+        cookie = (
+          await s.post('/reset', { operationId: randomUUID() }).expect(200)
+        ).headers['set-cookie'][0];
+      if (action === 'deadline') {
+        now += 600001;
+        expect((await s.status()).body.call.reason).toBe('time_limit');
+      }
+      complete({
+        expectedRevision: 1,
+        askOnboarding: false,
+        preferences: [],
+        changes: [
+          {
+            goal: 'userName',
+            action: 'set',
+            value: 'Sam',
+            evidence: 'Call me Sam',
+          },
+        ],
+      });
+      // retryCapture subscribed first; its continuation queues before this one.
+      await interpretation;
+      // Provider acknowledgment now waits behind the queued late result.
+      await c.emit({ type: 'rate_limits.updated' });
+      const saved = await request(app.getHttpServer())
+        .get('/session')
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(saved.body.onboarding.facts.userName.value).toBeNull();
+      expect(
+        c.sent.some(
+          (e) => (e.item as { call_id?: string })?.call_id === 'slow-tool',
+        ),
+      ).toBe(false);
+      expect(started).toBe(1);
+      if (action === 'typing' || action === 'speech')
+        await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
+    },
+  );
   it('repairs rejected voice facts before replying and bounds malformed retries', async () => {
     const s = await session(),
       id = randomUUID();
     await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
     const c = connections.at(-1)!;
-    c.emit({ type: 'input_audio_buffer.committed', item_id: 'repair-source' });
-    c.emit({
+    void c.emit({
+      type: 'input_audio_buffer.committed',
+      item_id: 'repair-source',
+    });
+    void c.emit({
       type: 'conversation.item.input_audio_transcription.completed',
       item_id: 'repair-source',
       transcript: 'Call me Sam.',
@@ -915,7 +1199,7 @@ describe('browser call API', () => {
     );
     for (let attempt = 0; attempt < 3; attempt++) {
       const responseId = `repair-response-${attempt}`;
-      c.emit({
+      void c.emit({
         type: 'response.created',
         response: {
           id: responseId,
@@ -923,7 +1207,7 @@ describe('browser call API', () => {
           metadata: { generation: '1', sourceItem: 'repair-source' },
         },
       });
-      c.emit({
+      void c.emit({
         type: 'response.function_call_arguments.done',
         response_id: responseId,
         call_id: `repair-tool-${attempt}`,
@@ -940,7 +1224,7 @@ describe('browser call API', () => {
           ),
         ).toBe(true),
       );
-      c.emit({
+      void c.emit({
         type: 'response.done',
         response: { id: responseId, status: 'completed' },
       });
@@ -964,7 +1248,7 @@ describe('browser call API', () => {
       id = randomUUID();
     await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
     const c = connections.at(-1)!;
-    c.emit({
+    void c.emit({
       type: 'response.created',
       response: {
         id: 'internal-repair',
@@ -972,13 +1256,13 @@ describe('browser call API', () => {
         metadata: { generation: '0', purpose: 'fact_repair' },
       },
     });
-    c.emit({
+    void c.emit({
       type: 'response.output_audio_transcript.done',
       response_id: 'internal-repair',
       item_id: 'bad-repair-output',
       transcript: '{"expectedRevision":0}',
     });
-    c.emit({
+    void c.emit({
       type: 'response.done',
       response: {
         id: 'internal-repair',

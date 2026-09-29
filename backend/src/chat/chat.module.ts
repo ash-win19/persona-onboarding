@@ -16,6 +16,7 @@ import { ChatService } from './chat.service.js';
 import { DATABASE, PostgresDatabase } from './database.js';
 import { CHAT_CONFIG, chatConfig, required } from './config.js';
 import { MODEL, OpenAIReplyModel } from './model.js';
+import { FACT_REPAIR, OpenAIFactRepair } from './fact-repair.js';
 
 @Module({
   controllers: [
@@ -25,6 +26,14 @@ import { MODEL, OpenAIReplyModel } from './model.js';
     ResetController,
   ],
   providers: [
+    {
+      provide: FACT_REPAIR,
+      useFactory: () =>
+        new OpenAIFactRepair(
+          process.env.OPENAI_API_KEY ?? '',
+          process.env.OPENAI_MODEL || 'gpt-4.1-mini',
+        ),
+    },
     ChatService,
     Gmail,
     Reset,
