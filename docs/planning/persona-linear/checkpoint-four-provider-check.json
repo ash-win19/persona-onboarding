@@ -1,0 +1,15 @@
+{
+  "checkedAt": "2026-09-29T00:55:31.151Z",
+  "implementationCommit": "327c8a42bb05a368b865ed16306deeeea4f6ea01",
+  "environment": "localhost with isolated PGlite, real OpenAI Realtime, synthetic microphone audio",
+  "checks": {
+    "spokenNameAndTask": true,
+    "typedInterruption": true,
+    "spokenNameCorrection": true,
+    "hangupAndRefreshPersistence": true,
+    "providerErrors": false,
+    "graduatedIntoHelp": true
+  },
+  "googleConsentVerified": false,
+  "productionReleaseVerified": false
+}

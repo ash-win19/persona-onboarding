@@ -14,6 +14,7 @@ import {
   GMAIL_PROVIDER,
   GMAIL_SCOPE,
   GmailAuthorizationError,
+  GoogleGmailProvider,
   type GmailProvider,
 } from '../src/chat/gmail-provider.js';
 
@@ -85,6 +86,10 @@ describe('Gmail consent lifecycle', () => {
     revoked = false;
     exchanges = 0;
     hold = undefined;
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
   async function session() {
     const created = await request(app.getHttpServer())
@@ -200,6 +205,50 @@ describe('Gmail consent lifecycle', () => {
     expect(status.body.email).toBe('access-new@example.test');
     expect((await s.get('/session')).body.turns).toHaveLength(1);
   });
+  it.each([
+    [403, 'rateLimitExceeded', false],
+    [403, 'userRateLimitExceeded', false],
+    [403, 'dailyLimitExceeded', false],
+    [403, 'insufficientPermissions', true],
+    [401, 'authError', true],
+  ])(
+    'classifies Google HTTP %s %s without deleting valid grants',
+    async (status, reason, invalid) => {
+      const s = await session();
+      const a = await s.start();
+      await s.callback(a.state, 'good');
+      const tokens = async () =>
+        (
+          await db.query<{ tokens: string }>(
+            'SELECT tokens FROM gmail_connections WHERE conversation_id=$1',
+            [s.id],
+          )
+        ).rows[0].tokens;
+      const before = await tokens();
+      const google = new GoogleGmailProvider(
+        'test-client',
+        'test-secret',
+        'https://persona.example/callback',
+      );
+      vi.spyOn(provider, 'profile').mockImplementation((token) =>
+        google.profile(token),
+      );
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () =>
+          Response.json({ error: { errors: [{ reason }] } }, { status }),
+        ),
+      );
+      now += 300001;
+      const checked = (await s.get('/gmail/status').expect(200)).body;
+      expect(checked.status).toBe(invalid ? 'reconnect_needed' : 'connected');
+      expect(checked.unavailable).toBe(!invalid);
+      expect(await tokens()).toBe(invalid ? '' : before);
+      expect((await s.get('/session')).body.onboarding.gmail).toBe(
+        invalid ? 'not_connected' : 'connected',
+      );
+    },
+  );
   it('marks revoked testing credentials reconnect-needed without losing chat', async () => {
     const s = await session();
     const a = await s.start();

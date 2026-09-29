@@ -90,8 +90,22 @@ export class GoogleGmailProvider implements GmailProvider {
         signal: AbortSignal.timeout(10000),
       },
     );
-    if (response.status === 401 || response.status === 403)
+    if (response.status === 401)
       throw new GmailAuthorizationError('AUTHORIZATION_INVALID');
+    if (response.status === 403) {
+      const data = (await response.json()) as {
+        error?: { errors?: { reason?: string }[] };
+      };
+      if (
+        data.error?.errors?.some((error) =>
+          ['authError', 'insufficientPermissions', 'domainPolicy'].includes(
+            error.reason ?? '',
+          ),
+        )
+      )
+        throw new GmailAuthorizationError('AUTHORIZATION_INVALID');
+      throw new Error('GMAIL_PROFILE_UNAVAILABLE');
+    }
     if (!response.ok) throw new Error('GMAIL_PROFILE_UNAVAILABLE');
     const data = (await response.json()) as { emailAddress?: unknown };
     if (
