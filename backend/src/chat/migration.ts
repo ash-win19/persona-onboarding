@@ -74,7 +74,7 @@ export async function migrate(db: Database) {
       offered_visit uuid, deferred_visit uuid, PRIMARY KEY(conversation_id,goal)
     )`);
     await sql.query(
-      'ALTER TABLE onboarding_assessments ADD COLUMN IF NOT EXISTS question text',
+      'ALTER TABLE onboarding_assessments ADD COLUMN IF NOT EXISTS question text, ADD COLUMN IF NOT EXISTS assistance text',
     );
     await sql.query(`ALTER TABLE calls ADD COLUMN IF NOT EXISTS generation integer NOT NULL DEFAULT 0,
       ADD COLUMN IF NOT EXISTS source_item_id text`);

@@ -16,11 +16,21 @@ The original conversation and active call remain available after graduation. The
 
 ## A bounded conversation
 
-Clear tasks need no clarification. Normally the assistant asks at most one task question. A second is allowed only if the answer leaves an essential ambiguity about the desired outcome. The count persists across text, calls and reconnects. Execution details belong to task work after onboarding. If the user asks to stop the questions, the assistant proposes a plan with reasonable assumptions.
+Clear tasks need no clarification. Normally the assistant asks at most one task question. A second is allowed only if the answer leaves an essential ambiguity about the desired outcome. The count persists across text, calls and reconnects. For clear requests, the assistant produces a small useful result immediately with sensible defaults. Missing names or Gmail do not block a draft. If the user asks to stop the questions, it delivers the supported result and carries the remaining work into the plan.
 
 The assistant saves all stated tasks and suggests an order. It does not ask the user to invent a task or choose between several tasks before showing a plan. The plan states what Persona can actually do; Gmail authorization does not imply support for reading or sending mail.
 
 A narrow desktop rail shows Assistant, You, Gmail, Your tasks and Plan with saved values and progress marks. Mobile uses an expandable summary above the chat. Gmail has a connection action in this rail, so the assistant never promises an unavailable link.
+
+## Useful work during setup
+
+The assistant produces a draft, list or explanation before the next permitted setup step. A test email gets a subject and body immediately. It reuses wording already supplied and distinguishes writing the draft from sending it. This trial cannot send mail, even with Gmail connected.
+
+The structured response separates `assistance` from facts and the plan. The server saves this result with its assessment, appends at most the permitted setup action, and marks a displayed plan correctly even when a draft precedes it. The last result is available as context for follow-ups. It does not grant tool access or count as a profile fact.
+
+Invalid text captures and current-call interpretations receive one automatic correction attempt. Unchanged saved facts are no-ops, so repeating a task cannot invalidate an otherwise useful reply. A preference about a call or Gmail cannot also erase the task list using the same evidence. Voice tool continuations use the server reply instead of opening a new generic conversation. Failures after the bounded retry preserve the existing recovery controls.
+
+See [the prompt rewrite](design/onboarding-useful-work.md) for the behavior and regression cases.
 
 ## Finishing and leaving
 

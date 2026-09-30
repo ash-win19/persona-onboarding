@@ -2,6 +2,8 @@
 
 Implementation design, September 29, 2026. The [interview](onboarding-progress-interview.md) records the accepted decisions and subsequent clarification: allow an explicit no-task choice, use zero or one task clarification normally, and a second only for unresolved essential ambiguity. Changes are on the feature branch for review.
 
+The restriction on doing task work during setup is superseded by [useful work during onboarding](onboarding-useful-work.md). Small drafts and answers are now delivered immediately; the finish rule below still applies.
+
 ## Finish rule
 
 New-user onboarding finishes when the assistant name and user name are accepted, Gmail is verified, the tasks or an explicit no-task choice are saved, and the user accepts the current starter plan. Persist acceptance and completion together, then open the dashboard. A model saying “all set” never supplies this evidence.

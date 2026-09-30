@@ -1,3 +1,4 @@
+import { openingMessage } from './opening.js';
 import { Gmail } from './gmail.js';
 import type { MemoryContext } from './memory.js';
 import { Authority } from './authority.js';
@@ -34,6 +35,7 @@ type Fact = {
   revision: number | null;
 };
 export type OnboardingState = {
+  lastResult?: string | null;
   intake?: Intake & { ready: boolean };
   revision: number;
   policy?: PolicyState;
@@ -47,6 +49,7 @@ export type OnboardingState = {
   missingGoals: string[];
 };
 export type CaptureResult = {
+  assistance?: string | null;
   reply?: string;
   ok: boolean;
   code: 'committed' | 'already_applied' | 'invalid' | 'stale' | 'pending';
@@ -243,8 +246,11 @@ export class OnboardingService {
         gmail_pending: boolean;
         graduated_at: Date | null;
         onboarding_intake: Intake | null;
+        last_result: string | null;
       }>(
         `SELECT gmail_verified_at,call_successful_at,graduated_at,onboarding_intake,
+          (SELECT a.assistance FROM onboarding_assessments a JOIN turns t ON t.conversation_id=a.conversation_id AND t.submission_id=a.submission_id AND t.role='user'
+           WHERE a.conversation_id=$1 AND a.assistance IS NOT NULL ORDER BY t.sequence DESC LIMIT 1) AS last_result,
           EXISTS(SELECT 1 FROM calls WHERE conversation_id=$1 AND status IN ('connecting','active')) AS call_active,
           EXISTS(SELECT 1 FROM calls WHERE conversation_id=$1) AS call_attempted,
           EXISTS(SELECT 1 FROM gmail_attempts WHERE conversation_id=$1 AND status IN ('pending','exchanging') AND expires_at>$2) AS gmail_pending
@@ -284,6 +290,7 @@ export class OnboardingService {
       policy.goals.gmail.eligible = false;
     return {
       intake: { ...intake, ready },
+      lastResult: integration.last_result,
       revision,
       policy,
       facts,
@@ -388,12 +395,14 @@ export class OnboardingService {
     if (!result.ok)
       return 'I could not save that yet. Your message is still here; please use Retry so we can pick up from it.';
     if (state.graduated) return "Your plan is saved. Let's get started.";
-    if (state.intake?.ready && state.intake.plan)
-      return planMessage(state.intake.plan);
-    if (result.question) return result.question;
-    if (state.gmail !== 'connected')
-      return 'Your details are saved. Connect Gmail in Your setup to finish, or use Save and exit to come back later.';
-    return 'Your progress is saved. You can add or correct the remaining details in Your setup.';
+    const plan = state.intake?.ready ? state.intake.plan : null;
+    const next =
+      plan && (!plan.presented || !result.assistance)
+        ? planMessage(plan)
+        : result.question;
+    if (result.assistance || next)
+      return [result.assistance, next].filter(Boolean).join('\n\n');
+    return 'You can finish the remaining steps in Your setup whenever you are ready, or use Save and exit to come back later.';
   }
 
   async acceptPlan(
@@ -478,7 +487,7 @@ export class OnboardingService {
         [id],
       )
     ).rows[0]?.onboarding_intake;
-    if (current?.plan && reply === planMessage(current.plan)) {
+    if (current?.plan && reply.endsWith(planMessage(current.plan))) {
       current.plan.presented = true;
       await sql.query(
         'UPDATE conversations SET onboarding_intake=$2 WHERE id=$1',
@@ -540,6 +549,7 @@ export class OnboardingService {
     // Working memory is optional and never invalidates an otherwise valid capture.
     const {
       memory,
+      assistance,
       intake: intakeInput,
       ...command
     }: Record<string, unknown> = object(input) ? input : {};
@@ -621,11 +631,12 @@ export class OnboardingService {
       const submissionId = context.submissionId ?? source.submission_id!;
       const receipt = (
         await sql.query<{
+          assistance: string | null;
           ask_onboarding: boolean;
           question: string | null;
           permitted_goal: PolicyGoal | null;
         }>(
-          'SELECT question, ask_onboarding, permitted_goal FROM onboarding_assessments WHERE conversation_id = $1 AND submission_id = $2',
+          'SELECT assistance, question, ask_onboarding, permitted_goal FROM onboarding_assessments WHERE conversation_id = $1 AND submission_id = $2',
           [context.conversationId, submissionId],
         )
       ).rows[0];
@@ -657,6 +668,7 @@ export class OnboardingService {
         return {
           ok: true,
           code: 'already_applied',
+          assistance: receipt.assistance,
           state,
           question: invitation?.question ?? null,
           permittedGoal: invitation?.goal ?? null,
@@ -688,6 +700,11 @@ export class OnboardingService {
         sources = batch.rows.reverse();
       }
       if (!validCommand(command)) return reject('invalid');
+      if (
+        assistance != null &&
+        (typeof assistance !== 'string' || assistance.length > 2400)
+      )
+        return reject('invalid');
       const parsedIntake =
         intakeInput === undefined
           ? undefined
@@ -714,6 +731,31 @@ export class OnboardingService {
       )
         return reject('stale');
       if (update) {
+        const proposed = update.tasks.length;
+        update.tasks = update.tasks.filter(
+          (t) =>
+            !state.intake?.tasks.some(
+              (saved) => normalized(saved) === normalized(t.value),
+            ) ||
+            sources.some(
+              (s) => quote(s.content, t.evidence) && quote(t.evidence, t.value),
+            ),
+        );
+        if (proposed && !update.tasks.length) update.replaceTasks = false;
+        // A choice about another setup goal cannot also erase the task list.
+        if (
+          update.noTasksEvidence &&
+          !command.preferences?.some((p) => p.goal === 'helpRequest')
+        ) {
+          let remainder = normalized(update.noTasksEvidence);
+          for (const preference of command.preferences ?? [])
+            if (preference.goal !== 'helpRequest')
+              remainder = remainder.replace(
+                normalized(preference.evidence),
+                '',
+              );
+          if (!/[\p{L}\p{N}]/u.test(remainder)) update.noTasksEvidence = null;
+        }
         const evidence = [
           ...update.tasks.map((t) => t.evidence),
           update.noTasksEvidence,
@@ -722,11 +764,28 @@ export class OnboardingService {
         ].filter((v): v is string => !!v);
         if (evidence.some((e) => !sources.some((s) => quote(s.content, e))))
           return reject('invalid');
-        if (update.tasks.some((t) => !quote(t.evidence, t.value)))
-          return reject('invalid');
+        for (const task of update.tasks) {
+          if (quote(task.evidence, task.value)) continue;
+          // Keep the user's validated words when the model summarizes a task.
+          if (task.evidence.length > 2000) return reject('invalid');
+          task.value = task.evidence.trim();
+        }
       }
+      let usefulResult =
+        typeof assistance === 'string' && assistance.trim() !== openingMessage
+          ? assistance.trim() || null
+          : null;
       const changes: (Change & { source: Source })[] = [];
       for (const change of command.changes) {
+        if (update?.noTasksEvidence && change.goal === 'helpRequest') continue;
+        if (
+          change.action !== 'clarify' &&
+          state.facts[change.goal].status === 'known' &&
+          change.value !== null &&
+          normalized(state.facts[change.goal].value!) ===
+            normalized(change.value)
+        )
+          continue;
         let match: (Change & { source: Source }) | undefined;
         for (const candidate of sources.toReversed()) {
           const evidence = quote(candidate.content, change.evidence);
@@ -748,6 +807,16 @@ export class OnboardingService {
         ),
       }));
       if (preferences.some((p) => p.sourceIndex < 0)) return reject('invalid');
+      // A pure setup choice has no task result to repeat or expand. Do not let
+      // generated assistance bypass the server's choice to ask no question.
+      let remainingRequest = normalized(source.content);
+      for (const preference of preferences)
+        if (preference.sourceIndex === sources.indexOf(source))
+          remainingRequest = remainingRequest.replace(
+            normalized(preference.evidence),
+            '',
+          );
+      if (!/[\p{L}\p{N}]/u.test(remainingRequest)) usefulResult = null;
       if (
         command.exitEvidence &&
         !sources.some((candidate) =>
@@ -901,10 +970,11 @@ export class OnboardingService {
           .map((p) => p.goal),
       );
       const question = invitation?.question ?? null;
+      if (state.graduated) usefulResult = null;
       for (const assessed of sources)
         await sql.query(
-          `INSERT INTO onboarding_assessments(conversation_id,submission_id,ask_onboarding,question,permitted_goal,visit_id,exit_evidence)
-           VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(conversation_id,submission_id) DO NOTHING`,
+          `INSERT INTO onboarding_assessments(conversation_id,submission_id,ask_onboarding,question,permitted_goal,visit_id,exit_evidence,assistance)
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(conversation_id,submission_id) DO NOTHING`,
           [
             context.conversationId,
             assessed.submission_id ?? submissionId,
@@ -913,11 +983,13 @@ export class OnboardingService {
             invitation?.goal ?? null,
             state.policy!.visitId,
             command.exitEvidence ?? null,
+            assessed.id === source.id ? usefulResult : null,
           ],
         );
       return {
         ok: true,
         code: 'committed',
+        assistance: usefulResult,
         state,
         question,
         permittedGoal: invitation?.goal ?? null,

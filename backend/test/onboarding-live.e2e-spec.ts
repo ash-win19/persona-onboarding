@@ -89,6 +89,50 @@ describe.skipIf(process.env.PERSONA_LIVE_MODEL !== '1')(
       };
     }
 
+    it('drafts a test email immediately without asking for a subject or body', async () => {
+      const send = await session();
+      const reply = await send(
+        'Call yourself Atom. I am Taylor. No call. Draft a test email with the message: hey bro, this is a test email.',
+      );
+      const text = reply.turns.at(-1).content;
+      expect(text).toMatch(/subject[^\n]*test/i);
+      expect(text).toMatch(/hey bro, this is a test email/i);
+      expect(text).not.toMatch(/what.*(?:subject|body)|would you like.*draft/i);
+      expect(reply.onboarding.intake.questionsAsked).toBe(0);
+    }, 90000);
+
+    it('uses an earlier body and stops discovery when the user repeats the request', async () => {
+      const send = await session();
+      await send(
+        'Call yourself Nova. I am Taylor. No call. I want a test email. The body should say: hey bro, this is a test email.',
+      );
+      const reply = await send(
+        'Just write the draft and send it to me. Stop asking questions.',
+      );
+      const text = reply.turns.at(-1).content;
+      expect(text).toMatch(/subject[^\n]*test/i);
+      expect(text).toMatch(/hey bro, this is a test email/i);
+      expect(text).toMatch(/(?:can.?t|cannot|unable|not able).*send/i);
+      expect(text).not.toMatch(
+        /what.*(?:subject|body)|would you like|take a step back/i,
+      );
+      expect(reply.onboarding.intake.clarification).toBeNull();
+    }, 120000);
+
+    it('describes only supported capabilities and does not infer identity from a recipient', async () => {
+      const send = await session();
+      const options = await send('What can I do with Persona?');
+      expect(options.turns.at(-1).content).toMatch(/draft|write|plan|list/i);
+      const reply = await send(
+        'Draft a simple thank-you email to Morgan for reviewing my proposal. No call.',
+      );
+      const text = reply.turns.at(-1).content;
+      expect(reply.onboarding.facts.userName.value).toBeNull();
+      expect(text).toMatch(/subject/i);
+      expect(text).toMatch(/thank.*review|review.*proposal/i);
+      expect(reply.onboarding.intake.questionsAsked).toBe(0);
+    }, 120000);
+
     it('captures a clear task without clarification and completes only after Gmail and plan approval', async () => {
       const send = await session();
       const first = await send(
@@ -99,6 +143,12 @@ describe.skipIf(process.env.PERSONA_LIVE_MODEL !== '1')(
       expect(first.onboarding.facts.userName.value).toBe('Ashwin');
       expect(first.onboarding.facts.helpRequest.value).toMatch(/interview/i);
       expect(first.turns.at(-1).content).toMatch(/call/i);
+      expect(first.turns.at(-1).content).toMatch(
+        /introduction|example|structure|STAR/,
+      );
+      expect(first.onboarding.intake.plan.steps.join(' ')).not.toMatch(
+        /connect.*Gmail|confirm.*name|enable scheduling/i,
+      );
       expect((first.turns.at(-1).content.match(/\?/g) ?? []).length).toBe(1);
       const next = await send('No call, thanks. Gmail later.');
       expect(next.onboarding).toMatchObject({
@@ -109,6 +159,7 @@ describe.skipIf(process.env.PERSONA_LIVE_MODEL !== '1')(
       expect(next.onboarding.policy.goals.voice.outcome).toBe('declined');
       expect(next.onboarding.policy.goals.gmail.outcome).toBe('deferred');
       expect(next.onboarding.intake.questionsAsked).toBe(0);
+      expect(next.onboarding.intake.noTasks).toBe(false);
       await app
         .get<Database>(DATABASE)
         .query('UPDATE conversations SET gmail_verified_at=now() WHERE id=$1', [
