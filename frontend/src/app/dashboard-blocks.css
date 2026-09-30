@@ -208,6 +208,11 @@
   margin-bottom: 8px;
   letter-spacing: -0.035em;
 }
+/* Focus moves to the page heading so screen readers announce each page. It
+   isn't interactive, so it shows no focus ring (Chrome drew one on reload). */
+.dashboard-heading h1:focus {
+  outline: none;
+}
 .dashboard-heading > p:last-child {
   font-size: 14px;
 }
