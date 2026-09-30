@@ -191,6 +191,29 @@ export async function migrate(db: Database) {
     );
     await sql.query(`ALTER TABLE voice_responses ADD COLUMN IF NOT EXISTS onboarding_goal text,
       ADD COLUMN IF NOT EXISTS onboarding_visit uuid, ADD COLUMN IF NOT EXISTS invitation_delivered boolean NOT NULL DEFAULT false`);
+    await sql.query(`CREATE TABLE IF NOT EXISTS daily_threads (
+      id uuid PRIMARY KEY, conversation_id uuid NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      title text NOT NULL, updated_at timestamptz NOT NULL DEFAULT now()
+    )`);
+    await sql.query(
+      'CREATE INDEX IF NOT EXISTS daily_threads_owner ON daily_threads(conversation_id,updated_at)',
+    );
+    await sql.query(`CREATE TABLE IF NOT EXISTS daily_entries (
+      sequence bigserial PRIMARY KEY, id uuid NOT NULL UNIQUE,
+      thread_id uuid NOT NULL REFERENCES daily_threads(id) ON DELETE CASCADE,
+      content text NOT NULL, reply text, status text NOT NULL CHECK(status IN ('generating','completed','failed')),
+      attempt uuid NOT NULL, lease_until timestamptz NOT NULL
+    )`);
+    await sql.query(
+      'CREATE INDEX IF NOT EXISTS daily_entries_thread ON daily_entries(thread_id,sequence)',
+    );
+    await sql.query(`CREATE TABLE IF NOT EXISTS priorities (
+      id uuid PRIMARY KEY, conversation_id uuid NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      title text NOT NULL, completed boolean NOT NULL DEFAULT false, created_at timestamptz NOT NULL DEFAULT now()
+    )`);
+    await sql.query(
+      'CREATE INDEX IF NOT EXISTS priorities_owner ON priorities(conversation_id)',
+    );
     const empty = await sql.query<{ id: string }>(
       `SELECT id FROM conversations c WHERE NOT EXISTS(SELECT 1 FROM turns WHERE conversation_id=c.id)
        AND NOT EXISTS(SELECT 1 FROM calls WHERE conversation_id=c.id) FOR UPDATE`,

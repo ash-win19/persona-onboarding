@@ -1,6 +1,6 @@
-# Persona onboarding
+# Persona
 
-The conversation in which a person names their assistant, introduces themselves, connects Gmail and describes something they need help with.
+Personal intelligence that helps a person turn their intentions into useful daily work.
 
 ## Language
 
@@ -25,12 +25,24 @@ The concrete outcome the user wants Persona to help with first, together with on
 _Avoid_: User profile
 
 **Main experience**:
-The continuation of the same conversation in which the user's assistant works on their requests. It carries forward the information accepted during onboarding.
-_Avoid_: New conversation, onboarding
+The workspace where a person manages priorities and starts daily conversations with their assistant. It carries forward their accepted onboarding details.
+_Avoid_: Onboarding
 
-**Conversation**:
-The ongoing exchange between a user and their agent, which can continue through text, voice and later visits.
-_Avoid_: Call, onboarding step
+**Onboarding conversation**:
+The initial exchange in which a person introduces themselves and their first task. It remains available as a separate conversation after graduation.
+_Avoid_: Daily conversation
+
+**Daily conversation**:
+A separate exchange about an activity, task, plan or question. A new chat starts with no messages while retaining the person's accepted profile details.
+_Avoid_: Onboarding, call
+
+**Priority**:
+An intention the person saves to work on, which they can mark complete or reopen. A completed priority records the person's choice, not an action performed by the assistant.
+_Avoid_: Automation, reminder
+
+**Integration**:
+An external service a person connects to Persona. Connection status does not imply support for every action offered by that service.
+_Avoid_: Connection page
 
 **Call**:
 A live voice exchange within a conversation, during which the user can interrupt the agent.

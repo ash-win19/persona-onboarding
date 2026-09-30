@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { Experience } from "../experience";
 export default function ExperienceLayout({
   children,
@@ -6,7 +7,9 @@ export default function ExperienceLayout({
 }) {
   return (
     <>
-      <Experience />
+      <Suspense>
+        <Experience />
+      </Suspense>
       {children}
     </>
   );

@@ -11,11 +11,17 @@ export const dashboardPaths = [
   "/dashboard/conversation",
   "/dashboard/connections",
   "/dashboard/account",
+  "/dashboard/onboarding",
+  "/dashboard/settings",
+  "/dashboard/settings/integrations",
 ] as const;
 
 export function destination(journey?: Journey, requested?: string | null) {
   if (!journey?.entered) return "/onboarding";
-  return dashboardPaths.some((path) => path === requested)
+  return dashboardPaths.some((path) => path === requested) ||
+    /^\/dashboard\/conversation\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      requested || "",
+    )
     ? requested!
     : "/dashboard";
 }

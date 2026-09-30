@@ -1,6 +1,6 @@
 # Conversational onboarding
 
-Persona has two instruction sets within one continuous conversation. Onboarding collects the assistant name, user name, Gmail connection and a first task, and offers a browser call. The main experience then performs task work with the same assistant identity and saved context.
+The original onboarding conversation has two instruction sets within one continuous history. Onboarding collects the assistant name, user name, Gmail connection and a first task, and offers a browser call. After graduation, that conversation can continue task work with the same assistant identity and saved context. The dashboard now defaults to separate daily chats for new work; see [app flow](app-flow.md).
 
 ## Instructions to review
 
