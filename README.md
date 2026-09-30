@@ -1,5 +1,7 @@
 # Persona
 
+Google Meet scheduling is available behind `CALENDAR_SCHEDULING_ENABLED`. See the [Calendar setup and demo guide](docs/google-calendar.md) to enable OAuth, create meetings through text or voice, and email standard Calendar invitations.
+
 Persona is a conversational onboarding trial with saved text chat, browser voice, Gmail consent, and recovery across interruptions. It learns the agent's name, the user's name, and a help request while allowing useful work to start before every onboarding goal is met. Refusals and deferrals persist across channels and refreshes.
 
 Try [the production app](https://usepersona.vercel.app). Next.js runs on Vercel, NestJS on the personal Render service, and Postgres on Neon. All three hosting plans are Free; OpenAI requests use the configured account's credits. Read the [evaluator runbook](docs/release-checks.md) for the full test journey and [release evidence](docs/planning/persona-linear/checkpoint-three-six-release.json) for verification tied to deployed revisions.

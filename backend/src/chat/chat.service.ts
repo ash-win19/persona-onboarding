@@ -1,3 +1,4 @@
+import { MeetingAssistant } from './meeting-assistant.js';
 import { Diagnostics } from './diagnostics.js';
 import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -39,6 +40,8 @@ type Operation = {
 @Injectable()
 export class ChatService {
   constructor(
+    @Inject(MeetingAssistant)
+    private readonly meetingAssistant: MeetingAssistant,
     @Inject(Diagnostics) private readonly diagnostics: Diagnostics,
     @Inject(DATABASE) private readonly db: Database,
     @Inject(MODEL) private readonly model: ReplyModel,
@@ -207,31 +210,49 @@ export class ChatService {
     const memory = await this.memory.context(conversation.id);
     let reply: string;
     try {
-      reply = await this.model.reply(
-        memoryWindow(
-          snapshot.turns.filter(
-            (turn) =>
-              turn.role === 'user' ||
-              ['text', 'played'].includes(turn.delivery),
-          ),
-          memory,
-          { recent: 10, max: 40 },
-        ).map(({ role, content: text, callId }) => ({
-          role,
-          content: text,
-          callId,
-        })),
-        {
-          state: snapshot.onboarding,
-          memory,
-          capture: (command) =>
-            this.onboarding.capture(
-              { conversationId: conversation.id, submissionId, attempt },
-              command,
+      const meetingReply = snapshot.onboarding.graduated
+        ? await this.meetingAssistant.reply(
+            {
+              conversationId: conversation.id,
+              sourceId: submissionId,
+              attempt,
+              owner,
+            },
+            snapshot.turns.filter(
+              (turn) =>
+                turn.role === 'user' ||
+                ['text', 'played'].includes(turn.delivery),
             ),
-        },
-        stream && ((text) => stream.delta(text)),
-      );
+          )
+        : null;
+      if (meetingReply) stream?.delta(meetingReply);
+      reply =
+        meetingReply ??
+        (await this.model.reply(
+          memoryWindow(
+            snapshot.turns.filter(
+              (turn) =>
+                turn.role === 'user' ||
+                ['text', 'played'].includes(turn.delivery),
+            ),
+            memory,
+            { recent: 10, max: 40 },
+          ).map(({ role, content: text, callId }) => ({
+            role,
+            content: text,
+            callId,
+          })),
+          {
+            state: snapshot.onboarding,
+            memory,
+            capture: (command) =>
+              this.onboarding.capture(
+                { conversationId: conversation.id, submissionId, attempt },
+                command,
+              ),
+          },
+          stream && ((text) => stream.delta(text)),
+        ));
     } catch {
       await this.db.query(
         "UPDATE submissions SET status = 'failed', error_code = 'REPLY_UNAVAILABLE' WHERE conversation_id = $1 AND id = $2 AND attempt = $3",

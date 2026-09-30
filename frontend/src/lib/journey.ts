@@ -32,7 +32,12 @@ export function destination(journey?: Journey, requested?: string | null) {
 let freshStart: Promise<unknown> | undefined;
 export function startFresh() {
   if (sessionStorage.getItem("persona:resume-onboarding") === "true") return;
-  if (new URLSearchParams(window.location.search).has("gmail")) return;
+  if (
+    ["gmail", "calendar"].some((key) =>
+      new URLSearchParams(window.location.search).has(key),
+    )
+  )
+    return;
   freshStart ??= fetch("/api/auth/fresh-start", {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Persona-Client": "web" },

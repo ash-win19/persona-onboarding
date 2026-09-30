@@ -8,6 +8,8 @@ async function active(sql: Sql, id: string, now: Date) {
       await sql.query<{ active: boolean }>(
         `SELECT owner_until>$2 OR EXISTS(SELECT 1 FROM calls WHERE conversation_id=$1 AND status IN ('connecting','active') AND deadline>$2)
     OR EXISTS(SELECT 1 FROM submissions WHERE conversation_id=$1 AND status='generating' AND lease_until>$2)
+    OR EXISTS(SELECT 1 FROM meeting_requests WHERE conversation_id=$1 AND status IN ('queued','running','attention_required','reconnect_needed'))
+    OR EXISTS(SELECT 1 FROM calendar_attempts WHERE conversation_id=$1 AND status IN ('pending','exchanging') AND expires_at>$2)
     OR EXISTS(SELECT 1 FROM gmail_attempts WHERE conversation_id=$1 AND status IN ('pending','exchanging') AND expires_at>$2) AS active FROM conversations WHERE id=$1`,
         [id, now],
       )

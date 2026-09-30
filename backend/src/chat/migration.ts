@@ -1,3 +1,4 @@
+import { migrateCalendar } from './calendar-migration.js';
 import type { Database } from './database.js';
 import { saveOpening } from './opening.js';
 
@@ -230,6 +231,7 @@ export async function migrate(db: Database) {
     await sql.query(
       'ALTER TABLE submissions ADD COLUMN IF NOT EXISTS call_id uuid',
     );
+    await migrateCalendar(sql);
     const empty = await sql.query<{ id: string }>(
       `SELECT id FROM conversations c WHERE NOT EXISTS(SELECT 1 FROM turns WHERE conversation_id=c.id)
        AND NOT EXISTS(SELECT 1 FROM calls WHERE conversation_id=c.id) FOR UPDATE`,

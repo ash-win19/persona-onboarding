@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { PersonaLogo, PersonaMark } from "./persona-logo";
 import { ChatIcon } from "./chat-icons";
 import { AccountMenu } from "./account-menu";
+import { CalendarPanel } from "./calendar-panel";
 import { GmailConnection } from "./gmail-connection";
 import { IntelligenceDashboard } from "./intelligence-dashboard";
 import { DailyChat } from "./daily-chat";
@@ -211,6 +212,17 @@ export function DashboardFrame({
             )}
           </header>
         )}
+        {dashboard &&
+          snapshot &&
+          (daily || integrations || onboarding || call) && (
+            <CalendarPanel
+              key={snapshot.conversationId}
+              conversationId={snapshot.conversationId}
+              headers={headers}
+              enabled={enabled}
+              settings={integrations}
+            />
+          )}
         {dashboard && !onboarding && notice && (
           <p className="dashboard-notice" role="status">
             {notice}

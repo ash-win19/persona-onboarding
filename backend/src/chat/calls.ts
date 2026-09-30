@@ -1,3 +1,5 @@
+import { Meetings } from './meetings.js';
+import { meetingInstructions, meetingTools } from './meeting-tools.js';
 import { Diagnostics } from './diagnostics.js';
 import { captureOnboardingTool, interpretation } from './model.js';
 import { roleInstructions, voiceInstructions } from './prompts.js';
@@ -99,6 +101,7 @@ export class Calls implements OnModuleDestroy {
   private readonly instance = randomUUID();
   private readonly live = new Map<string, LiveCall>();
   constructor(
+    @Inject(Meetings) private readonly meetings: Meetings,
     @Inject(Diagnostics) private readonly diagnostics: Diagnostics,
     @Inject(DATABASE) private readonly db: Database,
     @Inject(Authority) private readonly authority: Authority,
@@ -912,6 +915,17 @@ export class Calls implements OnModuleDestroy {
     );
     return {
       state,
+      meetings: state.graduated
+        ? await this.meetings.state(call.conversation_id, 'root')
+        : null,
+      referenceTime: new Date().toISOString(),
+      browserTimeZone:
+        (
+          await sql.query<{ meeting_timezone: string | null }>(
+            'SELECT meeting_timezone FROM conversations WHERE id=$1',
+            [call.conversation_id],
+          )
+        ).rows[0]?.meeting_timezone ?? null,
       turns,
       memory: memory && {
         observations: memory.observations,
@@ -923,7 +937,7 @@ export class Calls implements OnModuleDestroy {
     memory,
     ...context
   }: Awaited<ReturnType<Calls['context']>>) {
-    return `${roleInstructions(context.state)}\n${voiceInstructions}\nThe following interpretation rules apply when making a capture proposal, not to ordinary task replies: ${interpretation}\nContext turns are one conversation across chat and calls: channel text was typed in the chat and channel voice was spoken on a call.\n${memoryPrompt(memory)}\nSaved context: ${JSON.stringify(context)}`;
+    return `${roleInstructions(context.state)}\n${context.state.graduated && context.meetings?.calendar.available ? meetingInstructions : 'Meeting scheduling tools are unavailable in the current phase or configuration.'}\n${voiceInstructions}\nThe following interpretation rules apply when making a capture proposal, not to ordinary task replies: ${interpretation}\nContext turns are one conversation across chat and calls: channel text was typed in the chat and channel voice was spoken on a call.\n${memoryPrompt(memory)}\nSaved context: ${JSON.stringify(context)}`;
   }
 
   private async check(id: string) {
@@ -1522,7 +1536,11 @@ export class Calls implements OnModuleDestroy {
       }
       if (
         event.type === 'response.function_call_arguments.done' &&
-        ['saved_context', 'capture_onboarding'].includes(event.name ?? '') &&
+        [
+          'saved_context',
+          'capture_onboarding',
+          ...meetingTools.map((tool) => tool.name),
+        ].includes(event.name ?? '') &&
         event.call_id &&
         active &&
         runtime &&
@@ -1600,7 +1618,29 @@ export class Calls implements OnModuleDestroy {
       let result: unknown;
       let repair: string | undefined;
       if (tool.name === 'saved_context') result = await this.context(call);
-      else {
+      else if (meetingTools.some((t) => t.name === tool.name)) {
+        let command: unknown;
+        try {
+          command = JSON.parse(tool.args);
+        } catch {
+          command = null;
+        }
+        result = await this.meetings.tool(
+          {
+            conversationId: call.conversation_id,
+            callId: id,
+            generation: tool.generation,
+            sourceId: tool.sourceItem,
+          },
+          tool.name,
+          command,
+        );
+        if (
+          (result as { code?: string }).code === 'TRANSCRIPT_PENDING' &&
+          this.authority.now() < tool.expiresAt
+        )
+          continue;
+      } else if (tool.name === 'capture_onboarding') {
         if (runtime.interpreting.has(tool.generation)) continue;
         let command: unknown;
         try {
@@ -1642,6 +1682,7 @@ export class Calls implements OnModuleDestroy {
         }
         repair = this.repairInstructions(runtime, tool, captured);
       }
+      if (result === undefined) result = { code: 'UNKNOWN_TOOL' };
       const latest = await this.get(this.db, id);
       if (
         !latest ||
