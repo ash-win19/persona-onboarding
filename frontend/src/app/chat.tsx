@@ -24,6 +24,7 @@ type Turn = {
   channel?: string;
   delivery?: string;
   callId?: string | null;
+  createdAt?: string;
   kind?: "opening" | "message" | "handoff" | "recap";
 };
 type CallRecord = {
@@ -52,6 +53,8 @@ type Onboarding = {
   };
   facts: Record<"agentName" | "userName" | "helpRequest", SavedFact>;
   gmail: "connected" | "not_connected";
+  calendar?: "connected" | "not_connected";
+  calendarAvailable?: boolean;
   graduated: boolean;
   onboardingComplete: boolean;
   policy?: { goals: { gmail: { introduced: boolean } } };
@@ -302,7 +305,9 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
     }
   }
 
-  async function changePlan(action: "review" | "accept") {
+  // Onboarding finishes by itself once every detail is in. This covers the
+  // cases no reply finishes, such as returning from Google consent.
+  async function finishOnboarding() {
     if (handoffRequest.current || !hasControl) return;
     handoffRequest.current = true;
     setHandoffBusy(true);
@@ -311,13 +316,13 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
       const data = await api<Snapshot>(
         "onboarding/plan",
         new AbortController().signal,
-        { action, id: snapshot?.onboarding?.intake?.plan?.id },
+        { action: "finish" },
         ownerRef.current,
       );
       accept(data);
     } catch {
       setHandoffError(
-        "We couldn't save the plan yet. Your progress is here. Please try again.",
+        "We couldn't finish setting up yet. Your progress is saved. Please try again.",
       );
     } finally {
       handoffRequest.current = false;
@@ -333,16 +338,27 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
 
   useEffect(() => {
     if (!snapshot) return;
-    if (snapshot.journey?.entered && pathname === "/onboarding")
-      router.replace("/dashboard" + window.location.search);
-    else if (!snapshot.journey?.entered && pathname.startsWith("/dashboard"))
+    if (snapshot.journey?.entered && pathname === "/onboarding") {
+      // Let the closing line finish and be read before the dashboard opens.
+      if (busy || snapshot.operation?.status === "generating") return;
+      const last = snapshot.turns.at(-1);
+      const closing =
+        last?.role === "assistant" &&
+        !!last.createdAt &&
+        Date.now() - new Date(last.createdAt).getTime() < 15000;
+      const timer = setTimeout(
+        () => router.replace("/dashboard" + window.location.search),
+        closing ? 2500 : 0,
+      );
+      return () => clearTimeout(timer);
+    } else if (!snapshot.journey?.entered && pathname.startsWith("/dashboard"))
       router.replace("/onboarding");
-  }, [snapshot, pathname, router]);
+  }, [snapshot, pathname, router, busy]);
 
   useEffect(() => {
     if (
       snapshot?.onboarding?.intake?.ready &&
-      !snapshot.onboarding.intake.plan?.presented &&
+      !snapshot.onboarding.graduated &&
       !snapshot.journey?.entered &&
       hasControl &&
       connection === "ready" &&
@@ -351,10 +367,10 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
       (!voice.active || voice.phase === "listening") &&
       !handoffError
     ) {
-      const timer = setTimeout(() => void changePlan("review"), 0);
+      const timer = setTimeout(() => void finishOnboarding(), 0);
       return () => clearTimeout(timer);
     }
-    // Persist the displayed proposal before accepting a button or spoken yes.
+    // Finishing follows readiness and settled input, never a URL change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     snapshot?.onboarding?.intake,
@@ -1015,36 +1031,6 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
               )}
             </div>
           </div>
-          {snapshot?.onboarding?.intake?.ready &&
-            snapshot.onboarding.intake.plan?.presented &&
-            !snapshot.journey?.entered && (
-              <section
-                className="plan-actions conversation-content"
-                aria-label="Approve your plan"
-              >
-                <div>
-                  <button
-                    className="brand-button"
-                    disabled={busy || handoffBusy || !hasControl}
-                    onClick={() => void changePlan("accept")}
-                  >
-                    {handoffBusy ? "Saving your plan…" : "Looks good"}
-                    <ChatIcon name="arrowRight" />
-                  </button>
-                  <button
-                    className="secondary-button"
-                    disabled={busy || !hasControl}
-                    onClick={() => {
-                      setDraft("Change the plan: ");
-                      input.current?.focus();
-                    }}
-                  >
-                    Change plan
-                  </button>
-                </div>
-                <p>You can also say or type yes.</p>
-              </section>
-            )}
         </section>
 
         {snapshot?.onboarding &&
@@ -1131,17 +1117,7 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
           {handoffError && !snapshot?.journey?.prepared && (
             <div className="notice" role="alert">
               <p>{handoffError}</p>
-              <button
-                onClick={() =>
-                  void changePlan(
-                    snapshot?.onboarding?.intake?.plan?.presented
-                      ? "accept"
-                      : "review",
-                  )
-                }
-              >
-                Try again
-              </button>
+              <button onClick={() => void finishOnboarding()}>Try again</button>
             </div>
           )}
 

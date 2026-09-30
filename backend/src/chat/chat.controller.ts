@@ -200,24 +200,21 @@ export class ChatController {
   ) {
     browserWrite(req, this.config);
     res.set('Cache-Control', 'no-store');
+    // review and accept are the old plan-approval actions; a client from before
+    // automatic finishing still reaches the same completion.
     if (
       !body ||
       typeof body !== 'object' ||
       !('action' in body) ||
-      !['review', 'accept'].includes(String(body.action)) ||
+      !['finish', 'review', 'accept'].includes(String(body.action)) ||
       ('id' in body && typeof body.id !== 'string')
     )
       throw new BadRequestException();
-    const result = await this.chat.plan(
-      credential(req),
-      body.action as 'review' | 'accept',
-      'id' in body ? (body.id as string) : undefined,
-      owner(req),
-    );
-    if (result.message)
-      await this.calls.sayPlan(credential(req), result.message);
-    if (body.action === 'accept')
+    const result = await this.chat.finish(credential(req), owner(req));
+    if (result.message) {
+      await this.calls.sayClosing(credential(req));
       await this.calls.refreshContext(credential(req)).catch(() => undefined);
+    }
     return result.snapshot;
   }
 }

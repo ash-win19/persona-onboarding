@@ -1,43 +1,39 @@
 # Conversational onboarding
 
-Onboarding saves the assistant name, user name, verified Gmail connection and task choice. A task choice can contain several tasks or an explicit "nothing yet." The assistant proposes a short plan. Accepting that current plan through Looks good, text or voice saves it and opens the dashboard immediately.
+Onboarding gets to know a new user so Persona can help them in the app. It collects four things: a name for the assistant, the user's name, a Google connection (Gmail, plus Calendar when the server can connect it) and their first task or an explicit "nothing yet". As soon as the last one is saved, onboarding finishes and the dashboard opens. There is no plan to approve. See [ADR 0008](adr/0008-finish-onboarding-automatically.md).
 
-The original conversation and active call remain available after graduation. The dashboard starts separate daily chats for new work, using the saved names, tasks and accepted plan as context. See [app flow](app-flow.md).
+The original conversation and active call remain available after graduation. The dashboard starts separate daily chats for new work, using the saved names and tasks as context. See [app flow](app-flow.md).
 
 ## Instructions to review
 
-- `backend/src/chat/prompts.ts` defines the onboarding role and shared text and voice rules.
-- `backend/src/chat/model.ts` interprets user statements through the strict capture schema. During onboarding, it returns the server-authorized reply after capture.
-- `backend/src/chat/starter-plan.ts` tracks tasks, clarification count and the current plan.
-- `backend/src/chat/onboarding.ts` validates quoted evidence, saves progress and owns plan acceptance and graduation.
-- `backend/src/chat/calls.ts` captures finalized current-call speech before generating the next onboarding reply.
-- `frontend/src/app/onboarding-progress.tsx` displays the saved details and pending steps.
-- [The approved design](design/onboarding-progress.md) records the flow and [ADR 0007](adr/0007-require-plan-acceptance-to-finish-onboarding.md) explains the completion rule.
+- `backend/src/chat/prompts.ts` holds the onboarding guide (`onboardingGuide`): the role, the four details, how to talk, and a status block the server fills in each turn with saved details and the one step to take next. The same guide drives text and voice; calls add a short voice note.
+- `backend/src/chat/model.ts` has the interpretation prompt that turns each message into a strict `capture_onboarding` proposal, then streams the guide's reply.
+- `backend/src/chat/opening.ts` has the saved greeting.
+- `backend/src/chat/onboarding.ts` validates quoted evidence, saves progress, picks the next step and finishes onboarding.
+- `backend/src/chat/calls.ts` captures finalized call speech, then asks the voice model to reply using the guide.
+- `frontend/src/app/onboarding-progress.tsx` shows the saved details and pending steps.
 
-## A bounded conversation
+## How a turn works
 
-Clear tasks need no clarification. Normally the assistant asks at most one task question. A second is allowed only if the answer leaves an essential ambiguity about the desired outcome. The count persists across text, calls and reconnects. Execution details belong to task work after onboarding. If the user asks to stop the questions, the assistant proposes a plan with reasonable assumptions.
+1. The interpreter proposes names, tasks, a no-task choice, explicit refusals or deferrals, and exit requests, each with an exact quote from the user.
+2. The server validates the quotes, saves what is clear and picks the next step in order: assistant name, user name, Google, first task. Unclear names come first. Declined steps, and steps postponed during this visit, are skipped.
+3. The guide writes the reply: it reacts to what the user said, then asks for that one step. It does not start task work. When nothing is left to ask, it simply responds.
+4. If the saved details are complete, the same commit finishes onboarding and the guide writes a short closing line. The browser shows it for a moment, then opens the dashboard.
 
-The assistant saves all stated tasks and suggests an order. It does not ask the user to invent a task or choose between several tasks before showing a plan. The plan states what Persona can actually do; Gmail authorization does not imply support for reading or sending mail.
-
-A narrow desktop rail shows Assistant, You, Gmail, Your tasks and Plan with saved values and progress marks. Mobile uses an expandable summary above the chat. Gmail has a connection action in this rail, so the assistant never promises an unavailable link.
+A proposal with a misquoted value gets one repair attempt. If it still fails in text, the guide replies without claiming anything was saved and asks the user to say it again. On a call, a failed save uses fixed wording that points to Retry saved speech.
 
 ## Finishing and leaving
 
-New users need both names, verified Gmail and a task choice before accepting a plan. Acceptance requires the current, presented plan and no unfinished user input. A typed or spoken affirmative only accepts a plan that is awaiting confirmation; an unrelated or quoted "yes" does not finish onboarding. Changing the intake invalidates the prior plan. Acceptance and dashboard entry commit together, and repeated acceptance is safe.
+Finishing needs both names, verified Gmail, verified Calendar when available, and a task choice. It also waits until no newer input is still being interpreted. When a detail arrives outside a reply, such as returning from Google consent, the browser asks the server to finish and a closing line is saved as the handoff turn. Finishing is idempotent.
 
-Save and exit returns to the landing page without graduating. The next visit resumes saved progress. Gmail refusal or authorization failure leaves Gmail pending; it does not trigger repeated chat prompts or grant dashboard access. The user can retry from the rail.
+Save and exit returns to the landing page without graduating. The next visit resumes saved progress. A Google refusal or failed authorization leaves the step pending; the user can connect later from Your setup.
 
-Existing graduation and dashboard-entry records retain their prior meaning and access. The migration adds intake storage without resetting older completion markers.
+## Voice
 
-## Facts and call recovery
-
-Capture proposals need evidence from canonical user messages or finalized current-call speech, with the current revision and control owner. Assistant and user names remain distinct. The server verifies Gmail; user claims cannot mark it connected.
-
-A call is offered after the assistant is named, but voice is optional. Finalized speech is interpreted before the next onboarding reply. The same saved clarification count and plan apply in text and voice. An active call continues across dashboard entry. Current-call capture failures expose Retry saved speech; older ended-call transcripts stay in history and are not automatically included in a new recovery request. Ending a call before capture finishes can require the user to repeat an unsaved detail in text.
+Calls use the same guide and the same next step. The voice model speaks its own words rather than a server script. It may ask for the assistant's name, and confirms a name it is unsure it heard. An active call continues across dashboard entry.
 
 ## Verification
 
-Focused backend tests cover mandatory Gmail, explicit no-task choices, multiple tasks, clarification limits, stale and repeated plan approval, quoted or qualified affirmatives and automatic capture of current-call speech. Browser tests cover desktop and mobile progress, immediate dashboard entry and Save and exit resumption.
+Backend tests cover the step order, moving past a postponed step, finishing in the same text reply or call turn, finishing after Gmail and Calendar connect, holding the finish while newer speech is pending, the guide prompt contents and repaired proposals. Browser tests cover the progress rail and the timed hand-off to the dashboard.
 
-`test/onboarding-live.e2e-spec.ts` is opt-in with `PERSONA_LIVE_MODEL=1`. It uses a real model with synthetic messages and a disposable local database, never production conversation storage. Actual microphone and OAuth-provider behavior still need manual verification.
+`test/onboarding-live.e2e-spec.ts` is opt-in with `PERSONA_LIVE_MODEL=1`. It uses a real model with synthetic messages and a disposable local database, never production conversation storage. Real microphone and OAuth-provider behavior still need manual verification.

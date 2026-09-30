@@ -162,8 +162,9 @@ describe('saved conversation API', () => {
       expect(result.ok).toBe(true);
       expect(result.state.graduated).toBe(false);
       expect(result.state.onboardingComplete).toBe(false);
-      expect(result.permittedGoal).toBe('voice');
-      return result.question!;
+      // Gmail is not configured in this suite, so there is no step to offer.
+      expect(result.permittedGoal).toBeNull();
+      return 'Nova it is. Good luck with the interview prep.';
     };
     const session = await request(app.getHttpServer())
       .post('/auth/login')
@@ -205,74 +206,33 @@ describe('saved conversation API', () => {
       label: 'accepted',
       name: 'Nova',
       evidence: 'Call yourself Nova',
-      answer: 'Nova it is.',
       expectedName: 'Nova',
-      question:
-        'Would you like to finish getting set up on a call? You can use Start a call whenever you are ready.',
-    },
-    {
-      label: 'contextual',
-      name: 'Nova',
-      evidence: 'Call yourself Nova',
-      answer: 'Nova it is.',
-      expectedName: 'Nova',
-      question:
-        'Want to finish setting up Nova on a call? Use Start a call whenever you are ready.',
+      guidance: 'This turn: Ask what you should call them.',
+      captures: 1,
     },
     {
       label: 'rejected',
       name: 'Invented',
       evidence: 'An invented source',
-      answer: 'I could not save that name.',
       expectedName: null,
-      question: null,
+      guidance: "Their last message couldn't be saved.",
+      captures: 2,
     },
   ])(
-    'uses the $label provider tool result before replying',
-    async ({ label, name, evidence, answer, expectedName, question }) => {
-      let receivedAuthoritativeState = false;
-      const providerReply =
-        answer + (question ? ' What is your name? What do you need?' : '');
+    'writes the $label onboarding reply from the saved state',
+    async ({ name, evidence, expectedName, guidance, captures }) => {
+      const replyText = 'Nova. I like that. And what should I call you?';
+      let instructions = '';
+      let captureRequests = 0;
       const provider = createServer(async (req, res) => {
         let body = '';
         for await (const chunk of req) body += chunk;
         const input = JSON.parse(body);
-        if (
-          input.text?.format?.name === 'onboarding_question' &&
-          label === 'contextual'
-        ) {
-          res.setHeader('Content-Type', 'application/json');
-          return res.end(
-            JSON.stringify({
-              id: 'resp_question',
-              object: 'response',
-              status: 'completed',
-              output: [
-                {
-                  type: 'message',
-                  role: 'assistant',
-                  status: 'completed',
-                  content: [
-                    {
-                      type: 'output_text',
-                      text: JSON.stringify({ goal: 'voice', question }),
-                      annotations: [],
-                    },
-                  ],
-                },
-              ],
-            }),
-          );
+        if (input.stream) {
+          instructions = input.instructions;
+          return streamText(res, replyText.split(/(?<= )/));
         }
-        const toolOutput = input.input.find(
-          (item: { type?: string }) => item.type === 'function_call_output',
-        );
-        if (toolOutput) {
-          receivedAuthoritativeState =
-            JSON.parse(toolOutput.output).state.facts.agentName.value ===
-            expectedName;
-          return streamText(res, providerReply.split(/(?<= )/));
-        }
+        captureRequests++;
         res.setHeader('Content-Type', 'application/json');
         res.end(
           JSON.stringify({
@@ -326,16 +286,17 @@ describe('saved conversation API', () => {
           .set('Cookie', session.headers['set-cookie'][0])
           .send({ submissionId: randomUUID(), content: 'Call yourself Nova.' })
           .expect(200);
-        // Onboarding now uses the committed server action, with no second
-        // free-form generation that could add unrelated questions.
-        expect(receivedAuthoritativeState).toBe(false);
-        if (label === 'rejected') {
-          expect(reply.body.operation.status).toBe('failed');
-          expect(reply.body.turns).toHaveLength(2);
-        } else
-          expect(reply.body.turns[2].content).toBe(
-            'Would you like to finish getting set up on a call? You can use Start a call whenever you are ready.',
-          );
+        // The guide writes the reply from committed state; a misquoted
+        // proposal gets one repair attempt and never claims a save.
+        expect(captureRequests).toBe(captures);
+        expect(instructions).toContain(
+          expectedName
+            ? `Your name: ${JSON.stringify(expectedName)}`
+            : 'Your name: not chosen yet',
+        );
+        expect(instructions).toContain(guidance);
+        expect(reply.body.operation.status).toBe('completed');
+        expect(reply.body.turns[2].content).toBe(replyText);
         expect(reply.body.onboarding.facts.agentName.value).toBe(expectedName);
       } finally {
         await new Promise<void>((resolve, reject) =>
@@ -377,7 +338,9 @@ describe('saved conversation API', () => {
           changes: [{ goal: 'userName', action, value, evidence }],
         });
         if (!result.ok) throw new Error('Rejected fact');
-        return result.question ?? 'Ready to help.';
+        return result.permittedGoal === 'userName'
+          ? 'What name would you like me to use for you?'
+          : 'Ready to help.';
       };
     };
     capture('set', 'Alex', 'I am Alex');
@@ -406,7 +369,7 @@ describe('saved conversation API', () => {
         ],
       });
       expect(result.ok).toBe(true);
-      expect(result.question).toBeNull();
+      expect(result.permittedGoal).toBeNull();
       return 'Start with a 60-second introduction.';
     };
     const deferred = await send(
@@ -497,8 +460,8 @@ describe('saved conversation API', () => {
       );
       const accepted = await tools.capture(command);
       if (!accepted.ok) throw new Error('Rejected help');
-      expect(accepted.permittedGoal).toBe('voice');
-      return 'We can start with a 60-second introduction. ' + accepted.question;
+      expect(accepted.permittedGoal).toBe('agentName');
+      return 'We can start with a 60-second introduction. What should I be called?';
     };
     const reply = await send(
       cookie,
@@ -602,7 +565,7 @@ describe('saved conversation API', () => {
     expect(
       restored.body.turns.map((turn: { content: string }) => turn.content),
     ).toEqual([
-      "Hi, I'm Persona. Let's make this yours and choose the first thing to take off your plate. What would you like to call me?",
+      "Hi there! I'm your new assistant, and I don't have a name yet. What would you like to call me?",
       'Help me prepare for an interview.',
       'Let us practice your introduction.',
     ]);
@@ -661,7 +624,7 @@ describe('saved conversation API', () => {
     expect(
       retried.body.turns.map((t: { content: string }) => t.content),
     ).toEqual([
-      "Hi, I'm Persona. Let's make this yours and choose the first thing to take off your plate. What would you like to call me?",
+      "Hi there! I'm your new assistant, and I don't have a name yet. What would you like to call me?",
       'Prepare me.',
       'We can try again.',
     ]);

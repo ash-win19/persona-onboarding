@@ -11,22 +11,18 @@ export const intakeInputSchema = z
       .max(12),
     replaceTasks: z.boolean(),
     noTasksEvidence: evidence.nullable(),
-    clarification: z.string().min(1).max(400).nullable(),
-    stopQuestionsEvidence: evidence.nullable(),
-    plan: z.array(z.string().min(1).max(400)).min(1).max(3).nullable(),
-    acceptPlan: z
-      .object({ id: z.string().uuid(), evidence })
-      .strict()
-      .nullable(),
   })
   .strict();
 export type IntakeInput = z.infer<typeof intakeInputSchema>;
+// The saved task list shown on the dashboard. Onboarding accepts it
+// automatically when it finishes; there is no separate approval step.
 export type StarterPlan = {
   id: string;
   steps: string[];
   presented: boolean;
   accepted: boolean;
 };
+// questionsAsked and clarification are kept so older saved rows still parse.
 export type Intake = {
   tasks: string[];
   noTasks: boolean;
@@ -41,8 +37,6 @@ export const emptyIntake = (): Intake => ({
   clarification: null,
   plan: null,
 });
-export const planMessage = (plan: StarterPlan) =>
-  `Here's the plan:\n\n${plan.steps.map((step, i) => `${i + 1}. ${step}`).join('\n')}\n\nDoes this plan work for you?`;
 
 // Only apply after the coordinator has validated each evidence quote.
 export function updateIntake(
@@ -68,36 +62,20 @@ export function updateIntake(
     next.noTasks = true;
   }
   next.clarification = null;
-  if (
-    input?.stopQuestionsEvidence &&
-    /question|asking|frustrat|stop this|enough/iu.test(
-      input.stopQuestionsEvidence,
-    )
-  )
-    next.questionsAsked = 2;
-  if (input?.clarification && next.questionsAsked < 2 && !next.noTasks) {
-    next.clarification = input.clarification;
-    next.questionsAsked++;
-  }
   const changed =
     JSON.stringify(next.tasks) !== JSON.stringify(current.tasks) ||
     next.noTasks !== current.noTasks;
-  const steps = next.noTasks
-    ? ['Your Persona is ready whenever you have something you want help with.']
-    : (input?.plan ??
-      (changed || !current.plan
-        ? next.tasks
-            .slice(0, 3)
-            .map((t, i) => `${i ? 'Then work on' : 'Start with'}: ${t}`)
-        : current.plan.steps));
-  if (
-    steps.length &&
-    (changed ||
-      !current.plan ||
-      (input?.plan &&
-        JSON.stringify(steps) !== JSON.stringify(current.plan.steps)))
-  )
-    next.plan = { id: randomUUID(), steps, presented: false, accepted: false };
-  if (!steps.length) next.plan = null;
+  if (changed || !current.plan) next.plan = planFor(next);
   return next;
+}
+
+export function planFor(intake: Intake): StarterPlan | null {
+  const steps = intake.noTasks
+    ? ['Your Persona is ready whenever you have something you want help with.']
+    : intake.tasks
+        .slice(0, 3)
+        .map((t, i) => `${i ? 'Then work on' : 'Start with'}: ${t}`);
+  return steps.length
+    ? { id: randomUUID(), steps, presented: false, accepted: false }
+    : null;
 }

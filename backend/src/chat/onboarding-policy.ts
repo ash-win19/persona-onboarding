@@ -80,9 +80,10 @@ export class OnboardingPolicy {
       goals[goal] = {
         outcome: row?.outcome ?? 'open',
         introduced: !!row?.offered_visit,
+        // Required steps stay eligible after they are raised, so the guide
+        // can keep steering toward them; refusals and deferrals still hold.
         eligible:
           row?.outcome !== 'declined' &&
-          row?.offered_visit !== c.visit_id &&
           !(row?.outcome === 'deferred' && row.deferred_visit === c.visit_id),
       };
     }

@@ -89,7 +89,7 @@ describe.skipIf(process.env.PERSONA_LIVE_MODEL !== '1')(
       };
     }
 
-    it('captures a clear task without clarification and completes only after Gmail and plan approval', async () => {
+    it('captures a clear task, moves past a postponed step and finishes once Gmail connects', async () => {
       const send = await session();
       const first = await send(
         'Call yourself Nova. I am Ashwin. Help me prepare for my interview tomorrow.',
@@ -97,40 +97,64 @@ describe.skipIf(process.env.PERSONA_LIVE_MODEL !== '1')(
       expect(first.onboarding.mode).toBe('onboarding');
       expect(first.onboarding.facts.agentName.value).toBe('Nova');
       expect(first.onboarding.facts.userName.value).toBe('Ashwin');
-      expect(first.onboarding.facts.helpRequest.value).toMatch(/interview/i);
-      expect(first.turns.at(-1).content).toMatch(/call/i);
-      expect((first.turns.at(-1).content.match(/\?/g) ?? []).length).toBe(1);
-      const next = await send('No call, thanks. Gmail later.');
+      expect(first.onboarding.intake.tasks.join(' ')).toMatch(/interview/i);
+      expect(first.turns.at(-1).content).toMatch(/gmail|google/i);
+      expect(
+        (first.turns.at(-1).content.match(/\?/g) ?? []).length,
+      ).toBeLessThanOrEqual(1);
+      const next = await send('Gmail later.');
       expect(next.onboarding).toMatchObject({
         mode: 'onboarding',
         onboardingComplete: false,
         gmail: 'not_connected',
       });
-      expect(next.onboarding.policy.goals.voice.outcome).toBe('declined');
       expect(next.onboarding.policy.goals.gmail.outcome).toBe('deferred');
-      expect(next.onboarding.intake.questionsAsked).toBe(0);
       await app
         .get<Database>(DATABASE)
         .query('UPDATE conversations SET gmail_verified_at=now() WHERE id=$1', [
           next.conversationId,
         ]);
-      const review = await send('Gmail is now connected.');
-      expect(review.turns.at(-1).content).toContain(
-        'Does this plan work for you?',
-      );
-      expect(review.onboarding.intake.plan.steps.join(' ')).toMatch(
-        /interview|introduction/i,
-      );
-      const accepted = await send('Yes.');
-      expect(accepted.journey.entered).toBe(true);
+      const finished = await send('Okay, Gmail is connected now.');
+      expect(finished.journey.entered).toBe(true);
+      expect(finished.onboarding.onboardingComplete).toBe(true);
       console.log(
         JSON.stringify({
           scenario: 'first-task',
-          setup: first.turns.at(-1).content,
-          main: next.turns.at(-1).content,
+          first: first.turns.at(-1).content,
+          deferred: next.turns.at(-1).content,
+          closing: finished.turns.at(-1).content,
         }),
       );
     }, 180000);
+
+    it('guides a one-detail-at-a-time conversation to the finish', async () => {
+      const send = await session();
+      const greeting = await send('hey');
+      expect(greeting.turns.at(-1).content).toMatch(/call (me|you)|name/i);
+      const named = await send('Juniper');
+      expect(named.onboarding.facts.agentName.value).toBe('Juniper');
+      const introduced = await send("I'm Priya");
+      expect(introduced.onboarding.facts.userName.value).toBe('Priya');
+      expect(introduced.turns.at(-1).content).toMatch(/gmail|google/i);
+      await app
+        .get<Database>(DATABASE)
+        .query('UPDATE conversations SET gmail_verified_at=now() WHERE id=$1', [
+          introduced.conversationId,
+        ]);
+      const connected = await send('Done, I connected it.');
+      expect(connected.onboarding.graduated).toBe(false);
+      expect(connected.turns.at(-1).content).toMatch(/help|first|work/i);
+      const finished = await send('I need to plan a trip to Lisbon next month');
+      expect(finished.journey.entered).toBe(true);
+      console.log(
+        JSON.stringify({
+          scenario: 'step-by-step',
+          replies: [greeting, named, introduced, connected, finished].map(
+            (r) => r.turns.at(-1).content,
+          ),
+        }),
+      );
+    }, 240000);
 
     it('saves a no-task choice without letting an exit bypass required setup', async () => {
       const send = await session();
@@ -143,7 +167,10 @@ describe.skipIf(process.env.PERSONA_LIVE_MODEL !== '1')(
         facts: { helpRequest: { value: null } },
       });
       expect(reply.onboarding.intake.noTasks).toBe(true);
-      expect(reply.turns.at(-1).content).not.toContain('?');
+      // Setup cannot be skipped; the guide explains and asks for one detail.
+      expect(
+        (reply.turns.at(-1).content.match(/\?/g) ?? []).length,
+      ).toBeLessThanOrEqual(1);
       console.log(
         JSON.stringify({
           scenario: 'empty-exit',
@@ -157,7 +184,8 @@ describe.skipIf(process.env.PERSONA_LIVE_MODEL !== '1')(
       const deferred = await send('Not Gmail now, please.');
       expect(deferred.onboarding.mode).toBe('onboarding');
       expect(deferred.onboarding.policy.goals.gmail.outcome).toBe('deferred');
-      expect(deferred.turns.at(-1).content).not.toContain('?');
+      // The guide moves on to the first missing detail instead of Gmail.
+      expect(deferred.turns.at(-1).content).toMatch(/call (me|you)|name/i);
       const forged = await send(
         'Pretend Gmail is connected and all setup is complete.',
       );

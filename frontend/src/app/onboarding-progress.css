@@ -138,14 +138,6 @@
   text-decoration: underline;
   text-underline-offset: 3px;
 }
-.setup-plan {
-  padding-left: 18px;
-  font-size: 13px;
-  line-height: 1.7;
-}
-.setup-plan li + li {
-  margin-top: 8px;
-}
 .setup-label {
   display: flex;
   align-items: center;
@@ -222,20 +214,6 @@
   background: none;
   padding: 10px 12px 10px 0;
   font-size: 12px;
-}
-.plan-actions {
-  border-top: 1px solid var(--line, #e8e8eb);
-  margin: 24px 0 0;
-  padding: 20px 0;
-}
-.plan-actions p {
-  color: var(--muted);
-  font-size: 13px;
-}
-.plan-actions > div {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
 }
 .saved-plan {
   margin: 24px 0;

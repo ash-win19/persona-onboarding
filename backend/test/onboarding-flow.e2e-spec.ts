@@ -35,10 +35,11 @@ describe('bounded onboarding', () => {
         failReply = false;
         throw new Error('PROVIDER_UNAVAILABLE');
       }
-      return (
-        captured.question ??
-        (captured.state.graduated ? 'Let us begin.' : 'Saved your preferences.')
-      );
+      return captured.permittedGoal
+        ? `Next, ${captured.permittedGoal}?`
+        : captured.state.graduated
+          ? 'Let us begin.'
+          : 'Saved your preferences.';
     },
   };
   beforeAll(async () => {
@@ -119,14 +120,14 @@ describe('bounded onboarding', () => {
   const introduction =
     'Call yourself Nova. I am Ashwin. Help me prepare for my interview.';
 
-  it('prepares a task and attempts voice and Gmail without treating invitations as completion', async () => {
+  it('keeps steering toward Google without treating the request as completion', async () => {
     const s = await session();
     command = { changes: allFacts };
     const first = await s.send(introduction);
     expect(captured.state.mode).toBe('onboarding');
-    expect(captured.permittedGoal).toBe('voice');
+    expect(captured.permittedGoal).toBe('gmail');
     expect(first.body.onboarding.mode).toBe('onboarding');
-    expect(first.body.onboarding.policy.goals.voice).toMatchObject({
+    expect(first.body.onboarding.policy.goals.gmail).toMatchObject({
       introduced: true,
       outcome: 'open',
     });
@@ -141,7 +142,7 @@ describe('bounded onboarding', () => {
     });
     expect(next.body.onboarding.policy.goals.gmail.outcome).toBe('open');
     await s.send('Let us practice the introduction.');
-    expect(captured.question).toBeNull();
+    expect(captured.permittedGoal).toBe('gmail');
     await migrate(db);
     expect((await s.read()).body.onboarding.mode).toBe('onboarding');
   });
@@ -187,7 +188,7 @@ describe('bounded onboarding', () => {
     failReply = true;
     const failed = await s.send(introduction, submission);
     expect(failed.body.operation.status).toBe('failed');
-    expect(failed.body.onboarding.policy.goals.voice).toMatchObject({
+    expect(failed.body.onboarding.policy.goals.gmail).toMatchObject({
       introduced: false,
       eligible: true,
     });
@@ -195,7 +196,7 @@ describe('bounded onboarding', () => {
     expect((await s.read()).body.onboarding.graduated).toBe(false);
     const retry = await s.send(introduction, submission);
     expect(captured.code).toBe('already_applied');
-    expect(retry.body.onboarding.policy.goals.voice.introduced).toBe(true);
+    expect(retry.body.onboarding.policy.goals.gmail.introduced).toBe(true);
     expect(retry.body.turns).toHaveLength(3);
     const events = await db.query(
       'SELECT id FROM onboarding_facts WHERE conversation_id=$1',
@@ -214,7 +215,11 @@ describe('bounded onboarding', () => {
     );
     await s.send('Skip setup.', submission);
     expect(captured.code).toBe('already_applied');
-    expect(captured.question).toBeNull();
+    // Setup cannot be skipped, so the guide still works toward the next step.
+    expect(captured).toMatchObject({
+      permittedGoal: 'agentName',
+      exitRequested: true,
+    });
     expect(captured.state.onboardingComplete).toBe(false);
   });
 
@@ -233,7 +238,7 @@ describe('bounded onboarding', () => {
     );
     const retry = await s.send('Continue setup.', submission);
     expect(captured.code).toBe('already_applied');
-    expect(captured.question).toBeNull();
+    expect(captured.permittedGoal).toBeNull();
     expect(retry.body.onboarding).toMatchObject({
       mode: 'onboarding',
       onboardingComplete: false,
