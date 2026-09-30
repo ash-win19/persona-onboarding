@@ -1,11 +1,13 @@
 "use client";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { startFresh, destination, type Journey } from "@/lib/journey";
 import Chat from "./chat";
 import { PersonaMark } from "./persona-logo";
+import { DashboardSkeleton, OnboardingSkeleton } from "./skeletons";
 export function Experience() {
   const router = useRouter();
+  const pathname = usePathname();
   const [conversation, setConversation] = useState<string | null>(null);
   const [error, setError] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -49,6 +51,12 @@ export function Experience() {
       window.removeEventListener("persona:unauthorized", expired);
     };
   }, [router, attempt]);
+  if (!conversation && !error)
+    return pathname.startsWith("/dashboard") ? (
+      <DashboardSkeleton label="Opening your Persona…" />
+    ) : (
+      <OnboardingSkeleton label="Opening your Persona…" />
+    );
   if (!conversation)
     return (
       <main className="app-loading">

@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { MessagesSkeleton } from "./skeletons";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { PersonaMark } from "./persona-logo";
@@ -150,9 +151,9 @@ export function DailyChat({
     <main className="daily-chat">
       <div className="daily-chat-scroll">
         {loading ? (
-          <p className="daily-state" role="status">
-            Loading your conversation…
-          </p>
+          <div className="daily-messages">
+            <MessagesSkeleton label="Loading your conversation…" />
+          </div>
         ) : !entries.length && !error ? (
           <div className="daily-welcome">
             <div className="daily-mark">

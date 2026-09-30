@@ -67,8 +67,18 @@
   top: 42px;
   left: 50%;
   transform: translateX(-50%);
-  background: var(--line-strong);
+  /* A green fill grows along the connector once the step above is saved. */
+  background:
+    linear-gradient(#8fcca4, #8fcca4) top / 100% 0% no-repeat,
+    var(--line-strong);
+  transition: background-size 380ms cubic-bezier(0.65, 0, 0.35, 1) 220ms;
 }
+.setup-step.is-saved:not(:last-child) .setup-trigger::after {
+  background-size: 100% 100%;
+}
+/* Saving a step plays in order: the check draws, the connector fills, then
+   the next step's dot grows in. Each part is a transition, so a step that was
+   already saved on load simply appears in its final state. */
 .setup-mark {
   display: grid;
   place-items: center;
@@ -78,25 +88,57 @@
   border-radius: 50%;
   color: var(--muted);
   background: var(--background);
+  transition:
+    border-color 280ms ease,
+    background-color 280ms ease,
+    color 280ms ease;
+}
+.setup-mark svg,
+.setup-dot {
+  grid-area: 1 / 1;
 }
 .setup-mark svg {
   width: 16px;
   height: 16px;
   stroke-width: 2;
 }
+.setup-mark path {
+  stroke-dasharray: 21;
+  stroke-dashoffset: 21;
+  transition: stroke-dashoffset 360ms cubic-bezier(0.65, 0, 0.35, 1);
+}
+.setup-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--foreground);
+  transform: scale(0);
+  transition: transform 220ms ease;
+}
 .is-saved .setup-mark {
   color: #238553;
   background: #eff9f2;
   border-color: #b8dfc5;
 }
+.is-saved .setup-mark path {
+  stroke-dashoffset: 0;
+  transition-delay: 80ms;
+}
+.is-just-saved .setup-mark {
+  animation: setup-pop 520ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes setup-pop {
+  40% {
+    transform: scale(1.14);
+  }
+}
 .is-current .setup-mark {
   border-color: var(--foreground);
+  transition-delay: 480ms;
 }
-.is-current .setup-mark > span {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--foreground);
+.is-current .setup-dot {
+  transform: scale(1);
+  transition: transform 320ms cubic-bezier(0.2, 0.8, 0.2, 1.4) 520ms;
 }
 .setup-detail {
   position: absolute;
@@ -271,6 +313,11 @@
     top: 22px;
     left: 42px;
     transform: none;
+    background-position: left;
+    background-size: 0% 100%;
+  }
+  .setup-step.is-saved:not(:last-child) .setup-trigger::after {
+    background-size: 100% 100%;
   }
   .setup-detail {
     top: 54px;

@@ -4,6 +4,8 @@ The public root is a landing page. Sign-in lives at `/sign-in`. Authenticated us
 
 Overview centers on saved priorities, completion and task shortcuts. Conversation opens an empty daily chat by default. Its history picker includes saved daily chats and a separate Onboarding conversation. Settings sits above My Account at the bottom of the desktop sidebar. Integrations lives at `/dashboard/settings/integrations`; the old Connections URL redirects there. Mobile uses bottom navigation and safe-area spacing.
 
+While a page opens, a placeholder shaped like it holds the layout: the onboarding conversation, the dashboard, message lists, priorities and tasks. Each keeps a screen-reader status line.
+
 Daily chats have separate persisted message histories. The daily assistant receives accepted names and the first task, but it does not run onboarding capture or change profile facts. New chats are created only on the first message. Responses have durable submission IDs, failure states and retry protection. Reopening a pending chat polls for its result; an expired generation lease becomes retryable. The latest 100 chats appear in history, and older saved chat URLs still work.
 
 Priorities are explicitly added, completed or reopened by the user. The accepted first task is offered as a suggestion to add, never automatically marked done. A Work on this action prefills a new chat for the user to review and send. The dashboard does not claim that the assistant performed external actions.
