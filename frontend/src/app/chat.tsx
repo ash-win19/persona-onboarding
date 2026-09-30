@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import type { Journey } from "@/lib/journey";
 import { DashboardFrame } from "./dashboard-frame";
+import { DashboardSkeleton, MessagesSkeleton } from "./skeletons";
 import { DashboardHandoff } from "./dashboard-handoff";
 import { OnboardingProgress } from "./onboarding-progress";
 import { GmailConnection } from "./gmail-connection";
@@ -336,24 +337,43 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
     router.push("/");
   }
 
+  // Graduation: hold the closing line on screen, fade the onboarding view out,
+  // then open the dashboard, which fades in. Depends on primitives rather than
+  // the snapshot so each status poll does not restart the timers.
+  const [leaving, setLeaving] = useState(false);
+  const loaded = !!snapshot;
+  const entered = !!snapshot?.journey?.entered;
+  const replyGenerating = snapshot?.operation?.status === "generating";
+  const finalTurn = snapshot?.turns.at(-1);
+  const closingAt =
+    finalTurn?.role === "assistant" ? (finalTurn.createdAt ?? null) : null;
   useEffect(() => {
-    if (!snapshot) return;
-    if (snapshot.journey?.entered && pathname === "/onboarding") {
-      // Let the closing line finish and be read before the dashboard opens.
-      if (busy || snapshot.operation?.status === "generating") return;
-      const last = snapshot.turns.at(-1);
+    if (!loaded) return;
+    if (entered && pathname === "/onboarding") {
+      if (busy || replyGenerating) return;
       const closing =
-        last?.role === "assistant" &&
-        !!last.createdAt &&
-        Date.now() - new Date(last.createdAt).getTime() < 15000;
-      const timer = setTimeout(
-        () => router.replace("/dashboard" + window.location.search),
+        !!closingAt && Date.now() - new Date(closingAt).getTime() < 15000;
+      const still = window.matchMedia(
+        "(prefers-reduced-motion: reduce)",
+      ).matches;
+      let leave: ReturnType<typeof setTimeout> | undefined;
+      const hold = setTimeout(
+        () => {
+          setLeaving(true);
+          leave = setTimeout(
+            () => router.replace("/dashboard" + window.location.search),
+            still ? 0 : 420,
+          );
+        },
         closing ? 2500 : 0,
       );
-      return () => clearTimeout(timer);
-    } else if (!snapshot.journey?.entered && pathname.startsWith("/dashboard"))
+      return () => {
+        clearTimeout(hold);
+        clearTimeout(leave);
+      };
+    } else if (!entered && pathname.startsWith("/dashboard"))
       router.replace("/onboarding");
-  }, [snapshot, pathname, router, busy]);
+  }, [loaded, entered, pathname, router, busy, replyGenerating, closingAt]);
 
   useEffect(() => {
     if (
@@ -798,7 +818,10 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
   const integrationCards =
     !!snapshot?.control &&
     !introducing &&
-    (!snapshot.journey?.entered || pathname === "/dashboard/onboarding");
+    (pathname === "/onboarding" || pathname === "/dashboard/onboarding");
+  // The onboarding layout and progress rail stay until the dashboard opens, so
+  // graduating shows every step checked instead of re-laying out the page.
+  const setupView = !!snapshot?.onboarding && pathname === "/onboarding";
   const gmailIntroduced =
     snapshot?.onboarding?.policy?.goals.gmail.introduced ||
     snapshot?.onboarding?.gmail === "connected" ||
@@ -844,6 +867,15 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
       : introductionPhase === "leaving"
         ? " opening-arriving"
         : "";
+
+  // A dashboard address shows the dashboard's placeholder until the first
+  // snapshot says which view to render, instead of flashing the chat layout.
+  if (
+    !snapshot &&
+    connection === "connecting" &&
+    pathname.startsWith("/dashboard")
+  )
+    return <DashboardSkeleton label="Opening your Persona…" />;
 
   return (
     <DashboardFrame
@@ -905,21 +937,34 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
       notice={gmailNotice || notice || voice.notice}
     >
       <main
-        className={`chat-shell ${introducing ? "is-introducing" : "has-messages"}${snapshot?.onboarding && !snapshot.journey?.entered && !snapshot.onboarding.graduated ? " with-setup" : ""}`}
+        className={`chat-shell ${introducing ? "is-introducing" : "has-messages"}${setupView ? " with-setup" : ""}${leaving && pathname === "/onboarding" ? " is-leaving" : ""}`}
       >
         <header className="chat-header">
           <Link className="wordmark" href="/" aria-label="Persona home">
             <PersonaLogo />
           </Link>
-          {!snapshot?.journey?.entered && (
+          {pathname === "/onboarding" && (
             <span className="onboarding-label">A little introduction</span>
           )}
-          {!snapshot?.journey?.prepared &&
-            !snapshot?.journey?.entered &&
-            snapshot && (
+          {snapshot &&
+            (pathname === "/onboarding" ||
+              (!snapshot.journey?.prepared && !snapshot.journey?.entered)) && (
+              // Once onboarding finishes the button keeps its space, hidden,
+              // so the header does not shift before the dashboard opens.
               <button
-                className="skip-setup"
-                disabled={handoffBusy || busy || !hasControl}
+                className={`skip-setup${snapshot.journey?.entered || snapshot.journey?.prepared ? " is-hidden" : ""}`}
+                disabled={
+                  handoffBusy ||
+                  busy ||
+                  !hasControl ||
+                  !!snapshot.journey?.entered ||
+                  !!snapshot.journey?.prepared
+                }
+                aria-hidden={
+                  snapshot.journey?.entered || snapshot.journey?.prepared
+                    ? true
+                    : undefined
+                }
                 onClick={() => void saveAndExit()}
               >
                 Save and exit
@@ -948,9 +993,7 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
         >
           <div className="conversation-content">
             {!snapshot && connection === "connecting" && (
-              <p className="conversation-loading" role="status">
-                Opening your conversation…
-              </p>
+              <MessagesSkeleton label="Opening your conversation…" />
             )}
             {introducing && (
               <div
@@ -1040,20 +1083,18 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
           </div>
         </section>
 
-        {snapshot?.onboarding &&
-          !snapshot.journey?.entered &&
-          !snapshot.onboarding.graduated && (
-            <OnboardingProgress
-              snapshot={snapshot}
-              enabled={
-                hasControl && connection === "ready" && !busy && !generating
-              }
-              onSave={(content) => {
-                finishIntroduction();
-                void submit({ submissionId: crypto.randomUUID(), content });
-              }}
-            />
-          )}
+        {snapshot?.onboarding && setupView && (
+          <OnboardingProgress
+            snapshot={snapshot}
+            enabled={
+              hasControl && connection === "ready" && !busy && !generating
+            }
+            onSave={(content) => {
+              finishIntroduction();
+              void submit({ submissionId: crypto.randomUUID(), content });
+            }}
+          />
+        )}
 
         <footer className="composer-area">
           {integrationCards && (

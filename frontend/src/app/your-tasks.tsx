@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { RowsSkeleton } from "./skeletons";
 import { useRef, useState } from "react";
 import type { Snapshot } from "./chat";
 import { ChatIcon } from "./chat-icons";
@@ -82,7 +83,7 @@ export function YourTasks({
             </button>
           </div>
         ) : !data ? (
-          <p role="status">Loading your tasks…</p>
+          <RowsSkeleton label="Loading your tasks…" rows={4} />
         ) : data.onboardingTasks === undefined ? (
           <div className="workspace-error" role="alert">
             <p>Your task list is unavailable. Please try again.</p>

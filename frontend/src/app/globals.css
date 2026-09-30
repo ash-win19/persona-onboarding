@@ -188,12 +188,6 @@ summary svg {
   margin: 0 auto;
   padding: 34px 24px 48px;
 }
-.conversation-loading {
-  color: var(--muted);
-  font-size: 14px;
-  text-align: center;
-  margin: 32px 0;
-}
 .welcome.welcome-intro {
   position: absolute;
   top: 50%;

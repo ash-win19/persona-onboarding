@@ -24,7 +24,7 @@ Every saved detail must match the user's own words. When the interpreter propose
 
 ## Finishing and leaving
 
-Finishing needs both names, verified Gmail, verified Calendar when available, and a task choice. It also waits until no newer input is still being interpreted. When a detail arrives outside a reply, such as returning from Google consent, the browser asks the server to finish and a closing line is saved as the handoff turn. Finishing is idempotent.
+Finishing needs both names, verified Gmail, verified Calendar when available, and a task choice. The onboarding layout stays in place with every progress step checked while the closing line shows. The view then fades out and the dashboard fades in. In the progress rail, saving a step draws its check, fills the connector and then grows the next step's dot. Reduced-motion settings turn these animations off. It also waits until no newer input is still being interpreted. When a detail arrives outside a reply, such as returning from Google consent, the browser asks the server to finish and a closing line is saved as the handoff turn. Finishing is idempotent.
 
 Save and exit returns to the landing page without graduating. The next visit resumes saved progress. A Google refusal or failed authorization leaves the step pending; the user can connect later from the cards above the message box.
 

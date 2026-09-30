@@ -236,7 +236,7 @@ export function DashboardFrame({
           </p>
         )}
         {dashboard && !onboarding && !daily && (
-          <main className="dashboard-page">
+          <main className="dashboard-page page-enter" key={pathname}>
             <header className="dashboard-heading">
               <p className="eyebrow">
                 {pathname === "/dashboard"

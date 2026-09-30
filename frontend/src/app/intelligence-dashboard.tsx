@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { RowsSkeleton } from "./skeletons";
 import { useRef, useState } from "react";
 import { PersonaMark } from "./persona-logo";
 import { ChatIcon } from "./chat-icons";
@@ -152,7 +153,7 @@ export function IntelligenceDashboard({
               </button>
             </div>
           ) : !data ? (
-            <p role="status">Loading your priorities…</p>
+            <RowsSkeleton label="Loading your priorities…" rows={3} />
           ) : (
             <>
               <form

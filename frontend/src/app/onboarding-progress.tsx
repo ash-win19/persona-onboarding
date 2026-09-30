@@ -62,6 +62,19 @@ export function OnboardingProgress({
   ];
   const first = rows.find((r) => !r.done)?.id;
   const saved = rows.filter((r) => r.done).length;
+  // Steps already saved when the rail appeared don't animate; a step saved
+  // while it is on screen gets a brief pop, then settles.
+  const doneKey = rows
+    .filter((r) => r.done)
+    .map((r) => r.id)
+    .join(" ");
+  const [settled, setSettled] = useState(doneKey);
+  useEffect(() => {
+    if (doneKey === settled) return;
+    const timer = setTimeout(() => setSettled(doneKey), 900);
+    return () => clearTimeout(timer);
+  }, [doneKey, settled]);
+  const justSaved = (id: string) => !settled.split(" ").includes(id);
   useEffect(() => {
     if (!expanded) return;
     const dismiss = (event: PointerEvent) => {
@@ -99,7 +112,7 @@ export function OnboardingProgress({
         {rows.map((row) => (
           <li
             key={row.id}
-            className={`setup-step ${row.done ? "is-saved" : row.id === first ? "is-current" : "is-pending"}`}
+            className={`setup-step ${row.done ? "is-saved" : row.id === first ? "is-current" : "is-pending"}${row.done && justSaved(row.id) ? " is-just-saved" : ""}`}
           >
             <button
               className="setup-trigger"
@@ -113,7 +126,8 @@ export function OnboardingProgress({
               onClick={() => setExpanded(expanded === row.id ? null : row.id)}
             >
               <span className="setup-mark" aria-hidden="true">
-                {row.done ? <ChatIcon name="check" /> : <span />}
+                <ChatIcon name="check" />
+                <span className="setup-dot" />
               </span>
             </button>
             <section

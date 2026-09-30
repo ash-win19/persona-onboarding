@@ -1,0 +1,163 @@
+/* Loading placeholders and view transitions. The global reduced-motion rule in
+   globals.css turns every animation here off; placeholders stay visible. */
+
+.skeleton {
+  display: block;
+  max-width: 100%;
+  border-radius: 8px;
+  background: linear-gradient(
+      90deg,
+      transparent 0%,
+      #ffffffb3 50%,
+      transparent 100%
+    )
+    no-repeat var(--step-200);
+  background-size: 50% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+.skeleton-round {
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+@keyframes skeleton-shimmer {
+  from {
+    background-position: -150% 0;
+  }
+  to {
+    background-position: 250% 0;
+  }
+}
+
+.messages-skeleton > div,
+.rows-skeleton > div {
+  display: flex;
+  flex-direction: column;
+}
+.messages-skeleton > div {
+  gap: 28px;
+  padding-top: 4px;
+}
+.skeleton-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.skeleton-turn-user {
+  align-items: flex-end;
+}
+.skeleton-bubble {
+  border-radius: 20px 20px 5px 20px;
+}
+.rows-skeleton > div {
+  gap: 18px;
+  padding: 8px 0;
+}
+.skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.skeleton-inline {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+.skeleton-chat {
+  display: contents;
+}
+.skeleton-composer {
+  border-radius: 22px;
+}
+.skeleton-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-top: 96px;
+  padding: 0 14px;
+}
+.skeleton-content {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  max-width: 1180px;
+  padding: 26px 60px 36px;
+}
+.skeleton-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+.skeleton-card {
+  border-radius: 20px;
+}
+.skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+.page-skeleton,
+.messages-skeleton,
+.rows-skeleton {
+  animation: fade-in 240ms ease-out backwards;
+}
+@media (max-width: 760px) {
+  .page-skeleton.dashboard-shell .app-sidebar {
+    display: none;
+  }
+  .skeleton-content {
+    padding: 24px 20px;
+  }
+  .skeleton-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Content arriving: a short fade and lift. */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+.onboarding-integrations > *,
+.setup-rail {
+  animation: fade-in 320ms ease-out backwards;
+}
+
+/* Graduation: the onboarding view settles out, then the dashboard rises in. */
+.skip-setup.is-hidden {
+  visibility: hidden;
+}
+.chat-shell.is-leaving {
+  animation: onboarding-leave 420ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  pointer-events: none;
+}
+@keyframes onboarding-leave {
+  to {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.99);
+  }
+}
+/* Entry animations fill backwards only, so no transform lingers to trap
+   fixed-position popovers once they finish. */
+.dashboard-shell:not(.page-skeleton) {
+  animation: fade-in 360ms ease-out backwards;
+}
+.page-enter > * {
+  animation: rise-in 420ms cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+}
+.page-enter > :nth-child(2) {
+  animation-delay: 60ms;
+}
+.page-enter > :nth-child(3) {
+  animation-delay: 120ms;
+}
+.page-enter > :nth-child(n + 4) {
+  animation-delay: 180ms;
+}
