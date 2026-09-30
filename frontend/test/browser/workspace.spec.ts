@@ -118,18 +118,32 @@ for (const width of [1440, 390, 320]) {
       await expect(
         page.getByRole("textbox", { name: "Message Persona", exact: true }),
       ).toHaveValue("");
+      const heading = page.getByRole("heading", {
+        name: "What can we take off your mind?",
+      });
+      await expect(heading).toBeVisible();
+      const { height, lineHeight } = await heading.evaluate((element) => ({
+        height: element.getBoundingClientRect().height,
+        lineHeight: parseFloat(getComputedStyle(element).lineHeight),
+      }));
+      expect(height).toBeLessThan(lineHeight * 1.5);
+      await expect(page.getByRole("link", { name: "New chat" })).toHaveCount(0);
+      await expect(page.getByLabel("Conversation history")).toHaveCount(0);
       await expect(
-        page.getByRole("heading", { name: "What can we take off your mind?" }),
-      ).toBeVisible();
+        page.getByRole("button", { name: /Plan my day/ }),
+      ).toHaveCount(0);
+      await expect(
+        page.getByRole("textbox", { name: "Message Persona", exact: true }),
+      ).toHaveCSS("resize", "none");
       await page.screenshot({
         path: info.outputPath("daily-chat.png"),
         fullPage: true,
       });
-      await page.getByLabel("Conversation history").selectOption(previous);
+      await page.goto(`/dashboard/conversation/${previous}`);
       await expect(
         page.getByText("Let's start with a short outline for your proposal."),
       ).toBeVisible();
-      await page.getByLabel("Conversation history").selectOption("onboarding");
+      await page.goto("/dashboard/onboarding");
       await expect(page.locator(".onboarding-label")).toContainText(
         "Onboarding",
       );

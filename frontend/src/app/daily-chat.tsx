@@ -9,7 +9,6 @@ import {
   workspaceRequest,
   type DailyThread,
   type DailyEntry,
-  type WorkspaceData,
 } from "./workspace-data";
 
 export const starters = [
@@ -40,7 +39,6 @@ export function DailyChat({
   id,
   initialPrompt,
   agent,
-  data,
   headers,
   enabled,
   onChanged,
@@ -48,7 +46,6 @@ export function DailyChat({
   id?: string;
   initialPrompt: string;
   agent: string;
-  data: WorkspaceData | null;
   headers: () => Record<string, string>;
   enabled: boolean;
   onChanged: () => void;
@@ -62,7 +59,6 @@ export function DailyChat({
   const [reload, setReload] = useState(0);
   const [pending, setPending] = useState<DailyEntry | null>(null);
   const target = useRef(id || "");
-  const input = useRef<HTMLTextAreaElement>(null);
   const end = useRef<HTMLDivElement>(null);
   const alive = useRef(true);
   useEffect(() => {
@@ -152,50 +148,6 @@ export function DailyChat({
   const unresolved = entries.find((entry) => entry.status !== "completed");
   return (
     <main className="daily-chat">
-      <header className="daily-chat-toolbar">
-        <Link
-          href="/dashboard/conversation"
-          className="secondary-button"
-          onClick={() => {
-            if (!id && !busy) {
-              setDraft("");
-              setPending(null);
-              setThread(null);
-              setError("");
-              target.current = "";
-            }
-          }}
-        >
-          <ChatIcon name="plus" /> New chat
-        </Link>
-        <label className="chat-history-select">
-          <span className="sr-only">Conversation history</span>
-          <select
-            value={id || "new"}
-            onChange={(event) =>
-              router.push(
-                event.target.value === "new"
-                  ? "/dashboard/conversation"
-                  : event.target.value === "onboarding"
-                    ? "/dashboard/onboarding"
-                    : `/dashboard/conversation/${event.target.value}`,
-              )
-            }
-          >
-            <option value="new">New daily conversation</option>
-            <optgroup label="Daily conversations">
-              {data?.threads.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.title}
-                </option>
-              ))}
-            </optgroup>
-            <optgroup label="Getting started">
-              <option value="onboarding">Onboarding conversation</option>
-            </optgroup>
-          </select>
-        </label>
-      </header>
       <div className="daily-chat-scroll">
         {loading ? (
           <p className="daily-state" role="status">
@@ -207,31 +159,7 @@ export function DailyChat({
               <PersonaMark />
             </div>
             <p className="eyebrow">YOUR PERSONAL INTELLIGENCE</p>
-            <h1>
-              What can we take
-              <br />
-              off your mind?
-            </h1>
-            <p>
-              Make a plan, work through a task, or find the words.
-              <br />
-              {agent} is here to help with your day.
-            </p>
-            <div className="daily-starters">
-              {starters.map((starter) => (
-                <button
-                  key={starter.title}
-                  onClick={() => {
-                    setDraft(starter.prompt);
-                    input.current?.focus();
-                  }}
-                >
-                  <ChatIcon name={starter.icon} />
-                  <strong>{starter.title}</strong>
-                  <span>{starter.detail}</span>
-                </button>
-              ))}
-            </div>
+            <h1>What can we take off your mind?</h1>
           </div>
         ) : (
           <div
@@ -305,7 +233,6 @@ export function DailyChat({
           }}
         >
           <textarea
-            ref={input}
             aria-label="Message Persona"
             placeholder="What's on your mind?"
             value={draft}
