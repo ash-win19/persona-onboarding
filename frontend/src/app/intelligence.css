@@ -490,36 +490,6 @@
   display: flex;
   flex-direction: column;
 }
-.daily-chat-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 16px 24px;
-}
-.daily-chat-toolbar .secondary-button {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  font-size: 12px;
-  white-space: nowrap;
-  text-decoration: none;
-}
-.chat-history-select {
-  max-width: 260px;
-  min-width: 0;
-}
-.chat-history-select select {
-  width: 100%;
-  font-size: 12px;
-  padding: 10px 28px 10px 12px;
-  min-height: 44px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: white;
-  color: var(--muted);
-  text-overflow: ellipsis;
-}
 .daily-chat-scroll {
   flex: 1;
   overflow-y: auto;
@@ -556,40 +526,7 @@
   line-height: 1.13;
   font-weight: 500;
   margin: 0 0 14px;
-}
-.daily-welcome > p:not(.eyebrow) {
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.7;
-}
-.daily-starters {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 32px;
-}
-.daily-starters button {
-  border: 1px solid var(--line);
-  background: white;
-  border-radius: 10px;
-  padding: 17px;
-  text-align: left;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.daily-starters button:hover {
-  background: var(--soft);
-}
-.daily-starters strong {
-  font-size: 12px;
-  font-weight: 500;
-  margin-top: 6px;
-}
-.daily-starters span {
-  font-size: 11px;
-  color: var(--muted);
-  line-height: 1.6;
+  white-space: nowrap;
 }
 .daily-composer-wrap {
   max-width: 760px;
@@ -605,7 +542,7 @@
 }
 .daily-composer textarea {
   width: 100%;
-  resize: vertical;
+  resize: none;
   max-height: 150px;
   min-height: 48px;
   background: transparent;
@@ -840,19 +777,6 @@
     height: calc(100dvh - 140px - env(safe-area-inset-bottom));
     min-height: 400px;
   }
-  .daily-chat-toolbar {
-    padding: 12px 16px;
-    gap: 8px;
-  }
-  .daily-chat-toolbar .secondary-button {
-    padding: 8px 10px;
-  }
-  .chat-history-select {
-    max-width: 190px;
-  }
-  .chat-history-select select {
-    font-size: 16px;
-  }
   .daily-chat-scroll {
     padding: 12px 18px;
   }
@@ -865,28 +789,7 @@
     margin-bottom: 20px;
   }
   .daily-welcome h1 {
-    font-size: 30px;
-  }
-  .daily-welcome > p:not(.eyebrow) {
-    font-size: 12px;
-  }
-  .daily-starters {
-    grid-template-columns: 1fr;
-    gap: 8px;
-    margin-top: 22px;
-  }
-  .daily-starters button {
-    padding: 13px;
-    flex-direction: row;
-    align-items: center;
-    gap: 10px;
-    min-height: 48px;
-  }
-  .daily-starters strong {
-    margin: 0;
-  }
-  .daily-starters span {
-    display: none;
+    font-size: min(30px, 6.4vw);
   }
   .daily-composer-wrap {
     padding: 10px 16px 12px;

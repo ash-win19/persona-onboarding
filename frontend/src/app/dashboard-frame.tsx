@@ -351,7 +351,6 @@ export function DashboardFrame({
             initialPrompt={initialPrompt}
             id={pathname.split("/")[3]}
             agent={agent}
-            data={data}
             headers={headers}
             enabled={enabled}
             onChanged={() => setVersion((v) => v + 1)}
