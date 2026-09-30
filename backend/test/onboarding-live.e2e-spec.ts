@@ -89,7 +89,7 @@ describe.skipIf(process.env.PERSONA_LIVE_MODEL !== '1')(
       };
     }
 
-    it('captures out-of-order facts, invites voice, then starts the task after the remaining choices', async () => {
+    it('captures a clear task without clarification and completes only after Gmail and plan approval', async () => {
       const send = await session();
       const first = await send(
         'Call yourself Nova. I am Ashwin. Help me prepare for my interview tomorrow.',
@@ -102,16 +102,27 @@ describe.skipIf(process.env.PERSONA_LIVE_MODEL !== '1')(
       expect((first.turns.at(-1).content.match(/\?/g) ?? []).length).toBe(1);
       const next = await send('No call, thanks. Gmail later.');
       expect(next.onboarding).toMatchObject({
-        mode: 'helping',
+        mode: 'onboarding',
         onboardingComplete: false,
         gmail: 'not_connected',
       });
       expect(next.onboarding.policy.goals.voice.outcome).toBe('declined');
       expect(next.onboarding.policy.goals.gmail.outcome).toBe('deferred');
-      expect(next.turns.at(-1).content.split(/\s+/).length).toBeGreaterThan(30);
-      expect(next.turns.at(-1).content).toMatch(
-        /introduction|STAR|structure|example|background|experience/i,
+      expect(next.onboarding.intake.questionsAsked).toBe(0);
+      await app
+        .get<Database>(DATABASE)
+        .query('UPDATE conversations SET gmail_verified_at=now() WHERE id=$1', [
+          next.conversationId,
+        ]);
+      const review = await send('Gmail is now connected.');
+      expect(review.turns.at(-1).content).toContain(
+        'Does this plan work for you?',
       );
+      expect(review.onboarding.intake.plan.steps.join(' ')).toMatch(
+        /interview|introduction/i,
+      );
+      const accepted = await send('Yes.');
+      expect(accepted.journey.entered).toBe(true);
       console.log(
         JSON.stringify({
           scenario: 'first-task',
@@ -121,16 +132,17 @@ describe.skipIf(process.env.PERSONA_LIVE_MODEL !== '1')(
       );
     }, 180000);
 
-    it('honors global exit without inventing a task', async () => {
+    it('saves a no-task choice without letting an exit bypass required setup', async () => {
       const send = await session();
       const reply = await send(
         'Skip all of this setup. I do not need help yet.',
       );
       expect(reply.onboarding).toMatchObject({
-        mode: 'helping',
+        mode: 'onboarding',
         onboardingComplete: false,
         facts: { helpRequest: { value: null } },
       });
+      expect(reply.onboarding.intake.noTasks).toBe(true);
       expect(reply.turns.at(-1).content).not.toContain('?');
       console.log(
         JSON.stringify({

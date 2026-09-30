@@ -1,7 +1,14 @@
 import { Gmail } from './gmail.js';
 import type { MemoryContext } from './memory.js';
 import { Authority } from './authority.js';
-import { Inject, Injectable } from '@nestjs/common';
+import { ConflictException, Inject, Injectable } from '@nestjs/common';
+import {
+  emptyIntake,
+  intakeInputSchema,
+  planMessage,
+  updateIntake,
+  type Intake,
+} from './starter-plan.js';
 import {
   OnboardingPolicy,
   policyGoals,
@@ -27,6 +34,7 @@ type Fact = {
   revision: number | null;
 };
 export type OnboardingState = {
+  intake?: Intake & { ready: boolean };
   revision: number;
   policy?: PolicyState;
   facts: Record<Goal, Fact>;
@@ -39,6 +47,7 @@ export type OnboardingState = {
   missingGoals: string[];
 };
 export type CaptureResult = {
+  reply?: string;
   ok: boolean;
   code: 'committed' | 'already_applied' | 'invalid' | 'stale' | 'pending';
   state: OnboardingState;
@@ -233,8 +242,9 @@ export class OnboardingService {
         call_attempted: boolean;
         gmail_pending: boolean;
         graduated_at: Date | null;
+        onboarding_intake: Intake | null;
       }>(
-        `SELECT gmail_verified_at,call_successful_at,graduated_at,
+        `SELECT gmail_verified_at,call_successful_at,graduated_at,onboarding_intake,
           EXISTS(SELECT 1 FROM calls WHERE conversation_id=$1 AND status IN ('connecting','active')) AS call_active,
           EXISTS(SELECT 1 FROM calls WHERE conversation_id=$1) AS call_attempted,
           EXISTS(SELECT 1 FROM gmail_attempts WHERE conversation_id=$1 AND status IN ('pending','exchanging') AND expires_at>$2) AS gmail_pending
@@ -244,6 +254,19 @@ export class OnboardingService {
     ).rows[0];
     const gmail = integration.gmail_verified_at ? 'connected' : 'not_connected';
     const graduated = !!integration.graduated_at;
+    const intake = integration.onboarding_intake ?? emptyIntake();
+    if (
+      !intake.tasks.length &&
+      !intake.noTasks &&
+      facts.helpRequest.status === 'known'
+    )
+      intake.tasks = [facts.helpRequest.value!];
+    const ready =
+      facts.agentName.status === 'known' &&
+      facts.userName.status === 'known' &&
+      gmail === 'connected' &&
+      (intake.tasks.length > 0 || intake.noTasks) &&
+      !intake.clarification;
     const policy = await this.policy.read(sql, conversationId);
     for (const goal of goals)
       if (facts[goal].status === 'known') policy.goals[goal].eligible = false;
@@ -260,6 +283,7 @@ export class OnboardingService {
     )
       policy.goals.gmail.eligible = false;
     return {
+      intake: { ...intake, ready },
       revision,
       policy,
       facts,
@@ -268,11 +292,18 @@ export class OnboardingService {
       call: integration.call_successful_at ? 'successful' : 'not_started',
       graduated,
       onboardingComplete:
-        goals.every((goal) => facts[goal].status === 'known') &&
-        gmail === 'connected',
+        !!intake.plan?.accepted ||
+        (graduated &&
+          !integration.onboarding_intake &&
+          goals.every((goal) => facts[goal].status === 'known') &&
+          gmail === 'connected'),
       mode: graduated ? 'helping' : 'onboarding',
       missingGoals: [
-        ...goals.filter((goal) => facts[goal].status !== 'known'),
+        ...goals.filter(
+          (goal) =>
+            facts[goal].status !== 'known' &&
+            !(goal === 'helpRequest' && intake.noTasks),
+        ),
         ...(gmail === 'not_connected' ? ['gmail'] : []),
       ],
     };
@@ -288,9 +319,11 @@ export class OnboardingService {
     ).rows[0];
     const state = await this.read(sql, id, current?.revision ?? revision);
     if (state.graduated)
-      return state.facts.helpRequest.value
+      return (state.intake ? state.intake.tasks.length : state.facts.helpRequest.value)
         ? 'Continue the saved first task with a concrete useful next step. Do not restart onboarding.'
         : 'Briefly greet the user and say you are ready whenever they want help. Do not ask setup questions.';
+    if (state.intake?.ready && state.intake.plan)
+      return `Speak exactly this current plan: ${JSON.stringify(planMessage(state.intake.plan))}. Do not add any questions.`;
     const invitation = this.question(state, true, true);
     await sql.query(
       'UPDATE calls SET opening_goal=$2,opening_visit=$3 WHERE id=$1',
@@ -308,6 +341,8 @@ export class OnboardingService {
     reopened: PolicyGoal[] = [],
   ): { goal: PolicyGoal; question: string } | null {
     if (!ask) return null;
+    if (!state.graduated && state.intake?.clarification)
+      return { goal: 'helpRequest', question: state.intake.clarification };
     const candidates: PolicyGoal[] = [
       ...goals.filter((g) => state.facts[g].status === 'ambiguous'),
       'agentName',
@@ -318,6 +353,11 @@ export class OnboardingService {
     ];
     for (const goal of candidates) {
       if (voice && goal === 'agentName') continue;
+      if (
+        goal === 'helpRequest' &&
+        (state.intake?.tasks.length || state.intake?.noTasks)
+      )
+        continue;
       if (state.graduated && !reopened.includes(goal)) continue;
       if (!state.policy?.goals[goal].eligible) continue;
       return {
@@ -329,39 +369,99 @@ export class OnboardingService {
           voice:
             'Would you like to finish getting set up on a call? You can use Start a call whenever you are ready.',
           gmail:
-            'Google consent permits Gmail metadata and headers. This trial only verifies your account address; it does not read your messages. Would you like to connect Gmail now?',
+            'Use Connect Gmail in Your setup to connect your account. Google consent permits metadata and headers; this trial only verifies your account address and does not read messages.',
         }[goal],
       };
     }
     return null;
   }
 
-  // Call under the conversation lock. Existing users keep their main experience;
-  // new users leave intake independently of whether every setup goal succeeded.
-  async advance(sql: Sql, id: string, voice = false): Promise<boolean> {
+  // Invitations never complete intake. Kept for delivery callers during rollout.
+  async advance(_sql: Sql, _id: string, _voice = false): Promise<boolean> {
+    return false;
+  }
+
+  nextReply(result: CaptureResult): string {
+    const state = result.state;
+    if (!result.ok)
+      return 'I could not save that yet. Your message is still here; please use Retry so we can pick up from it.';
+    if (state.graduated) return "Your plan is saved. Let's get started.";
+    if (state.intake?.ready && state.intake.plan)
+      return planMessage(state.intake.plan);
+    if (result.question) return result.question;
+    if (state.gmail !== 'connected')
+      return 'Your details are saved. Connect Gmail in Your setup to finish, or use Save and exit to come back later.';
+    return 'Your progress is saved. You can add or correct the remaining details in Your setup.';
+  }
+
+  async acceptPlan(
+    sql: Sql,
+    id: string,
+    planId: string,
+    capturedSubmission?: string,
+  ) {
     const row = (
       await sql.query<{ revision: number }>(
-        'SELECT revision FROM conversations WHERE id=$1',
+        'SELECT revision FROM conversations WHERE id=$1 FOR UPDATE',
         [id],
       )
     ).rows[0];
     const state = await this.read(sql, id, row.revision);
-    if (
-      state.graduated ||
-      state.facts.helpRequest.status !== 'known' ||
-      policyGoals.some(
-        (goal) =>
-          !(voice && goal === 'agentName') &&
-          state.policy!.goals[goal].eligible,
-      )
-    )
-      return false;
-    await sql.query(
-      `UPDATE conversations SET graduated_at=now(),revision=revision+1,
-      onboarding_revision=revision+1 WHERE id=$1 AND graduated_at IS NULL`,
-      [id],
+    if (state.graduated && state.intake?.plan?.id === planId) return;
+    const pending = await sql.query(
+      `SELECT 1 FROM submissions WHERE conversation_id=$1 AND status='generating'
+      AND id<>COALESCE($2::uuid,'00000000-0000-0000-0000-000000000000'::uuid)
+      UNION ALL SELECT 1 FROM voice_items v JOIN calls c ON c.id=v.call_id
+      WHERE c.conversation_id=$1 AND c.status='active' AND v.item_id=c.source_item_id
+      AND v.submission_id<>COALESCE($2::uuid,'00000000-0000-0000-0000-000000000000'::uuid)
+      AND (NOT v.finalized OR NOT EXISTS(SELECT 1 FROM onboarding_assessments a WHERE a.conversation_id=$1 AND a.submission_id=v.submission_id)) LIMIT 1`,
+      [id, capturedSubmission ?? null],
     );
-    return true;
+    if (pending.rows.length)
+      throw new ConflictException('PLAN_NEW_INPUT_PENDING');
+    if (
+      !state.intake?.ready ||
+      !state.intake.plan?.presented ||
+      state.intake.plan.id !== planId
+    )
+      throw new ConflictException('PLAN_NOT_CURRENT');
+    const intake = {
+      ...state.intake,
+      plan: { ...state.intake.plan, accepted: true },
+    };
+    await sql.query(
+      `UPDATE conversations SET onboarding_intake=$2,graduated_at=COALESCE(graduated_at,now()),
+      dashboard_entered_at=COALESCE(dashboard_entered_at,now()),handoff_prepared_at=COALESCE(handoff_prepared_at,now()),
+      handoff_message=$3,handoff_delivery='text',revision=revision+1,onboarding_revision=revision+1 WHERE id=$1`,
+      [id, JSON.stringify(intake), "Your plan is saved. Let's get started."],
+    );
+  }
+
+  async presentPlan(sql: Sql, id: string) {
+    const row = (
+      await sql.query<{ revision: number }>(
+        'SELECT revision FROM conversations WHERE id=$1 FOR UPDATE',
+        [id],
+      )
+    ).rows[0];
+    const state = await this.read(sql, id, row.revision);
+    if (state.graduated || !state.intake?.ready || state.intake.plan?.presented)
+      return null;
+    const intake = state.intake.plan
+      ? state.intake
+      : updateIntake(state.intake, undefined);
+    if (!intake.plan) return null;
+    intake.plan.presented = true;
+    const message = planMessage(intake.plan);
+    await sql.query(
+      'UPDATE conversations SET onboarding_intake=$2,revision=revision+1,onboarding_revision=revision+1 WHERE id=$1',
+      [id, JSON.stringify(intake)],
+    );
+    await sql.query(
+      "INSERT INTO turns(id,conversation_id,submission_id,role,content) VALUES($1,$2,$3,'assistant',$4)",
+      [randomUUID(), id, randomUUID(), message],
+    );
+    return message;
   }
 
   async deliveredText(
@@ -370,6 +470,19 @@ export class OnboardingService {
     submissionId: string,
     reply: string,
   ) {
+    const current = (
+      await sql.query<{ onboarding_intake: Intake | null }>(
+        'SELECT onboarding_intake FROM conversations WHERE id=$1',
+        [id],
+      )
+    ).rows[0]?.onboarding_intake;
+    if (current?.plan && reply === planMessage(current.plan)) {
+      current.plan.presented = true;
+      await sql.query(
+        'UPDATE conversations SET onboarding_intake=$2 WHERE id=$1',
+        [id, JSON.stringify(current)],
+      );
+    }
     const receipt = (
       await sql.query<{ permitted_goal: PolicyGoal | null; visit_id: string }>(
         `SELECT permitted_goal,visit_id FROM onboarding_assessments
@@ -377,7 +490,10 @@ export class OnboardingService {
         [id, submissionId],
       )
     ).rows[0];
-    if (receipt?.permitted_goal && /[?？]/u.test(reply)) {
+    if (
+      receipt?.permitted_goal &&
+      (/[?？]/u.test(reply) || receipt.permitted_goal === 'gmail')
+    ) {
       await this.policy.offer(
         sql,
         id,
@@ -420,9 +536,11 @@ export class OnboardingService {
 
   async capture(context: FactContext, input: unknown): Promise<CaptureResult> {
     // Working memory is optional and never invalidates an otherwise valid capture.
-    const { memory, ...command }: Record<string, unknown> = object(input)
-      ? input
-      : {};
+    const {
+      memory,
+      intake: intakeInput,
+      ...command
+    }: Record<string, unknown> = object(input) ? input : {};
     let notes: MemoryNote[] = [];
     const result = await this.db.transaction<CaptureResult>(async (sql) => {
       const conversation = (
@@ -545,23 +663,35 @@ export class OnboardingService {
       sources = [source];
       if (context.callId) {
         // A pause may split one volunteered answer into several provider items.
-        // Use only the unassessed suffix of this call, never a previous call or
-        // an already-consumed answer. Reserved sequence survives delayed ASR.
+        // During onboarding, retain a bounded current-call context so a missed
+        // fact can be recovered. Main-experience capture uses the unassessed
+        // suffix. Reserved sequence survives delayed ASR; receipts deduplicate.
         const batch = await sql.query<Source & { finalized: boolean }>(
           `SELECT v.turn_id AS id,t.content,v.submission_id,v.finalized FROM voice_items v
            LEFT JOIN turns t ON t.id=v.turn_id
            WHERE v.call_id=$1 AND v.role='user' AND (NOT v.finalized OR t.id IS NOT NULL)
            AND v.sequence <= (SELECT sequence FROM voice_items WHERE call_id=$1 AND item_id=$2)
-           AND v.sequence > COALESCE((SELECT max(prior.sequence) FROM voice_items prior
+           AND ($4 OR v.sequence > COALESCE((SELECT max(prior.sequence) FROM voice_items prior
              JOIN onboarding_assessments a ON a.submission_id=prior.submission_id AND a.conversation_id=$3
-             WHERE prior.call_id=$1 AND prior.role='user'),0)
+             WHERE prior.call_id=$1 AND prior.role='user'),0))
            ORDER BY v.sequence DESC LIMIT 8`,
-          [context.callId, context.sourceItem, context.conversationId],
+          [
+            context.callId,
+            context.sourceItem,
+            context.conversationId,
+            !state.graduated,
+          ],
         );
         if (batch.rows.some((s) => !s.finalized)) return reject('pending');
         sources = batch.rows.reverse();
       }
       if (!validCommand(command)) return reject('invalid');
+      const parsedIntake =
+        intakeInput === undefined
+          ? undefined
+          : intakeInputSchema.safeParse(intakeInput);
+      if (parsedIntake && !parsedIntake.success) return reject('invalid');
+      const update = parsedIntake?.success ? parsedIntake.data : undefined;
       const quote = (text: string, part: string) =>
         context.callId
           ? spokenQuote(text, part)
@@ -581,6 +711,18 @@ export class OnboardingService {
         !onboardingUnchanged
       )
         return reject('stale');
+      if (update) {
+        const evidence = [
+          ...update.tasks.map((t) => t.evidence),
+          update.noTasksEvidence,
+          update.stopQuestionsEvidence,
+          update.acceptPlan?.evidence,
+        ].filter((v): v is string => !!v);
+        if (evidence.some((e) => !sources.some((s) => quote(s.content, e))))
+          return reject('invalid');
+        if (update.tasks.some((t) => !quote(t.evidence, t.value)))
+          return reject('invalid');
+      }
       const changes: (Change & { source: Source })[] = [];
       for (const change of command.changes) {
         let match: (Change & { source: Source }) | undefined;
@@ -691,11 +833,49 @@ export class OnboardingService {
           })),
       );
       state = await this.read(sql, context.conversationId, state.revision);
-      if (command.exitEvidence)
+      if (!state.graduated) {
+        const currentIntake = state.intake ?? {
+          ...emptyIntake(),
+          ready: false,
+        };
+        const task =
+          changes.find(
+            (c) => c.goal === 'helpRequest' && c.action !== 'clarify',
+          )?.value ?? undefined;
+        const nextIntake = updateIntake(currentIntake, update, task);
+        // A name correction also invalidates a still-unaccepted proposal.
+        if (nextIntake.plan && changes.some((c) => c.goal !== 'helpRequest')) {
+          nextIntake.plan.id = randomUUID();
+          nextIntake.plan.presented = false;
+        }
         await sql.query(
-          'UPDATE conversations SET graduated_at=COALESCE(graduated_at,now()) WHERE id=$1',
-          [context.conversationId],
+          'UPDATE conversations SET onboarding_intake=$2 WHERE id=$1',
+          [context.conversationId, JSON.stringify(nextIntake)],
         );
+        if (
+          update?.acceptPlan &&
+          nextIntake.plan?.id === update.acceptPlan.id &&
+          nextIntake.plan.presented &&
+          /^(yes(?: please)?|yep|yeah|sure|ok(?:ay)?|looks good(?: to me)?|sounds good|go ahead|let'?s do it)[.!\s]*$/iu.test(
+            source.content.trim(),
+          ) &&
+          quote(source.content, update.acceptPlan.evidence)
+        ) {
+          const last = (
+            await sql.query<{ content: string }>(
+              "SELECT content FROM turns WHERE conversation_id=$1 AND role='assistant' AND delivery IN ('text','played') ORDER BY sequence DESC LIMIT 1",
+              [context.conversationId],
+            )
+          ).rows[0];
+          if (last?.content.includes('Does this plan work for you?'))
+            await this.acceptPlan(
+              sql,
+              context.conversationId,
+              update.acceptPlan.id,
+              submissionId,
+            );
+        }
+      }
       await this.advance(sql, context.conversationId, !!context.callId);
       const current = (
         await sql.query<{ revision: number }>(
@@ -722,7 +902,7 @@ export class OnboardingService {
       for (const assessed of sources)
         await sql.query(
           `INSERT INTO onboarding_assessments(conversation_id,submission_id,ask_onboarding,question,permitted_goal,visit_id,exit_evidence)
-           VALUES($1,$2,$3,$4,$5,$6,$7)`,
+           VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(conversation_id,submission_id) DO NOTHING`,
           [
             context.conversationId,
             assessed.submission_id ?? submissionId,
@@ -741,6 +921,7 @@ export class OnboardingService {
         permittedGoal: invitation?.goal ?? null,
       };
     });
+    result.reply = this.nextReply(result);
     if (result.code !== 'committed' || !notes.length) return result;
     const remembered = await this.memory
       .remember(context.conversationId, notes)

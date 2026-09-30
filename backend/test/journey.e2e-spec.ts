@@ -69,27 +69,16 @@ describe('dashboard journey', () => {
       [randomUUID(), id, goal, value, turn],
     );
   }
-  it('rejects normal entry before readiness and allows an explicit skip without inventing facts', async () => {
+  it('rejects entry and the old skip bypass while required setup is unfinished', async () => {
     const { cookie } = await session();
     await change(cookie, 'prepare').expect(409);
     await change(cookie, 'enter').expect(409);
-    const skipped = await change(cookie, 'skip').expect(200);
-    expect(skipped.body.journey).toMatchObject({
-      ready: true,
-      prepared: true,
-      entered: false,
-      delivery: 'text',
-    });
-    expect(skipped.body.onboarding.facts.helpRequest.value).toBeNull();
-    expect(skipped.body.onboarding.graduated).toBe(true);
-    const entered = await change(cookie, 'enter').expect(200);
-    expect(entered.body.journey.entered).toBe(true);
-    await change(cookie, 'enter').expect(200);
+    await change(cookie, 'skip').expect(409);
     const restored = await read(cookie).expect(200);
-    expect(restored.body.journey.entered).toBe(true);
+    expect(restored.body.journey.entered).toBe(false);
     expect(
       restored.body.turns.filter((t: { kind: string }) => t.kind === 'handoff'),
-    ).toHaveLength(1);
+    ).toHaveLength(0);
   });
   it('uses durable graduation instead of guessing completion from assistant wording', async () => {
     const { cookie, id } = await session();
@@ -107,7 +96,7 @@ describe('dashboard journey', () => {
     await change(cookie, 'prepare').expect(200);
     await change(cookie, 'enter').expect(200);
   });
-  it('accepts declined goals, and Gmail expiry cannot restart an entered dashboard', async () => {
+  it('keeps declined required goals pending and preserves an already entered dashboard after Gmail expiry', async () => {
     const { cookie, id } = await session();
     await fact(id, 'helpRequest', 'Prepare for an interview');
     for (const goal of ['agentName', 'userName', 'voice', 'gmail'])
@@ -116,7 +105,11 @@ describe('dashboard journey', () => {
         [id, goal],
       );
     await db.transaction((sql) => app.get(OnboardingService).advance(sql, id));
-    expect((await read(cookie)).body.journey.ready).toBe(true);
+    expect((await read(cookie)).body.journey.ready).toBe(false);
+    // Existing completed users retain their access after the gate changes.
+    await db.query('UPDATE conversations SET graduated_at=now() WHERE id=$1', [
+      id,
+    ]);
     await change(cookie, 'prepare').expect(200);
     await change(cookie, 'enter').expect(200);
     await db.query(
@@ -148,7 +141,7 @@ describe('dashboard journey', () => {
     await change(cookie, 'skip')
       .set('X-Persona-Tab', tabId)
       .set('X-Persona-Epoch', String(claim.body.control.epoch))
-      .expect(200);
+      .expect(409);
     expect((await read(other.cookie)).body.journey.prepared).toBe(false);
   });
 });

@@ -24,6 +24,18 @@ _Avoid_: Support ticket
 The concrete outcome the user wants Persona to help with first, together with only the context needed to understand it. Identifying the first task does not require a broader profile of the user's work, routines or preferences.
 _Avoid_: User profile
 
+**Onboarding scratchpad**:
+The visible summary of onboarding details accepted from the conversation, including the assistant name, user name, Gmail connection and first task. Its progress marks distinguish saved details from information still needed.
+_Avoid_: Private reasoning, conversation transcript
+
+**Task choice**:
+The tasks the user wants help with, or their explicit decision that they have no tasks yet. An unanswered question is not a no-task choice.
+_Avoid_: Required task
+
+**Starter plan**:
+A short, ordered proposal describing the first useful work Persona will do for the user's stated tasks, including any input it still needs. The user can accept the proposal or change it before starting.
+_Avoid_: Completed task, general capabilities menu
+
 **Main experience**:
 The continuation of the same conversation in which the user's assistant works on their requests. It carries forward the information accepted during onboarding.
 _Avoid_: New conversation, onboarding
@@ -49,16 +61,20 @@ The agent's voice reply is playing for the user during a call.
 _Avoid_: Reply generated, call active
 
 **Onboarding goal**:
-One of the four things onboarding attempts to obtain: an agent name, a user name, a Gmail connection or a help request. A goal may remain unmet when the user begins receiving help.
-_Avoid_: Required step
+One of the four details collected before a new user enters the dashboard: an assistant name, a user name, a verified Gmail connection or a task to help with.
+_Avoid_: Delivered invitation
 
 **Graduation**:
-The transition from onboarding into the main experience, normally after identifying a first task and attempting the eligible onboarding goals. A user may leave onboarding earlier, even without a first task; graduation does not mean every onboarding goal is complete.
-_Avoid_: Onboarding completion
+The transition from onboarding into the main experience after the assistant name, user name, Gmail connection and task choice are established and the user accepts the starter plan.
+_Avoid_: Invitation delivered, setup attempted
 
 **Onboarding completion**:
-The state in which the agent name, user name and help request are known and Gmail access is confirmed.
-_Avoid_: Graduation
+The state in which the assistant name, user name and task choice are known, Gmail access is confirmed, and the user has accepted the starter plan.
+_Avoid_: All questions asked
+
+**Save and exit**:
+Leaving unfinished onboarding with accepted details preserved for the next visit. It does not complete onboarding or provide dashboard access.
+_Avoid_: Skip setup, graduation
 
 **Gmail connection**:
 The user's authorization for the agent to access their Gmail account, with access confirmed. Knowing an email address or linking a Google identity alone is not a Gmail connection.

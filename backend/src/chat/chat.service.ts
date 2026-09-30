@@ -271,6 +271,23 @@ export class ChatService {
     return { ready: true };
   }
 
+  async plan(
+    credential: string | undefined,
+    action: 'review' | 'accept',
+    planId: string | undefined,
+    owner?: Owner,
+  ) {
+    let message: string | null = null;
+    await this.db.transaction(async (sql) => {
+      const c = await this.authority.authorize(credential, sql, true);
+      this.authority.assertOwner(c, owner);
+      if (action === 'accept')
+        await this.onboarding.acceptPlan(sql, c.id, planId ?? '');
+      else message = await this.onboarding.presentPlan(sql, c.id);
+    });
+    return { snapshot: await this.read(credential), message };
+  }
+
   async journey(
     credential: string | undefined,
     action: 'prepare' | 'skip' | 'enter',
@@ -290,6 +307,8 @@ export class ChatService {
       );
       const journey = await readJourney(sql, conversation.id, state);
       if (journey.entered) return;
+      if (!state.graduated)
+        throw new ConflictException('PLAN_ACCEPTANCE_REQUIRED');
       if (action !== 'skip' && !journey.ready)
         throw new ConflictException('ONBOARDING_NOT_READY');
       if (action === 'enter' && !journey.prepared)

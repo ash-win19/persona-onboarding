@@ -119,7 +119,7 @@ describe('bounded onboarding', () => {
   const introduction =
     'Call yourself Nova. I am Ashwin. Help me prepare for my interview.';
 
-  it('prepares a task, attempts voice and Gmail once, then preserves incomplete setup in main', async () => {
+  it('prepares a task and attempts voice and Gmail without treating invitations as completion', async () => {
     const s = await session();
     command = { changes: allFacts };
     const first = await s.send(introduction);
@@ -134,8 +134,8 @@ describe('bounded onboarding', () => {
     const next = await s.send('Okay.');
     expect(captured.permittedGoal).toBe('gmail');
     expect(next.body.onboarding).toMatchObject({
-      graduated: true,
-      mode: 'helping',
+      graduated: false,
+      mode: 'onboarding',
       onboardingComplete: false,
       gmail: 'not_connected',
     });
@@ -143,10 +143,10 @@ describe('bounded onboarding', () => {
     await s.send('Let us practice the introduction.');
     expect(captured.question).toBeNull();
     await migrate(db);
-    expect((await s.read()).body.onboarding.mode).toBe('helping');
+    expect((await s.read()).body.onboarding.mode).toBe('onboarding');
   });
 
-  it('distinguishes a deferred goal from leaving setup without a first task', async () => {
+  it('preserves incomplete setup when a goal is deferred or the user asks to leave', async () => {
     const s = await session();
     command = {
       askOnboarding: false,
@@ -160,8 +160,8 @@ describe('bounded onboarding', () => {
     command = { askOnboarding: false, exitEvidence: 'Skip all of this' };
     const result = await s.send('Skip all of this. I do not need help yet.');
     expect(result.body.onboarding).toMatchObject({
-      mode: 'helping',
-      graduated: true,
+      mode: 'onboarding',
+      graduated: false,
       onboardingComplete: false,
       facts: { helpRequest: { value: null } },
     });
@@ -204,13 +204,13 @@ describe('bounded onboarding', () => {
     expect(events.rows).toHaveLength(3);
   });
 
-  it('keeps an explicit exit through reply failure and retry without reopening intake', async () => {
+  it('does not bypass required setup through an exit request, reply failure or retry', async () => {
     const s = await session();
     const submission = randomUUID();
     command = { askOnboarding: false, exitEvidence: 'Skip setup' };
     failReply = true;
     expect((await s.send('Skip setup.', submission)).body.onboarding.mode).toBe(
-      'helping',
+      'onboarding',
     );
     await s.send('Skip setup.', submission);
     expect(captured.code).toBe('already_applied');
@@ -235,8 +235,8 @@ describe('bounded onboarding', () => {
     expect(captured.code).toBe('already_applied');
     expect(captured.question).toBeNull();
     expect(retry.body.onboarding).toMatchObject({
-      mode: 'helping',
-      onboardingComplete: true,
+      mode: 'onboarding',
+      onboardingComplete: false,
       gmail: 'connected',
     });
   });

@@ -7,6 +7,9 @@ export async function migrate(db: Database) {
       id uuid PRIMARY KEY, credential_hash text NOT NULL UNIQUE,
       revision integer NOT NULL DEFAULT 0, created_at timestamptz NOT NULL DEFAULT now()
     )`);
+    await sql.query(
+      `ALTER TABLE conversations ADD COLUMN IF NOT EXISTS onboarding_intake jsonb`,
+    );
     await sql.query(`CREATE TABLE IF NOT EXISTS turns (
       sequence bigserial PRIMARY KEY, id uuid NOT NULL UNIQUE,
       conversation_id uuid NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,

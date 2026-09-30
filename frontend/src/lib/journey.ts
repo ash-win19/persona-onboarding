@@ -25,6 +25,7 @@ export function destination(journey?: Journey, requested?: string | null) {
 // navigation and Gmail returns never create another conversation.
 let freshStart: Promise<unknown> | undefined;
 export function startFresh() {
+  if (sessionStorage.getItem("persona:resume-onboarding") === "true") return;
   if (new URLSearchParams(window.location.search).has("gmail")) return;
   freshStart ??= fetch("/api/auth/fresh-start", {
     method: "POST",
