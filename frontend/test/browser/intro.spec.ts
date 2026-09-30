@@ -148,9 +148,12 @@ test("the hero holds for 2.5 seconds before fading into the greeting, without re
       () => (window as unknown as { sawIntro: boolean }).sawIntro,
     ),
   ).toBe(true);
+  // The Gmail card appears above the composer once the introduction ends.
   await expect(
-    page.getByRole("button", { name: "Connect Gmail", exact: true }),
-  ).toHaveCount(0);
+    page
+      .getByRole("region", { name: "Gmail connection" })
+      .getByRole("button", { name: "Connect Gmail", exact: true }),
+  ).toBeVisible();
   await page.reload();
   await expect(
     page.getByText("Hi, I'm Persona. What would you like to call me?", {
@@ -224,7 +227,7 @@ test("loading preserves a draft and returning history never flashes the new-user
   await expect(page.locator(".welcome")).toHaveCount(0);
 });
 
-test("reduced motion presents the saved opening immediately and Gmail stays in setup", async ({
+test("reduced motion presents the saved opening immediately and Gmail stays outside the conversation", async ({
   page,
 }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -246,7 +249,7 @@ test("reduced motion presents the saved opening immediately and Gmail stays in s
   });
   await expect(
     page
-      .getByRole("complementary", { name: "Onboarding progress" })
+      .getByRole("region", { name: "Gmail connection" })
       .getByRole("button", { name: "Connect Gmail", exact: true }),
   ).toBeVisible();
   await expect(

@@ -180,6 +180,20 @@
 .onboarding-calendar .meeting-list {
   max-height: min(240px, 25dvh);
 }
+.onboarding-integrations {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  align-items: start;
+  gap: 10px;
+  margin: 0 0 12px;
+}
+.onboarding-integrations > .onboarding-calendar {
+  margin: 0;
+  min-width: 0;
+}
+.onboarding-integrations .calendar-identity strong {
+  white-space: nowrap;
+}
 @media (max-width: 1050px) {
   .dashboard-page .connections-page {
     grid-template-columns: minmax(0, 1fr);

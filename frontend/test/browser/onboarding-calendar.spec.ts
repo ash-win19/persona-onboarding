@@ -217,6 +217,44 @@ for (const width of [1440, 390, 320]) {
       fullPage: true,
     });
   });
+  test(`Gmail and Calendar cards above the composer at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await fixture(page);
+    await page.goto("/onboarding");
+    const gmail = page.getByRole("region", { name: "Gmail connection" });
+    const calendar = page.getByRole("region", {
+      name: "Google Calendar and meetings",
+    });
+    await expect(gmail.locator('img[src="/gmail.svg"]')).toBeVisible();
+    await expect(
+      gmail.getByRole("button", { name: "Connect Gmail" }),
+    ).toBeEnabled();
+    await expect(
+      calendar.getByRole("button", { name: "Connect Google Calendar" }),
+    ).toBeEnabled();
+    const box = async (locator: typeof gmail) => (await locator.boundingBox())!;
+    const [g, c, composer] = await Promise.all([
+      box(gmail),
+      box(calendar),
+      box(page.getByRole("textbox", { name: "Message Persona" })),
+    ]);
+    expect(g.y + g.height).toBeLessThanOrEqual(composer.y);
+    expect(c.y + c.height).toBeLessThanOrEqual(composer.y);
+    if (width > 760) {
+      expect(g.y).toBe(c.y);
+      expect(c.x).toBeGreaterThan(g.x);
+    } else expect(c.y).toBeGreaterThan(g.y);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    await page.screenshot({
+      path: `/private/tmp/persona-integrations-${width}.png`,
+    });
+  });
   test(`paired integration cards at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await fixture(page, true);

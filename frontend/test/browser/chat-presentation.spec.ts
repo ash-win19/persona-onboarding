@@ -214,7 +214,7 @@ for (const [width, height] of [
   [375, 740],
   [375, 350],
 ]) {
-  test(`one branded Gmail control stays in setup across replies at ${width}x${height}`, async ({
+  test(`one branded Gmail card stays above the composer across replies at ${width}x${height}`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height });
@@ -231,75 +231,57 @@ for (const [width, height] of [
       true,
     );
     await page.goto("/onboarding");
-    const control = page.getByRole("complementary", {
-      name: "Onboarding progress",
-    });
-    await control.getByRole("button", { name: /^Gmail:/ }).click();
-    const connect = control.getByRole("button", {
+    const card = page.getByRole("region", { name: "Gmail connection" });
+    const connect = card.getByRole("button", {
       name: "Connect Gmail",
       exact: true,
     });
     await expect(connect).toBeVisible();
     await expect(
+      page.getByRole("button", { name: "Connect Gmail", exact: true }),
+    ).toHaveCount(1);
+    await expect(
       page
         .getByRole("region", { name: "Conversation", exact: true })
-        .locator(".gmail-controls"),
+        .getByRole("region", { name: "Gmail connection" }),
     ).toHaveCount(0);
-    await expect(connect.locator("img")).toHaveAttribute("src", "/gmail.svg");
+    await expect(card.locator("img")).toHaveAttribute("src", "/gmail.svg");
     await expect
       .poll(() =>
-        connect
+        card
           .locator("img")
           .evaluate((img) => (img as HTMLImageElement).naturalWidth),
       )
       .toBeGreaterThan(0);
-    await expect
-      .poll(() => connect.evaluate((el) => getComputedStyle(el).fontFamily))
-      .toMatch(/gmailFont/);
-    const instance = await control.locator(".gmail-controls").elementHandle();
+    const instance = await card.elementHandle();
     const input = page.getByRole("textbox", { name: "Message Persona" });
     for (const text of ["First message", "Second message"]) {
       state.reply = `Reply to ${text}`;
       await input.fill(text);
       await page.getByRole("button", { name: "Send message" }).click();
       await expect(page.getByText(state.reply)).toBeVisible();
-      await expect(page.locator(".gmail-controls")).toHaveCount(1);
+      await expect(page.locator(".gmail-card")).toHaveCount(1);
       expect(await instance!.evaluate((el) => el.isConnected)).toBe(true);
     }
-    await control.getByRole("button", { name: /^Gmail:/ }).click();
-    await page.getByLabel("About Gmail connection").click();
-    const popover = page.locator(".gmail-popover");
-    await expect(popover).toBeInViewport();
-    const bounds = await popover.boundingBox();
-    expect(bounds!.x).toBeGreaterThanOrEqual(0);
-    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
-    await page.screenshot({
-      path: test.info().outputPath(`gmail-${width}x${height}.png`),
-      fullPage: true,
-    });
-    await page.getByLabel("About Gmail connection").click();
-    await control.getByRole("button", { name: /^Gmail:/ }).click();
-    const gmailBounds = await control.boundingBox();
+    const cardBounds = await card.boundingBox();
     const formBounds = await page.locator(".composer").boundingBox();
-    if (width < 760) {
-      expect(gmailBounds!.y + gmailBounds!.height).toBeLessThanOrEqual(
-        formBounds!.y,
-      );
-    } else {
-      expect(gmailBounds!.width).toBeLessThanOrEqual(48);
-    }
+    expect(cardBounds!.x).toBeGreaterThanOrEqual(0);
+    expect(cardBounds!.x + cardBounds!.width).toBeLessThanOrEqual(width);
+    expect(cardBounds!.y + cardBounds!.height).toBeLessThanOrEqual(
+      formBounds!.y,
+    );
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
-    await control.getByRole("button", { name: /^Gmail:/ }).click();
+    await page.screenshot({
+      path: test.info().outputPath(`gmail-${width}x${height}.png`),
+      fullPage: true,
+    });
     state.gmail = "connected";
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-    await expect(control.getByLabel("Gmail connection details")).toBeVisible();
-    await page.getByLabel("Gmail connection details").click();
-    await expect(
-      control.getByText("Gmail connected: sam@example.com"),
-    ).toBeVisible();
+    await expect(card.getByText("Connected as sam@example.com")).toBeVisible();
+    await expect(card.getByText("Connected", { exact: true })).toBeVisible();
   });
 }

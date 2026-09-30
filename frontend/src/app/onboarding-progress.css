@@ -171,32 +171,6 @@
 .is-saved .setup-value {
   color: var(--foreground);
 }
-.setup-detail .gmail-controls {
-  margin-top: 8px;
-  gap: 4px;
-  flex-wrap: wrap;
-}
-.setup-detail .gmail-connected {
-  font-size: 12px;
-}
-.setup-detail .gmail-controls > .tool-button {
-  font-size: 12px;
-  padding: 8px 0;
-}
-.setup-detail .gmail-popover {
-  position: static;
-  width: 100%;
-  max-width: none;
-  max-height: none;
-  margin-top: 8px;
-  box-shadow: none;
-}
-.setup-detail .gmail-details[open] {
-  flex-basis: 100%;
-}
-.setup-detail .gmail-connected span {
-  display: none;
-}
 .setup-edit {
   margin-top: 8px;
 }
@@ -305,13 +279,5 @@
     width: auto;
     transform: none;
     max-height: min(360px, 48dvh);
-  }
-  .setup-detail .gmail-popover {
-    position: fixed;
-    left: 24px;
-    right: 24px;
-    bottom: 16px;
-    width: auto;
-    max-width: none;
   }
 }

@@ -29,7 +29,7 @@ Use a recipient inbox you control. As the first message or spoken request during
 
 > Schedule a 30-minute Google Meet with alex@example.com tomorrow at 3 PM Pacific, titled "Persona demo", and email the invitation.
 
-Replace the address with your actual demo recipient. If Calendar is not connected, Persona saves the request and shows Connect Google Calendar. The current controlling tab continues the saved request after consent. The OAuth callback itself performs no scheduling. It returns unfinished users to onboarding, including when popup blocking required full-page consent. The Calendar card stays available beside the onboarding composer, and Settings groups Gmail and Calendar under Integrations.
+Replace the address with your actual demo recipient. If Calendar is not connected, Persona saves the request and shows Connect Google Calendar. The current controlling tab continues the saved request after consent. The OAuth callback itself performs no scheduling. It returns unfinished users to onboarding, including when popup blocking required full-page consent. The Calendar card stays available above the onboarding composer next to a matching Gmail card, and Settings groups Gmail and Calendar under Integrations.
 
 Watch the meeting card change from scheduling to scheduled. Open the event, open its Meet link, then inspect the recipient's invitation and RSVP controls. Calendar accepting the notification request does not prove inbox delivery; verify that last step in the recipient account.
 

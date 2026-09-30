@@ -1,16 +1,14 @@
 "use client";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Snapshot } from "./chat";
 import { ChatIcon } from "./chat-icons";
 
 export function OnboardingProgress({
   snapshot,
-  gmail,
   enabled,
   onSave,
 }: {
   snapshot: Snapshot;
-  gmail: ReactNode;
   enabled: boolean;
   onSave: (message: string) => void;
 }) {
@@ -41,7 +39,7 @@ export function OnboardingProgress({
       label: "Gmail",
       done: state.gmail === "connected",
       value: state.gmail === "connected" ? "Connected" : null,
-      pending: "Connection required",
+      pending: "Use Connect Gmail below the chat",
     },
     ...(state.calendarAvailable
       ? [
@@ -203,7 +201,6 @@ export function OnboardingProgress({
                   Nothing yet
                 </button>
               )}
-              {row.id === "gmail" && gmail}
             </section>
           </li>
         ))}

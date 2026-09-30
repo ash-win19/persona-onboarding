@@ -36,6 +36,7 @@ export function GmailConnection({
   conversationId,
   onChanged,
   onNotice,
+  card = false,
 }: {
   headers: () => Record<string, string>;
   enabled: boolean;
@@ -43,6 +44,8 @@ export function GmailConnection({
   conversationId: string;
   onChanged: () => Promise<void>;
   onNotice: (notice: string) => void;
+  // Renders as a card matching the onboarding Google Calendar card.
+  card?: boolean;
 }) {
   const [gmail, setGmail] = useState<GmailStatus | null>(null);
   const [busy, setBusy] = useState(false);
@@ -183,6 +186,53 @@ export function GmailConnection({
     (!introduced && gmail.status === "not_connected" && !gmail.attempt)
   )
     return null;
+  if (card)
+    return (
+      <section
+        className="calendar-panel onboarding-calendar gmail-card"
+        aria-label="Gmail connection"
+      >
+        <div className="calendar-connection">
+          <div className="calendar-identity">
+            <Image src="/gmail.svg" alt="" width={24} height={24} />
+            <div>
+              <strong>Gmail</strong>
+              <span>
+                {gmail.status === "connected" && gmail.email
+                  ? `Connected as ${gmail.email}`
+                  : "Only confirms your email address."}
+              </span>
+            </div>
+          </div>
+          {gmail.status === "connected" ? (
+            <span className="connection-badge is-connected">Connected</span>
+          ) : (
+            <button
+              type="button"
+              className="secondary-button calendar-connect-button"
+              disabled={!enabled || busy || !gmail.available}
+              onClick={() => void connect()}
+            >
+              {busy
+                ? "Connecting…"
+                : gmail.status === "reconnect_needed"
+                  ? "Reconnect Gmail"
+                  : "Connect Gmail"}
+            </button>
+          )}
+        </div>
+        {!gmail.available && (
+          <p className="calendar-note">
+            Gmail connection setup is not available yet.
+          </p>
+        )}
+        {gmail.unavailable && (
+          <p className="calendar-note">
+            Could not verify access just now. Try again shortly.
+          </p>
+        )}
+      </section>
+    );
   return (
     <div className={`gmail-controls ${gmailFont.className}`}>
       {gmail.status !== "connected" && (
