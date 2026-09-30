@@ -147,3 +147,122 @@ test("a short viewport can scroll to Send with an expanded draft and a recovery 
     page.getByRole("button", { name: "Send message" }),
   ).toBeInViewport();
 });
+
+test("a call is marked in the conversation, with its spoken turns and recap", async ({
+  page,
+}) => {
+  let control = { tabId: "", epoch: 1 };
+  const turn = (
+    id: string,
+    role: "user" | "assistant",
+    content: string,
+    extra: Record<string, unknown> = {},
+  ) => ({ id, submissionId: id, role, content, callId: null, ...extra });
+  const spoken = { channel: "voice", callId: "call-one" };
+  const turns = [
+    turn("t1", "user", "Help me prepare for my Stripe interview."),
+    turn("t2", "assistant", "Let us start with your introduction."),
+    turn("t3", "assistant", "Shall we practise it out loud?", {
+      ...spoken,
+      delivery: "played",
+    }),
+    turn("t4", "user", "Yes, let us do that.", {
+      ...spoken,
+      delivery: "text",
+    }),
+    // Posted during the call, so it stays inside the call's markers.
+    turn("h1", "assistant", "You are all set up.", { kind: "handoff" }),
+    turn("t5", "assistant", "Great, start with your current role and", {
+      ...spoken,
+      delivery: "interrupted",
+    }),
+    turn(
+      "t6",
+      "assistant",
+      "Here is a quick recap of our call:\n- We practised your introduction.\nNext step: time a 60-second answer.",
+      { kind: "recap" },
+    ),
+  ];
+  await page.route("**/api/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/api/ready") return route.fulfill({ json: { ready: true } });
+    if (path === "/api/control") {
+      control = { ...control, tabId: route.request().postDataJSON().tabId };
+      return route.fulfill({ json: { control } });
+    }
+    if (path === "/api/calls/status")
+      return route.fulfill({ json: { control, call: null } });
+    if (path === "/api/gmail/status")
+      return route.fulfill({
+        json: {
+          available: true,
+          status: "not_connected",
+          email: null,
+          unavailable: false,
+          attempt: null,
+        },
+      });
+    return route.fulfill({
+      json: {
+        conversationId: "one-continuous-conversation",
+        revision: turns.length,
+        turns,
+        calls: [
+          {
+            id: "call-one",
+            status: "ended",
+            startedAt: "2026-09-29T14:41:00.000Z",
+            endedAt: "2026-09-29T14:44:12.000Z",
+          },
+        ],
+        operation: null,
+        control,
+        onboarding: {
+          gmail: "not_connected",
+          graduated: true,
+          onboardingComplete: false,
+          facts: {
+            agentName: { value: "Nova", status: "known" },
+            userName: { value: "Sam", status: "known" },
+            helpRequest: { value: "Prepare for an interview", status: "known" },
+          },
+        },
+      },
+    });
+  });
+  await page.goto("/");
+  const log = page.getByRole("log");
+  await expect(log.locator("article")).toHaveCount(7);
+  const markers = log.locator(".call-marker");
+  await expect(markers).toHaveCount(2);
+  await expect(markers.first()).toContainText("Call started");
+  await expect(markers.last()).toHaveText("Call ended · 3m 12s");
+  // Markers wrap the call's turns and the handoff posted during it.
+  const order = await log
+    .locator("article, .call-marker")
+    .evaluateAll((nodes) =>
+      nodes.map((node) =>
+        node.classList.contains("call-marker") ? "marker" : "turn",
+      ),
+    );
+  expect(order).toEqual([
+    "turn",
+    "turn",
+    "marker",
+    "turn",
+    "turn",
+    "turn",
+    "turn",
+    "marker",
+    "turn",
+  ]);
+  await expect(log.getByText("Spoken", { exact: true })).toHaveCount(2);
+  await expect(log.getByText("Spoken · cut off")).toHaveCount(1);
+  await expect(log.locator("article.recap .turn-label")).toHaveText(
+    "Call recap",
+  );
+  await page.screenshot({
+    path: test.info().outputPath("call-markers.png"),
+    fullPage: true,
+  });
+});

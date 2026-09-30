@@ -25,7 +25,8 @@ export type Turn = {
   id: string;
   submissionId: string;
   createdAt: Date;
-  kind: 'opening' | 'message' | 'handoff';
+  callId: string | null;
+  kind: 'opening' | 'message' | 'handoff' | 'recap';
 };
 type Operation = {
   id: string;
@@ -85,7 +86,16 @@ export class ChatService {
   private async snapshot(credential: string | undefined, sql: Sql) {
     const conversation = await this.authority.authorize(credential, sql);
     const result = await sql.query<Turn>(
-      'SELECT id, role, content, channel, delivery, kind, submission_id AS "submissionId", created_at AS "createdAt" FROM turns WHERE conversation_id = $1 ORDER BY sequence',
+      'SELECT id, role, content, channel, delivery, kind, submission_id AS "submissionId", call_id AS "callId", created_at AS "createdAt" FROM turns WHERE conversation_id = $1 ORDER BY sequence',
+      [conversation.id],
+    );
+    const calls = await sql.query<{
+      id: string;
+      status: string;
+      startedAt: Date;
+      endedAt: Date | null;
+    }>(
+      'SELECT id, status, created_at AS "startedAt", ended_at AS "endedAt" FROM calls WHERE conversation_id = $1 ORDER BY created_at',
       [conversation.id],
     );
     const latest = await sql.query<Operation>(
@@ -108,6 +118,7 @@ export class ChatService {
       conversationId: conversation.id,
       revision: conversation.revision,
       turns: result.rows,
+      calls: calls.rows,
       operation: operation
         ? {
             id: operation.id,
@@ -197,7 +208,11 @@ export class ChatService {
           ),
           memory,
           { recent: 10, max: 40 },
-        ).map(({ role, content: text }) => ({ role, content: text })),
+        ).map(({ role, content: text, callId }) => ({
+          role,
+          content: text,
+          callId,
+        })),
         {
           state: snapshot.onboarding,
           memory,

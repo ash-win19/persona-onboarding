@@ -12,6 +12,11 @@ import { CLOCK } from '../src/chat/authority.js';
 import { migrate } from '../src/chat/migration.js';
 import { FACT_REPAIR, type FactRepair } from '../src/chat/fact-repair.js';
 import {
+  CALL_RECAP,
+  type CallRecap,
+  type RecapInput,
+} from '../src/chat/call-recap.js';
+import {
   VOICE_PROVIDER,
   type VoiceEvent,
   type VoiceProvider,
@@ -30,6 +35,12 @@ describe('browser call API', () => {
       throw new Error('REPAIR_UNAVAILABLE');
     },
   };
+  const recap: CallRecap = {
+    write: async () => {
+      throw new Error('RECAP_UNAVAILABLE');
+    },
+  };
+  let recapInputs: RecapInput[] = [];
   const connections: {
     emit: (event: VoiceEvent) => Promise<void>;
     disconnect: () => void;
@@ -96,6 +107,8 @@ describe('browser call API', () => {
       .useValue(provider)
       .overrideProvider(FACT_REPAIR)
       .useValue(repair)
+      .overrideProvider(CALL_RECAP)
+      .useValue(recap)
       .compile();
     app = module.createNestApplication();
     await app.init();
@@ -114,7 +127,44 @@ describe('browser call API', () => {
       textContext = turns;
       return 'Ready to help in text.';
     };
+    recapInputs = [];
+    recap.write = async () => {
+      throw new Error('RECAP_UNAVAILABLE');
+    };
   });
+  async function speak(
+    c: (typeof connections)[number],
+    assistant: string,
+    user: string,
+  ) {
+    await c.emit({
+      type: 'response.created',
+      response: {
+        id: 'opening-response',
+        status: 'in_progress',
+        metadata: { generation: '0', purpose: 'opening' },
+      },
+    });
+    await c.emit({
+      type: 'response.output_audio_transcript.done',
+      item_id: 'opening-audio',
+      response_id: 'opening-response',
+      transcript: assistant,
+    });
+    await c.emit({
+      type: 'output_audio_buffer.stopped',
+      response_id: 'opening-response',
+    });
+    await c.emit({
+      type: 'conversation.item.created',
+      item: { id: 'user-speech', type: 'message', role: 'user' },
+    });
+    await c.emit({
+      type: 'conversation.item.input_audio_transcription.completed',
+      item_id: 'user-speech',
+      transcript: user,
+    });
+  }
   async function session() {
     const created = await request(app.getHttpServer())
       .post('/auth/login')
@@ -1684,6 +1734,123 @@ describe('browser call API', () => {
     expect((await s.read()).body.turns).toHaveLength(1);
     await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
   });
+  it('carries text into a call, then the call and its recap back into text', async () => {
+    const s = await session();
+    await s
+      .post('/turns', {
+        submissionId: randomUUID(),
+        content: 'Help me prepare for my Stripe interview.',
+      })
+      .expect(200);
+    recap.write = async (input) => {
+      recapInputs.push(input);
+      return 'Here is a quick recap of our call:\n- We started your introduction.\nNext step: time a 60-second answer.';
+    };
+    const id = randomUUID();
+    await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
+    const c = connections.at(-1)!;
+    expect(c.instructions).toContain(
+      '{"role":"user","content":"Help me prepare for my Stripe interview.","channel":"text"}',
+    );
+    await s.post('/calls/ready', { id }).expect(200);
+    await speak(
+      c,
+      'Shall we practise your introduction?',
+      'Yes, start with my introduction.',
+    );
+    await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
+    await vi.waitFor(async () =>
+      expect((await s.read()).body.turns.at(-1)).toMatchObject({
+        role: 'assistant',
+        kind: 'recap',
+        callId: null,
+      }),
+    );
+    expect(recapInputs).toEqual([
+      {
+        agentName: null,
+        userName: null,
+        turns: [
+          {
+            role: 'assistant',
+            content: 'Shall we practise your introduction?',
+          },
+          { role: 'user', content: 'Yes, start with my introduction.' },
+        ],
+      },
+    ]);
+    const saved = (await s.read()).body;
+    expect(saved.calls).toMatchObject([
+      { id, status: 'ended', endedAt: expect.any(String) },
+    ]);
+    await s
+      .post('/turns', {
+        submissionId: randomUUID(),
+        content: 'What should I practise next?',
+      })
+      .expect(200);
+    expect(
+      textContext
+        .slice(-5)
+        .map(({ role, content, callId }) => ({ role, content, callId })),
+    ).toEqual([
+      { role: 'assistant', content: 'Ready to help in text.', callId: null },
+      {
+        role: 'assistant',
+        content: 'Shall we practise your introduction?',
+        callId: id,
+      },
+      { role: 'user', content: 'Yes, start with my introduction.', callId: id },
+      {
+        role: 'assistant',
+        content: expect.stringContaining('quick recap of our call'),
+        callId: null,
+      },
+      { role: 'user', content: 'What should I practise next?', callId: null },
+    ]);
+    expect(
+      saved.turns.filter((t: { kind: string }) => t.kind === 'recap'),
+    ).toHaveLength(1);
+  });
+
+  it('skips the recap when nothing was said or the user already moved on', async () => {
+    const s = await session();
+    let asked = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    recap.write = async () => {
+      asked++;
+      await gate;
+      return 'A late recap.';
+    };
+    const silent = randomUUID();
+    await s.post('/calls/start', { id: silent, sdp: 'v=0' }).expect(200);
+    await s
+      .post('/calls/end', { id: silent, reason: 'user_hangup' })
+      .expect(200);
+    const id = randomUUID();
+    await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
+    await s.post('/calls/ready', { id }).expect(200);
+    await speak(
+      connections.at(-1)!,
+      'How can I help?',
+      'Help me plan my week.',
+    );
+    await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
+    await vi.waitFor(() => expect(asked).toBe(1));
+    await s
+      .post('/turns', {
+        submissionId: randomUUID(),
+        content: 'Keep going here.',
+      })
+      .expect(200);
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const turns = (await s.read()).body.turns;
+    expect(turns.some((t: { kind: string }) => t.kind === 'recap')).toBe(false);
+    expect(turns.at(-1)).toMatchObject({ content: 'Ready to help in text.' });
+  });
+
   it('reports lost sideband control and leaves committed chat usable', async () => {
     const s = await session();
     const id = randomUUID();
