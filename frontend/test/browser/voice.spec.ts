@@ -4,7 +4,17 @@ async function voicePage(page: Page) {
   await page.addInitScript(() => {
     const events: Array<(event: Record<string, unknown>) => void> = [];
     Object.defineProperty(window, "voiceEvents", { value: events });
+    const audioInstances: { muted: boolean }[] = [];
+    Object.defineProperty(window, "callAudioInstances", {
+      value: audioInstances,
+    });
+    const commands: Record<string, unknown>[] = [];
+    Object.defineProperty(window, "voiceCommands", { value: commands });
     class CallAudio {
+      muted = false;
+      constructor() {
+        audioInstances.push(this);
+      }
       autoplay = false;
       srcObject: MediaStream | null = null;
       onplaying?: () => void;
@@ -20,7 +30,14 @@ async function voicePage(page: Page) {
     }
     Object.defineProperty(window, "Audio", { value: CallAudio });
     Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
-      value: async () => new MediaStream(),
+      value: async () => {
+        const stream = new AudioContext().createMediaStreamDestination().stream;
+        Object.defineProperty(window, "callInputStream", {
+          value: stream,
+          configurable: true,
+        });
+        return stream;
+      },
     });
     class Peer {
       iceGatheringState = "complete";
@@ -32,7 +49,15 @@ async function voicePage(page: Page) {
         const channel: {
           onmessage?: ((event: { data: string }) => void) | null;
           close: () => void;
-        } = { close() {} };
+          readyState: string;
+          send: (data: string) => void;
+        } = {
+          close() {},
+          readyState: "open",
+          send(data) {
+            commands.push(JSON.parse(data));
+          },
+        };
         events.push((event) =>
           channel.onmessage?.({ data: JSON.stringify(event) }),
         );
@@ -72,6 +97,8 @@ async function voicePage(page: Page) {
   const ended: string[] = [];
   const started: string[] = [];
   const ready: string[] = [];
+  const preferences: Record<string, unknown>[] = [];
+  let entered = false;
   let holdFirst: (() => Promise<void>) | undefined;
   await page.route("**/api/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
@@ -95,6 +122,17 @@ async function voicePage(page: Page) {
         return route.abort("connectionreset");
       }
       return route.fulfill({ json: { call, sdp: "v=0" } });
+    }
+    if (path === "/api/calls/preferences") {
+      const body = route.request().postDataJSON();
+      preferences.push(body);
+      call = {
+        ...call,
+        microphoneEnabled: body.microphoneEnabled,
+        replyMode: body.replyMode,
+        preferenceRevision: body.revision,
+      };
+      return route.fulfill({ json: { call } });
     }
     if (path === "/api/calls/end") {
       const { id } = route.request().postDataJSON();
@@ -129,6 +167,12 @@ async function voicePage(page: Page) {
     return route.fulfill({
       json: {
         conversationId,
+        journey: {
+          entered,
+          prepared: entered,
+          ready: entered,
+          delivery: "text",
+        },
         revision: turns.length,
         turns,
         operation: turns.length
@@ -141,6 +185,10 @@ async function voicePage(page: Page) {
   return {
     started,
     ready,
+    preferences,
+    enterDashboard: () => {
+      entered = true;
+    },
     ended,
     reset: () => {
       turns.length = 0;
@@ -464,4 +512,143 @@ test("reduced motion stays static while voice status updates and old attempts st
     "Persona is thinking",
   );
   await expect(page.locator("[data-processing]")).toBeAttached();
+});
+
+test("mute disables capture and silent replies suppress playback without closing the call", async ({
+  page,
+}) => {
+  const voice = await voicePage(page);
+  await page.goto("/onboarding");
+  await page.getByRole("button", { name: "Start a call" }).click();
+  await page.getByRole("button", { name: "Mute microphone" }).click();
+  await expect(
+    page.getByText("Mic off. Type your reply.", { exact: true }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(
+      () =>
+        (
+          window as unknown as { callInputStream: MediaStream }
+        ).callInputStream.getAudioTracks()[0].enabled,
+    ),
+  ).toBe(false);
+  await page.getByRole("button", { name: "Use text replies" }).click();
+  await expect.poll(() => voice.preferences.at(-1)?.replyMode).toBe("text");
+  expect(
+    await page.evaluate(
+      () =>
+        (window as unknown as { callAudioInstances: { muted: boolean }[] })
+          .callAudioInstances[0].muted,
+    ),
+  ).toBe(true);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole("button", { name: "End call" })).toBeInViewport();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: test.info().outputPath("quiet-call-mobile.png"),
+  });
+  await page
+    .getByRole("textbox", { name: "Message Persona" })
+    .fill("I am in public. Help me here.");
+  await page.getByRole("button", { name: "Send message" }).click();
+  await expect(
+    page.getByText("I am in public. Help me here.", { exact: true }),
+  ).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "End call" })).toBeVisible();
+  await page.getByRole("button", { name: "Use spoken replies" }).click();
+  await expect.poll(() => voice.preferences.at(-1)?.replyMode).toBe("audio");
+  // Re-enabling replies cannot replay old buffered audio or unmute the microphone.
+  expect(
+    await page.evaluate(
+      () =>
+        (window as unknown as { callAudioInstances: { muted: boolean }[] })
+          .callAudioInstances[0].muted,
+    ),
+  ).toBe(true);
+  expect(
+    await page.evaluate(
+      () =>
+        (
+          window as unknown as { callInputStream: MediaStream }
+        ).callInputStream.getAudioTracks()[0].enabled,
+    ),
+  ).toBe(false);
+  await page.getByRole("button", { name: "Enable microphone" }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (
+            window as unknown as { callInputStream: MediaStream }
+          ).callInputStream.getAudioTracks()[0].enabled,
+      ),
+    )
+    .toBe(true);
+});
+
+test("typing clears playback immediately and a preference failure stops media", async ({
+  page,
+}) => {
+  const voice = await voicePage(page);
+  await page.goto("/onboarding");
+  await page.getByRole("button", { name: "Start a call" }).click();
+  await providerEvent(page, {
+    type: "response.created",
+    response: { id: "playing", status: "in_progress" },
+  });
+  await providerEvent(page, {
+    type: "output_audio_buffer.started",
+    response_id: "playing",
+  });
+  await page
+    .getByRole("textbox", { name: "Message Persona" })
+    .fill("Use my correction.");
+  await page.getByRole("button", { name: "Send message" }).click();
+  expect(
+    await page.evaluate(() =>
+      (
+        window as unknown as { voiceCommands: { type: string }[] }
+      ).voiceCommands.some((e) => e.type === "output_audio_buffer.clear"),
+    ),
+  ).toBe(true);
+  await page.route("**/api/calls/preferences", (route) =>
+    route.abort("connectionreset"),
+  );
+  await page.getByRole("button", { name: "Use text replies" }).click();
+  await expect(
+    page.getByText(
+      "The call controls could not sync. Voice stopped; you can continue in text.",
+    ),
+  ).toBeVisible();
+  await expect.poll(() => voice.ended.length).toBe(1);
+});
+
+test("dashboard keeps call text separate from the daily conversation", async ({
+  page,
+}) => {
+  const voice = await voicePage(page);
+  await page.goto("/onboarding");
+  await page.getByRole("button", { name: "Start a call" }).click();
+  voice.enterDashboard();
+  await page.getByRole("button", { name: "Mute microphone" }).click();
+  await expect(page).toHaveURL(/dashboard/);
+  await page.getByRole("link", { name: "Conversation", exact: true }).click();
+  await page.getByText("Message this call", { exact: true }).first().click();
+  await page
+    .getByRole("textbox", { name: "Message this call", exact: true })
+    .fill("This belongs to the call.");
+  await page.getByRole("button", { name: "Send to call" }).click();
+  await expect(
+    page.getByRole("log", { name: "Call conversation" }),
+  ).toContainText("This belongs to the call.");
+  await expect(
+    page.getByRole("button", { name: "Enable microphone" }),
+  ).toBeVisible();
+  await page.screenshot({
+    path: test.info().outputPath("dashboard-call-panel.png"),
+  });
 });

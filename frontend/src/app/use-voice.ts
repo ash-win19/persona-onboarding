@@ -23,8 +23,23 @@ export type CallState = {
   warningAt: string;
   controlReady: boolean;
   toolAcknowledged: boolean;
+  microphoneEnabled?: boolean;
+  replyMode?: "audio" | "text";
+  preferenceRevision?: number;
 };
+type Preferences = {
+  microphoneEnabled: boolean;
+  replyMode: "audio" | "text";
+  revision: number;
+};
+const initialPreferences = (): Preferences => ({
+  microphoneEnabled: true,
+  replyMode: "audio",
+  revision: 0,
+});
 type Attempt = {
+  preferences: Preferences;
+  silenced: boolean;
   id: string;
   headers: Record<string, string>;
   abort: AbortController;
@@ -48,6 +63,8 @@ export function useVoice(
     "idle" | "permission" | "connecting" | "active"
   >("idle");
   const [notice, setNotice] = useState("");
+  const [preferences, setPreferences] = useState(initialPreferences);
+  const [preferencesPending, setPreferencesPending] = useState(false);
   const [activity, setActivity] = useState<VoiceActivity>(initialVoiceActivity);
   const [playback, setPlayback] = useState<Attempt["playback"]>("waiting");
   const [call, setCall] = useState<CallState | null>(null);
@@ -64,6 +81,7 @@ export function useVoice(
       setState("idle");
       setActivity(initialVoiceActivity());
       setPlayback("waiting");
+      setPreferencesPending(false);
     }
     current.abort.abort();
     current.meter.close();
@@ -183,10 +201,89 @@ export function useVoice(
     }
   }, []);
 
+  const clearPlayback = useCallback((current: Attempt) => {
+    current.silenced = true;
+    if (current.audio) current.audio.muted = true;
+    if (current.events?.readyState === "open") {
+      try {
+        current.events.send(JSON.stringify({ type: "response.cancel" }));
+        current.events.send(
+          JSON.stringify({ type: "output_audio_buffer.clear" }),
+        );
+      } catch {
+        // The backend command still reconciles a data channel that closed mid-send.
+      }
+    }
+  }, []);
+
+  const changePreferences = useCallback(
+    async (change: Partial<Omit<Preferences, "revision">>) => {
+      const current = attempt.current;
+      if (!current?.accepted) return;
+      const previous = current.preferences;
+      const next = { ...previous, ...change, revision: previous.revision + 1 };
+      current.preferences = next;
+      setPreferences(next);
+      setPreferencesPending(true);
+      // Restrictive choices apply before any network request. Enabling the mic waits for acknowledgement.
+      if (!next.microphoneEnabled)
+        current.stream?.getAudioTracks().forEach((track) => {
+          track.enabled = false;
+        });
+      if (next.replyMode !== previous.replyMode) {
+        clearPlayback(current);
+        current.activity = {
+          ...interruptVoice(current.activity, true),
+          phase: "listening",
+        };
+        setActivity(current.activity);
+      }
+      try {
+        await apiFetch("calls/preferences", {
+          method: "POST",
+          headers: current.headers,
+          body: JSON.stringify({ id: current.id, ...next }),
+          signal: AbortSignal.timeout(8000),
+        });
+        if (
+          attempt.current !== current ||
+          current.preferences.revision !== next.revision
+        )
+          return;
+        current.stream?.getAudioTracks().forEach((track) => {
+          track.enabled = next.microphoneEnabled;
+        });
+        setNotice("");
+        await refreshRef.current().catch(() => undefined);
+      } catch {
+        if (
+          attempt.current !== current ||
+          current.preferences.revision !== next.revision
+        )
+          return;
+        // An uncertain preference change ends media rather than risking capture or sound.
+        await cancel(current, "connection_lost");
+        setNotice(
+          "The call controls could not sync. Voice stopped; you can continue in text.",
+        );
+        await refreshRef.current().catch(() => undefined);
+      } finally {
+        if (
+          attempt.current === current &&
+          current.preferences.revision === next.revision
+        )
+          setPreferencesPending(false);
+      }
+    },
+    [cancel, clearPlayback],
+  );
+
   const start = useCallback(async () => {
     if (attempt.current) return;
     const current: Attempt = {
       id: crypto.randomUUID(),
+      preferences: initialPreferences(),
+      silenced: false,
       headers: headersRef.current(),
       abort: new AbortController(),
       dispatched: false,
@@ -196,6 +293,8 @@ export function useVoice(
       meter: createVoiceMeter(),
     };
     attempt.current = current;
+    setPreferences(current.preferences);
+    setPreferencesPending(false);
     setNotice("");
     setActivity(current.activity);
     setPlayback("waiting");
@@ -221,7 +320,34 @@ export function useVoice(
           return;
         try {
           const event: unknown = JSON.parse(message.data);
+          if (typeof event === "object" && event !== null && "type" in event) {
+            const value = event as {
+              type: string;
+              response?: { metadata?: { preferenceRevision?: string } };
+            };
+            if (
+              !current.preferences.microphoneEnabled &&
+              value.type.startsWith("input_audio_buffer.")
+            )
+              return;
+            if (
+              current.silenced &&
+              value.type === "response.created" &&
+              value.response?.metadata?.preferenceRevision !== undefined &&
+              Number(value.response.metadata.preferenceRevision) <
+                current.preferences.revision
+            )
+              return;
+          }
           const next = receiveVoiceEvent(current.activity, event);
+          if (
+            next.phase === "speaking" &&
+            next !== current.activity &&
+            current.audio
+          ) {
+            current.silenced = false;
+            current.audio.muted = current.preferences.replyMode === "text";
+          }
           if (next !== current.activity) {
             if (
               typeof event === "object" &&
@@ -401,14 +527,25 @@ export function useVoice(
   const level = useCallback(() => {
     const current = attempt.current;
     if (!current || current.peer?.connectionState !== "connected") return 0;
-    if (current.activity.phase === "listening")
+    if (
+      current.activity.phase === "listening" &&
+      current.preferences.microphoneEnabled
+    )
       return current.meter.level("user");
-    if (current.activity.phase === "speaking" && current.playback === "playing")
+    if (
+      current.activity.phase === "speaking" &&
+      current.playback === "playing" &&
+      current.preferences.replyMode === "audio" &&
+      !current.silenced
+    )
       return current.meter.level("agent");
     return 0;
   }, []);
   return {
     state,
+    preferences,
+    preferencesPending,
+    changePreferences,
     phase: activity.phase,
     playback,
     level,
@@ -424,6 +561,7 @@ export function useVoice(
     typedTurn: () => {
       const current = attempt.current;
       if (!current) return;
+      clearPlayback(current);
       const interrupted = interruptVoice(current.activity, true);
       current.activity = interrupted;
       setActivity(interrupted);

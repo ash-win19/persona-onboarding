@@ -165,6 +165,14 @@ export class ChatService {
           new Date(existing.lease_until).getTime() > Date.now())
       )
         return false;
+      // New input may continue an interrupted call. Its saved earlier messages
+      // remain in context, but must not block a new task behind a retry button.
+      await sql.query(
+        `UPDATE submissions SET status='completed',error_code=NULL
+        WHERE conversation_id=$1 AND id<>$2 AND call_id IS NOT NULL
+        AND status='failed' AND error_code='CALL_REPLY_INTERRUPTED'`,
+        [conversation.id, submissionId],
+      );
       const unresolved = await sql.query(
         'SELECT id FROM submissions WHERE conversation_id = $1 AND id <> $2 AND status <> $3 LIMIT 1',
         [conversation.id, submissionId, 'completed'],
@@ -296,8 +304,8 @@ export class ChatService {
         throw new ConflictException('HANDOFF_NOT_PREPARED');
       if (!journey.prepared) {
         const call = (
-          await sql.query<{ id: string }>(
-            "SELECT id FROM calls WHERE conversation_id=$1 AND status='active'",
+          await sql.query<{ id: string; reply_mode: string }>(
+            "SELECT id,reply_mode FROM calls WHERE conversation_id=$1 AND status='active'",
             [conversation.id],
           )
         ).rows[0];
@@ -309,7 +317,7 @@ export class ChatService {
           [
             conversation.id,
             message,
-            call ? 'waiting' : 'text',
+            call && call.reply_mode !== 'text' ? 'waiting' : 'text',
             call?.id ?? null,
           ],
         );

@@ -22,7 +22,13 @@ export type VoiceEvent = {
   response?: {
     id: string;
     status: string;
-    metadata?: { generation?: string; sourceItem?: string; purpose?: string };
+    metadata?: {
+      generation?: string;
+      sourceItem?: string;
+      purpose?: string;
+      replyMode?: string;
+      preferenceRevision?: string;
+    };
     output?: {
       id: string;
       type: string;

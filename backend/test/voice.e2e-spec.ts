@@ -762,6 +762,250 @@ describe('browser call API', () => {
       })
       .expect(200);
   });
+  it('persists ordered preferences and delivers text replies without audio playback', async () => {
+    const s = await session();
+    const id = randomUUID();
+    await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
+    const c = connections.at(-1)!;
+    const preference = {
+      id,
+      revision: 2,
+      microphoneEnabled: false,
+      replyMode: 'text',
+    };
+    await s.post('/calls/preferences', preference).expect(200);
+    const sent = c.sent.length;
+    await s.post('/calls/preferences', preference).expect(200);
+    expect(c.sent.length).toBe(sent);
+    await s
+      .post('/calls/preferences', {
+        ...preference,
+        revision: 1,
+        microphoneEnabled: true,
+        replyMode: 'audio',
+      })
+      .expect(200);
+    expect((await s.status()).body.call).toMatchObject({
+      microphoneEnabled: false,
+      replyMode: 'text',
+      preferenceRevision: 2,
+    });
+    await s
+      .post('/calls/preferences', { ...preference, replyMode: 'audio' })
+      .expect(409);
+    await s
+      .post('/calls/preferences', { ...preference, revision: -1 })
+      .expect(400);
+    const submissionId = randomUUID();
+    await s
+      .post('/calls/turns', {
+        id,
+        submissionId,
+        content: 'Please answer quietly.',
+      })
+      .expect(200);
+    const outgoing = c.sent.filter((e) => e.type === 'response.create').at(-1)!;
+    const response = outgoing.response as {
+      metadata: { generation: string; sourceItem: string };
+      output_modalities: string[];
+    };
+    expect(response.output_modalities).toEqual(['text']);
+    await c.emit({
+      type: 'response.created',
+      response: {
+        id: 'quiet-answer',
+        status: 'in_progress',
+        metadata: response.metadata,
+      },
+    });
+    await c.emit({
+      type: 'response.done',
+      response: {
+        id: 'quiet-answer',
+        status: 'completed',
+        output: [
+          {
+            id: 'quiet-item',
+            type: 'message',
+            role: 'assistant',
+            content: [
+              { type: 'output_text', text: 'Here is your quiet answer.' },
+            ],
+          },
+        ],
+      },
+    });
+    const saved = (await s.read()).body;
+    expect(
+      saved.turns.find(
+        (t: { content: string }) => t.content === 'Here is your quiet answer.',
+      ),
+    ).toMatchObject({ delivery: 'text', channel: 'text', callId: id });
+    expect(saved.operation).toMatchObject({
+      status: 'completed',
+      errorCode: null,
+    });
+    await s.post('/journey', { action: 'skip' }).expect(200);
+    expect((await s.read()).body.journey.delivery).toBe('text');
+    await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
+    await s
+      .post('/turns', { submissionId: randomUUID(), content: 'Continue here.' })
+      .expect(200);
+    expect(
+      textContext.some((t) => t.content === 'Here is your quiet answer.'),
+    ).toBe(true);
+  });
+
+  it('switches a pending response to text and rejects late audio delivery', async () => {
+    const s = await session();
+    const id = randomUUID();
+    await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
+    const c = connections.at(-1)!;
+    await s
+      .post('/calls/turns', {
+        id,
+        submissionId: randomUUID(),
+        content: 'Explain this slowly.',
+      })
+      .expect(200);
+    const previous = c.sent.filter((e) => e.type === 'response.create').at(-1)!
+      .response as { metadata: { generation: string; sourceItem: string } };
+    await c.emit({
+      type: 'response.created',
+      response: {
+        id: 'before-mode',
+        status: 'in_progress',
+        metadata: previous.metadata,
+      },
+    });
+    await s
+      .post('/calls/preferences', {
+        id,
+        revision: 1,
+        microphoneEnabled: false,
+        replyMode: 'text',
+      })
+      .expect(200);
+    await c.emit({
+      type: 'response.output_audio_transcript.done',
+      response_id: 'before-mode',
+      item_id: 'old-mode-item',
+      transcript: 'Old spoken response.',
+    });
+    await c.emit({
+      type: 'output_audio_buffer.stopped',
+      response_id: 'before-mode',
+    });
+    await c.emit({
+      type: 'response.done',
+      response: { id: 'before-mode', status: 'cancelled' },
+    });
+    const next = c.sent.filter((e) => e.type === 'response.create').at(-1)!
+      .response as {
+      metadata: { generation: string; sourceItem: string };
+      output_modalities: string[];
+    };
+    expect(next.output_modalities).toEqual(['text']);
+    expect(next.metadata.sourceItem).toBe(previous.metadata.sourceItem);
+    expect(Number(next.metadata.generation)).toBeGreaterThan(
+      Number(previous.metadata.generation),
+    );
+    expect(
+      (await s.read()).body.turns.find(
+        (t: { content: string }) => t.content === 'Old spoken response.',
+      ).delivery,
+    ).toBe('interrupted');
+    expect((await s.status()).body.call.status).toBe('active');
+    const stranger = await session();
+    await stranger
+      .post('/calls/preferences', {
+        id,
+        revision: 2,
+        microphoneEnabled: true,
+        replyMode: 'audio',
+      })
+      .expect(409);
+    await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
+  });
+
+  it('discards partial and muted speech even when final transcripts arrive after unmute', async () => {
+    const s = await session();
+    const id = randomUUID();
+    await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
+    const c = connections.at(-1)!;
+    await c.emit({
+      type: 'input_audio_buffer.speech_started',
+      item_id: 'partial-before-mute',
+    });
+    await s
+      .post('/calls/preferences', {
+        id,
+        revision: 1,
+        microphoneEnabled: false,
+        replyMode: 'audio',
+      })
+      .expect(200);
+    await c.emit({
+      type: 'input_audio_buffer.speech_started',
+      item_id: 'muted-noise',
+    });
+    await s
+      .post('/calls/preferences', {
+        id,
+        revision: 2,
+        microphoneEnabled: true,
+        replyMode: 'audio',
+      })
+      .expect(200);
+    for (const item_id of ['partial-before-mute', 'muted-noise']) {
+      await c.emit({ type: 'input_audio_buffer.committed', item_id });
+      await c.emit({
+        type: 'conversation.item.input_audio_transcription.completed',
+        item_id,
+        transcript: 'Unwanted background speech',
+      });
+    }
+    expect(
+      (await s.read()).body.turns.some(
+        (t: { content: string }) => t.content === 'Unwanted background speech',
+      ),
+    ).toBe(false);
+    expect(c.sent.some((e) => e.type === 'input_audio_buffer.clear')).toBe(
+      true,
+    );
+    await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
+  });
+
+  it('resumes an unanswered call message in text once after hangup', async () => {
+    const s = await session();
+    const id = randomUUID();
+    const submissionId = randomUUID();
+    await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
+    const body = {
+      submissionId,
+      content: 'Keep this request after I hang up.',
+    };
+    await s.post('/calls/turns', { id, ...body }).expect(200);
+    expect((await s.read()).body.operation.errorCode).toBe(
+      'CALL_REPLY_PENDING',
+    );
+    await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
+    expect((await s.read()).body.operation).toMatchObject({
+      id: submissionId,
+      status: 'failed',
+      errorCode: 'CALL_REPLY_INTERRUPTED',
+    });
+    await s.post('/turns', body).expect(200);
+    await s.post('/turns', body).expect(200);
+    const turns = (await s.read()).body.turns.filter(
+      (t: { submissionId: string }) => t.submissionId === submissionId,
+    );
+    expect(turns.map((t: { role: string }) => t.role).sort()).toEqual([
+      'assistant',
+      'user',
+    ]);
+  });
+
   it('typing during speech interrupts old output, deduplicates input and keeps the call open', async () => {
     const s = await session();
     const id = randomUUID();

@@ -18,6 +18,16 @@ The conversation view marks each call's start time and length around its turns, 
 
 Set `OPENAI_REALTIME_MODEL` on Render to select the Realtime model. The default is `gpt-realtime-mini`. Voice uses the existing `OPENAI_API_KEY`. Model usage is billed to the existing OpenAI project.
 
+## Call controls and quiet replies
+
+During a call, **I'll type** mutes the microphone while preserving spoken replies. **Text replies** silences playback immediately and asks for text-only responses in the same live session. The controls are independent. Enabling spoken replies never replays buffered audio, and only an explicit microphone action enables capture again. If a preference request fails, the browser stops voice and keeps text available.
+
+The dashboard call panel contains the ongoing call's recent transcript and a **Message this call** composer. Daily conversations keep their own messages. Navigating to another dashboard page does not change the call's message destination or microphone preference.
+
+The backend serializes preference updates with call events and ignores older preference revisions. Muting discards unfinished audio; already committed speech can finish transcription. Discarded speech cannot later change the transcript or saved facts. Text-only assistant output uses text delivery, so context, memory, invitation accounting, and onboarding handoff do not wait for audio playback.
+
+Typed input is saved once using its submission ID. Its answer remains pending until delivered. If the call ends before delivery, the latest unanswered input becomes retryable in text with the same ID. Sending a new text message can also continue from the saved history. Text replies use the provider's documented [per-response text output](https://developers.openai.com/api/docs/guides/realtime-conversations#text-inputs-and-outputs).
+
 ## Verification
 
 Deterministic provider and HTTP tests cover asynchronous final transcripts, duplicate events, sideband tools, ownership, hangup, deadline and control loss. Browser checks cover microphone denial and explicit consent. Real-provider observations and deployed revisions belong in release receipts; these tests do not prove real audio latency.

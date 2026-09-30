@@ -214,6 +214,19 @@ export async function migrate(db: Database) {
     await sql.query(
       'CREATE INDEX IF NOT EXISTS priorities_owner ON priorities(conversation_id)',
     );
+    await sql.query(`ALTER TABLE calls
+      ADD COLUMN IF NOT EXISTS microphone_enabled boolean NOT NULL DEFAULT true,
+      ADD COLUMN IF NOT EXISTS reply_mode text NOT NULL DEFAULT 'audio',
+      ADD COLUMN IF NOT EXISTS preference_revision integer NOT NULL DEFAULT 0`);
+    await sql.query(`ALTER TABLE voice_responses
+      ADD COLUMN IF NOT EXISTS reply_mode text NOT NULL DEFAULT 'audio',
+      ADD COLUMN IF NOT EXISTS text_delivered boolean NOT NULL DEFAULT false`);
+    await sql.query(`ALTER TABLE voice_items
+      ADD COLUMN IF NOT EXISTS audio_committed boolean NOT NULL DEFAULT false,
+      ADD COLUMN IF NOT EXISTS discarded boolean NOT NULL DEFAULT false`);
+    await sql.query(
+      'ALTER TABLE submissions ADD COLUMN IF NOT EXISTS call_id uuid',
+    );
     const empty = await sql.query<{ id: string }>(
       `SELECT id FROM conversations c WHERE NOT EXISTS(SELECT 1 FROM turns WHERE conversation_id=c.id)
        AND NOT EXISTS(SELECT 1 FROM calls WHERE conversation_id=c.id) FOR UPDATE`,

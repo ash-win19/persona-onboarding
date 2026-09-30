@@ -71,6 +71,36 @@ export class CallsController {
       body.content.trim(),
     );
   }
+  @Post('preferences')
+  @HttpCode(200)
+  preferences(@Req() req: Request, @Body() body: unknown) {
+    const owner = browserWrite(req, this.config, true);
+    if (
+      !body ||
+      typeof body !== 'object' ||
+      !('id' in body) ||
+      !uuid(body.id) ||
+      !('revision' in body) ||
+      typeof body.revision !== 'number' ||
+      !Number.isSafeInteger(body.revision) ||
+      body.revision < 1 ||
+      body.revision > 2147483647 ||
+      !('microphoneEnabled' in body) ||
+      typeof body.microphoneEnabled !== 'boolean' ||
+      !('replyMode' in body) ||
+      !['audio', 'text'].includes(String(body.replyMode))
+    )
+      throw new BadRequestException();
+    return this.calls.preferences(
+      credential(req),
+      owner,
+      body.id,
+      body.revision,
+      body.microphoneEnabled,
+      body.replyMode === 'text' ? 'text' : 'audio',
+    );
+  }
+
   @Post('ready')
   @HttpCode(200)
   ready(@Req() req: Request, @Body() body: unknown) {
