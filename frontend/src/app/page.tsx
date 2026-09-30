@@ -93,7 +93,7 @@ export default function Home() {
               [
                 "03",
                 "Keep the conversation going.",
-                "Your dashboard keeps your conversation, connections, and details together.",
+                "Your dashboard keeps your priorities, daily chats, integrations, and details together.",
               ],
             ].map(([number, title, copy]) => (
               <div className="step" key={number}>

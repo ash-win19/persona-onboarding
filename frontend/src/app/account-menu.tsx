@@ -31,7 +31,7 @@ export function AccountMenu({
           {(name || "You").slice(0, 1).toUpperCase()}
         </span>
         <span className="account-trigger-copy">
-          <strong>{name || "Your account"}</strong>
+          <strong>{name || "My Account"}</strong>
           <small>Personal space</small>
         </span>
         <ChatIcon name="chevrons" />
@@ -45,7 +45,7 @@ export function AccountMenu({
         aria-label="Account options"
       >
         <div className="account-popover-heading">
-          <strong>{name || "Your account"}</strong>
+          <strong>{name || "My Account"}</strong>
           <span>Personal space</span>
         </div>
         <nav aria-label="Account navigation">
@@ -54,7 +54,7 @@ export function AccountMenu({
             aria-current={active ? "page" : undefined}
             onClick={() => menu.current?.hidePopover()}
           >
-            <ChatIcon name="user" /> Account
+            <ChatIcon name="user" /> My Account
           </Link>
           <button
             disabled={signingOut}

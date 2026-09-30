@@ -1,6 +1,13 @@
 import type { SVGProps } from "react";
 
 const paths = {
+  plus: "M12 5v14M5 12h14",
+  spark: "m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z",
+  band: "M8 7 9 2h6l1 5M8 17l1 5h6l1-5M7 7h10v10H7zM10 12h4",
+  plug: "M9 3v5m6-5v5M7 8h10v3a5 5 0 0 1-10 0zm5 8v5",
+  settings:
+    "M10 3h4l1 3 3 1 3 3v4l-3 1-1 3-3 3h-4l-1-3-3-1-3-3v-4l3-1 1-3zM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0",
+
   panel: "M3 4h18v16H3zM9 4v16",
   chevrons: "m9 8 3-3 3 3m-6 8 3 3 3-3",
   arrowRight: "M5 12h14m-6-6 6 6-6 6",

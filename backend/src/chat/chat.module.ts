@@ -1,3 +1,6 @@
+import { Workspace } from './workspace.js';
+import { WorkspaceController } from './workspace.controller.js';
+import { DAILY_MODEL, OpenAIDailyModel } from './daily-model.js';
 import { Reset } from './reset.js';
 import { ResetController } from './reset.controller.js';
 import { Diagnostics } from './diagnostics.js';
@@ -24,6 +27,7 @@ import { CONVERSATION_MEMORY, createConversationMemory } from './memory.js';
 
 @Module({
   controllers: [
+    WorkspaceController,
     AccountsController,
     ChatController,
     CallsController,
@@ -31,6 +35,15 @@ import { CONVERSATION_MEMORY, createConversationMemory } from './memory.js';
     ResetController,
   ],
   providers: [
+    Workspace,
+    {
+      provide: DAILY_MODEL,
+      useFactory: () =>
+        new OpenAIDailyModel(
+          process.env.OPENAI_API_KEY ?? '',
+          process.env.OPENAI_MODEL || 'gpt-4.1-mini',
+        ),
+    },
     Accounts,
     {
       provide: FACT_REPAIR,

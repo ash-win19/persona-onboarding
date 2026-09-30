@@ -3,6 +3,7 @@ import localFont from "next/font/local";
 import "./globals.css";
 import "./app-flow.css";
 import "./dashboard-blocks.css";
+import "./intelligence.css";
 
 const inter = localFont({
   src: "./fonts/inter-latin.woff2",
@@ -13,9 +14,9 @@ const inter = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Persona | Your personal assistant",
+  title: "Persona | Your personal intelligence",
   description:
-    "One conversation to think things through, get help, and pick up where you left off.",
+    "Your priorities, plans, and daily conversations, together in your personal intelligence workspace.",
 };
 
 export default function RootLayout({
