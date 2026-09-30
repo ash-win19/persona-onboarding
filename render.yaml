@@ -20,6 +20,6 @@ services:
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_MODEL
-        value: gpt-4.1-mini
+        value: gpt-6-luna
       - key: APP_ORIGINS
         value: https://usepersona.vercel.app
