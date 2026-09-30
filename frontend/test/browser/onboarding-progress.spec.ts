@@ -125,7 +125,7 @@ async function fixture(page: Page) {
   return { freshStarts: () => freshStarts };
 }
 
-for (const width of [1440, 390])
+for (const width of [1440, 390, 320])
   test(`progress and immediate plan approval at ${width}px`, async ({
     page,
   }) => {
@@ -136,11 +136,37 @@ for (const width of [1440, 390])
       name: "Onboarding progress",
     });
     await expect(rail).toBeVisible();
-    if (width < 960)
-      await rail.getByRole("button", { name: /Your setup/ }).click();
+    await expect(
+      page.getByRole("button", { name: "Sign out", exact: true }),
+    ).toBeInViewport({ ratio: 1 });
+    await expect(
+      page.getByRole("button", { name: "Save and exit", exact: true }),
+    ).toBeInViewport({ ratio: 1 });
+    await expect(rail.locator(".setup-detail:visible")).toHaveCount(0);
+    await expect(rail.locator(".setup-trigger")).toHaveCount(5);
+    await page.screenshot({
+      path: test.info().outputPath("collapsed.png"),
+      fullPage: true,
+    });
+    const assistant = rail.getByRole("button", { name: "Assistant: complete" });
+    await assistant.click();
     await expect(rail.getByText("Atom", { exact: true })).toBeVisible();
+    await expect(assistant.locator(".setup-mark")).toHaveCSS(
+      "color",
+      "rgb(35, 133, 83)",
+    );
+    await assistant.press("Escape");
+    await expect(assistant).toBeFocused();
+    await expect(assistant).toHaveAttribute("aria-expanded", "false");
+    await rail.getByRole("button", { name: "You: complete" }).click();
     await expect(rail.getByText("Ashwin", { exact: true })).toBeVisible();
+    await expect(rail.getByText("Atom", { exact: true })).toBeHidden();
+    await rail.getByRole("button", { name: "Your tasks: current" }).click();
     await expect(rail.getByText("A place to start")).toBeVisible();
+    await expect(rail.locator(".setup-detail:visible")).toHaveCount(1);
+    await expect(
+      rail.getByRole("button", { name: "Nothing yet" }),
+    ).toBeEnabled();
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,
@@ -150,8 +176,11 @@ for (const width of [1440, 390])
       path: `/private/tmp/persona-progress-${width}.png`,
       fullPage: true,
     });
-    if (width < 960)
-      await rail.getByRole("button", { name: /Your setup/ }).click();
+    await page.screenshot({
+      path: test.info().outputPath("expanded.png"),
+      fullPage: true,
+    });
+    await rail.getByRole("button", { name: "Your tasks: current" }).click();
     await page
       .getByRole("textbox", { name: "Message Persona" })
       .fill("I want to buy groceries and go to the gym.");
@@ -186,6 +215,7 @@ test("Save and exit returns to the landing page and resumes saved progress", asy
     .first()
     .click();
   await expect(page).toHaveURL(/\/onboarding$/);
+  await page.getByRole("button", { name: "Assistant: complete" }).click();
   await expect(
     page
       .getByRole("complementary", { name: "Onboarding progress" })

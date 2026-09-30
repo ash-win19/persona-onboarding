@@ -1,9 +1,9 @@
 .chat-shell.with-setup {
   display: grid;
-  grid-template-columns: minmax(0, 780px) 252px;
+  grid-template-columns: minmax(0, 1fr) 48px;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 0 44px;
-  max-width: 1180px;
+  gap: 0 20px;
+  max-width: 1000px;
   margin: 0 auto;
   padding: 0 24px;
   overflow: hidden;
@@ -20,63 +20,123 @@
   grid-column: 1;
   grid-row: 3;
 }
+/* Only the status circles occupy space until a phase is opened. */
 .setup-rail {
+  position: relative;
+  z-index: 10;
   grid-column: 2;
   grid-row: 2 / 4;
-  padding: 40px 0 24px;
-  overflow-y: auto;
-}
-.setup-rail h2 {
-  margin: 0 0 30px;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-}
-.setup-summary {
-  display: none;
+  padding-top: 32px;
 }
 .setup-steps {
   list-style: none;
   margin: 0;
   padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 .setup-step {
+  position: static;
+}
+.setup-trigger {
   position: relative;
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr);
-  column-gap: 14px;
-  padding-bottom: 30px;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
 }
-.setup-step:not(:last-child)::after {
+.setup-trigger:hover,
+.setup-trigger[aria-expanded="true"] {
+  background: var(--soft);
+}
+.setup-step:not(:last-child) .setup-trigger::after {
   content: "";
   position: absolute;
-  left: 10px;
-  top: 28px;
-  bottom: 7px;
   width: 1px;
-  background: var(--line, #e8e8eb);
+  height: 20px;
+  top: 42px;
+  background: var(--line-strong);
 }
 .setup-mark {
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 24px;
-  color: var(--foreground);
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--step-300);
+  border-radius: 50%;
+  color: var(--muted);
+  background: var(--background);
 }
 .setup-mark svg {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
+  stroke-width: 2;
 }
-.setup-mark > span {
-  width: 10px;
-  height: 10px;
-  border: 1.5px solid var(--line-strong, #d8d8dc);
-  border-radius: 50%;
+.is-saved .setup-mark {
+  color: #238553;
+  background: #eff9f2;
+  border-color: #b8dfc5;
+}
+.is-current .setup-mark {
+  border-color: var(--foreground);
 }
 .is-current .setup-mark > span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
   background: var(--foreground);
-  border-color: var(--foreground);
+}
+.setup-detail {
+  position: absolute;
+  top: 32px;
+  right: 64px;
+  width: 300px;
+  max-height: calc(100% - 56px);
+  overflow-y: auto;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--background);
+  box-shadow: 0 12px 40px #00000012;
+}
+.setup-detail[hidden] {
+  display: none;
+}
+.setup-label h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 500;
+}
+.setup-phase-status {
+  color: var(--muted);
+  font-size: 11px;
+  margin: 0 0 16px;
+}
+.is-saved .setup-phase-status {
+  color: #238553;
+}
+.setup-edit-toggle {
+  float: right;
+  background: none;
+  border: 0;
+  padding: 5px 0 5px 12px;
+  color: var(--muted);
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.setup-plan {
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.setup-plan li + li {
+  margin-top: 8px;
 }
 .setup-label {
   display: flex;
@@ -124,8 +184,15 @@
   padding: 8px 0;
 }
 .setup-detail .gmail-popover {
-  right: 0;
-  max-width: 240px;
+  position: static;
+  width: 100%;
+  max-width: none;
+  max-height: none;
+  margin-top: 8px;
+  box-shadow: none;
+}
+.setup-detail .gmail-details[open] {
+  flex-basis: 100%;
 }
 .setup-detail .gmail-connected span {
   display: none;
@@ -177,7 +244,7 @@
   margin: 8px 0;
   line-height: 1.6;
 }
-@media (max-width: 960px) {
+@media (max-width: 760px) {
   .chat-shell.with-setup {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto auto minmax(0, 1fr) auto;
@@ -187,6 +254,16 @@
   .with-setup .chat-header {
     padding: 16px 20px;
     min-height: 72px;
+    gap: 12px;
+  }
+  .with-setup .chat-header .onboarding-label {
+    display: none;
+  }
+  .with-setup .chat-header .sign-out,
+  .with-setup .chat-header .skip-setup {
+    padding-inline: 0;
+    font-size: 12px;
+    white-space: nowrap;
   }
   .with-setup .conversation {
     grid-row: 3;
@@ -197,41 +274,25 @@
   .setup-rail {
     grid-column: 1;
     grid-row: 2;
-    padding: 0 24px;
-    border-bottom: 1px solid var(--line, #e8e8eb);
-    max-height: 40dvh;
-  }
-  .setup-rail h2 {
-    display: none;
-  }
-  .setup-summary {
-    display: flex;
-    width: 100%;
-    justify-content: space-between;
-    align-items: center;
-    min-height: 48px;
-    padding: 0;
-    border: 0;
-    background: none;
-    font-size: 13px;
-  }
-  .setup-summary svg {
-    width: 14px;
-    height: 14px;
-  }
-  .setup-count {
-    color: var(--muted);
-    margin-left: 10px;
+    padding: 0 20px 12px;
   }
   .setup-steps {
-    display: none;
-    padding: 12px 0;
+    flex-direction: row;
+    justify-content: center;
+    gap: 12px;
   }
-  .setup-rail[data-expanded="true"] .setup-steps {
-    display: block;
+  .setup-step:not(:last-child) .setup-trigger::after {
+    width: 16px;
+    height: 1px;
+    top: 22px;
+    left: 42px;
   }
-  .setup-step {
-    padding-bottom: 20px;
+  .setup-detail {
+    top: 54px;
+    left: 16px;
+    right: 16px;
+    width: auto;
+    max-height: min(360px, 48dvh);
   }
   .setup-detail .gmail-popover {
     position: fixed;

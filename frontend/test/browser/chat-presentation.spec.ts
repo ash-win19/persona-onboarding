@@ -209,11 +209,15 @@ test("a saved spoken user message clears the input hint", async ({ page }) => {
   await expect(input).toHaveAttribute("placeholder", "");
 });
 
-for (const height of [740, 350]) {
-  test(`one branded Gmail control stays in setup across replies at 375x${height}`, async ({
+for (const [width, height] of [
+  [1440, 900],
+  [375, 740],
+  [375, 350],
+]) {
+  test(`one branded Gmail control stays in setup across replies at ${width}x${height}`, async ({
     page,
   }) => {
-    await page.setViewportSize({ width: 375, height });
+    await page.setViewportSize({ width, height });
     const state = await chat(
       page,
       [
@@ -230,7 +234,7 @@ for (const height of [740, 350]) {
     const control = page.getByRole("complementary", {
       name: "Onboarding progress",
     });
-    await control.getByRole("button", { name: /Your setup/ }).click();
+    await control.getByRole("button", { name: /^Gmail:/ }).click();
     const connect = control.getByRole("button", {
       name: "Connect Gmail",
       exact: true,
@@ -262,29 +266,34 @@ for (const height of [740, 350]) {
       await expect(page.locator(".gmail-controls")).toHaveCount(1);
       expect(await instance!.evaluate((el) => el.isConnected)).toBe(true);
     }
+    await control.getByRole("button", { name: /^Gmail:/ }).click();
     await page.getByLabel("About Gmail connection").click();
     const popover = page.locator(".gmail-popover");
     await expect(popover).toBeInViewport();
     const bounds = await popover.boundingBox();
     expect(bounds!.x).toBeGreaterThanOrEqual(0);
-    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(375);
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
     await page.screenshot({
-      path: test.info().outputPath(`gmail-375x${height}.png`),
+      path: test.info().outputPath(`gmail-${width}x${height}.png`),
       fullPage: true,
     });
     await page.getByLabel("About Gmail connection").click();
-    await control.getByRole("button", { name: /Your setup/ }).click();
+    await control.getByRole("button", { name: /^Gmail:/ }).click();
     const gmailBounds = await control.boundingBox();
     const formBounds = await page.locator(".composer").boundingBox();
-    expect(gmailBounds!.y + gmailBounds!.height).toBeLessThanOrEqual(
-      formBounds!.y,
-    );
+    if (width < 760) {
+      expect(gmailBounds!.y + gmailBounds!.height).toBeLessThanOrEqual(
+        formBounds!.y,
+      );
+    } else {
+      expect(gmailBounds!.width).toBeLessThanOrEqual(48);
+    }
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
-    await control.getByRole("button", { name: /Your setup/ }).click();
+    await control.getByRole("button", { name: /^Gmail:/ }).click();
     state.gmail = "connected";
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await expect(control.getByLabel("Gmail connection details")).toBeVisible();

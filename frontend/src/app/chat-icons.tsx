@@ -1,6 +1,8 @@
 import type { SVGProps } from "react";
 
 const paths = {
+  close: "m6 6 12 12M6 18 18 6",
+  checklist: "m3 6 2 2 3-4M11 6h10M3 13l2 2 3-4M11 13h10M11 20h10",
   plus: "M12 5v14M5 12h14",
   spark: "m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z",
   band: "M8 7 9 2h6l1 5M8 17l1 5h6l1-5M7 7h10v10H7zM10 12h4",

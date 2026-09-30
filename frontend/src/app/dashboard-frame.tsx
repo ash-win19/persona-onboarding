@@ -8,11 +8,13 @@ import { AccountMenu } from "./account-menu";
 import { GmailConnection } from "./gmail-connection";
 import { IntelligenceDashboard } from "./intelligence-dashboard";
 import { DailyChat } from "./daily-chat";
+import { YourTasks } from "./your-tasks";
 import { workspaceRequest, type WorkspaceData } from "./workspace-data";
 import type { Snapshot } from "./chat";
 
 const pages = [
   { href: "/dashboard", label: "Overview", icon: "home" },
+  { href: "/dashboard/tasks", label: "Your Tasks", icon: "checklist" },
   { href: "/dashboard/conversation", label: "Conversation", icon: "message" },
 ] as const;
 
@@ -70,7 +72,9 @@ export function DashboardFrame({
           ? "Onboarding"
           : daily
             ? "Conversation"
-            : "Overview";
+            : pathname === "/dashboard/tasks"
+              ? "Your Tasks"
+              : "Overview";
   const heading = useRef<HTMLHeadingElement>(null);
   const name = snapshot?.onboarding?.facts.userName.value;
   const agent = snapshot?.onboarding?.facts.agentName.value || "Persona";
@@ -236,7 +240,9 @@ export function DashboardFrame({
                   ? "Your priorities, plans, and next steps. All in one place."
                   : settings
                     ? "Make Persona fit the way you live and work."
-                    : "The details that make this yours."}
+                    : pathname === "/dashboard/tasks"
+                      ? "Pick up where your onboarding conversation left off."
+                      : "The details that make this yours."}
               </p>
             </header>
             {pathname === "/dashboard" && (
@@ -278,6 +284,18 @@ export function DashboardFrame({
                   <ChatIcon name="arrowRight" />
                 </Link>
               </section>
+            )}
+            {pathname === "/dashboard/tasks" && (
+              <YourTasks
+                key={root}
+                snapshot={snapshot}
+                data={data}
+                error={error}
+                reload={() => setVersion((v) => v + 1)}
+                onChanged={setData}
+                headers={headers}
+                enabled={enabled}
+              />
             )}
             {pathname.endsWith("account") && (
               <section className="dashboard-card account-details">
