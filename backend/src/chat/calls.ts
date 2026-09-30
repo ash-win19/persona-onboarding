@@ -1,5 +1,9 @@
 import { Meetings } from './meetings.js';
-import { meetingInstructions, meetingTools } from './meeting-tools.js';
+import {
+  meetingInstructions,
+  meetingReference,
+  meetingTools,
+} from './meeting-tools.js';
 import { Diagnostics } from './diagnostics.js';
 import { captureOnboardingTool, interpretation } from './model.js';
 import { roleInstructions, voiceInstructions } from './prompts.js';
@@ -918,14 +922,15 @@ export class Calls implements OnModuleDestroy {
       meetings: state.graduated
         ? await this.meetings.state(call.conversation_id, 'root')
         : null,
-      referenceTime: new Date().toISOString(),
-      browserTimeZone:
+      referenceClock: meetingReference(
+        Date.now(),
         (
           await sql.query<{ meeting_timezone: string | null }>(
             'SELECT meeting_timezone FROM conversations WHERE id=$1',
             [call.conversation_id],
           )
         ).rows[0]?.meeting_timezone ?? null,
+      ),
       turns,
       memory: memory && {
         observations: memory.observations,

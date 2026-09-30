@@ -2,7 +2,11 @@ import { Inject, Injectable } from '@nestjs/common';
 import OpenAI from 'openai';
 import { DATABASE, type Database } from './database.js';
 import { Meetings, type MeetingContext } from './meetings.js';
-import { meetingInstructions, meetingTools } from './meeting-tools.js';
+import {
+  meetingInstructions,
+  meetingReference,
+  meetingTools,
+} from './meeting-tools.js';
 import type { ModelTurn } from './model.js';
 
 @Injectable()
@@ -68,10 +72,10 @@ export class MeetingAssistant {
             meetingInstructions +
             '\nAnswer concisely. Current server state: ' +
             JSON.stringify(state) +
-            '\nReference time: ' +
-            new Date(source.latest?.created_at ?? Date.now()).toISOString() +
-            '\nBrowser timezone: ' +
-            (zone ?? 'unknown'),
+            '\nReference clock: ' +
+            JSON.stringify(
+              meetingReference(source.latest?.created_at ?? Date.now(), zone),
+            ),
           input,
           tools: meetingTools,
           parallel_tool_calls: false,
