@@ -796,6 +796,7 @@ export class Calls implements OnModuleDestroy {
               sourceItem: current.source_item_id!,
             },
             scheduling ? captureWhileScheduling(command) : command,
+            { lenient: true },
           );
         if (captured?.ok) await this.refresh(current);
         if (captured?.ok && scheduling && runtime.connection) {
@@ -821,6 +822,7 @@ export class Calls implements OnModuleDestroy {
                 next: captured.permittedGoal ?? null,
                 finished: captured.state.graduated,
                 exit: captured.exitRequested,
+                partial: captured.unverified,
               }) + '\nReply to what they just said, without calling tools.'
             : `Speak exactly this response, without adding any question or using tools: ${JSON.stringify(unsavedSpeech)}`,
           'onboarding_reply',

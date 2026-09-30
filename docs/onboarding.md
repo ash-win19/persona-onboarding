@@ -20,7 +20,7 @@ The original conversation and active call remain available after graduation. The
 3. The guide writes the reply: it reacts to what the user said, then asks for that one step. It does not start task work. When nothing is left to ask, it simply responds.
 4. If the saved details are complete, the same commit finishes onboarding and the guide writes a short closing line. The browser shows it for a moment, then opens the dashboard.
 
-A proposal with a misquoted value gets one repair attempt. If it still fails in text, the guide replies without claiming anything was saved and asks the user to say it again. On a call, a failed save uses fixed wording that points to Retry saved speech.
+Every saved detail must match the user's own words. When the interpreter proposes something that doesn't, such as a task quoted from older history, the server drops that item and saves the rest of the turn. Losing the whole turn to one bad item made calls repeat "Sorry, I didn't catch that". If the dropped item was new, the guide asks the user to confirm it. Spelled-out names count as a match: "Adam, A-T-O-M" can save Atom. On a call, saving a transcript bumps the conversation revision without changing onboarding, so an interpretation that started earlier is still accepted unless onboarding itself changed. The realtime model's own capture tool, used after onboarding, stays strict and keeps its repair loop. A malformed proposal still fails; on a call that uses fixed wording pointing to Retry saved speech.
 
 ## Finishing and leaving
 

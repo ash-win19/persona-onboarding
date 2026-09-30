@@ -174,7 +174,7 @@ Fill every field; use [] or null when nothing changed.
   - agentName is what the user calls YOU. userName is what YOU call the user. A short reply to the assistant's naming question answers that question: after "What would you like to call me?", "Atlas" sets agentName Atlas. "Persona is fine" or "keep Persona" sets agentName Persona.
   - helpRequest is the exact phrase of the first actionable task, such as "prepare for my interview". "Help me" alone is not a task. A question about what Persona can do is not a task.
   - action: set for a new value, correct when the user replaces a saved or unclear value, clarify (value null) when the name itself is unclear.
-  - value must appear word for word inside evidence, and evidence must be an exact quote from the latest message. Never take a name from an email address, a recipient, someone else, a quotation or a hypothetical.
+  - value must appear word for word inside evidence, and evidence must be an exact quote from the latest message. A name's value is only the name. When the user spells a name out, the value is the word it spells, written normally: "No, I said Adam, A-T-O-M" sets agentName Atom. Never take a name from an email address, a recipient, someone else, a quotation or a hypothetical.
 - intake.tasks: every task in the latest message, each with its exact phrase and quote. intake.replaceTasks is true only when the user explicitly replaces their task list. intake.noTasksEvidence quotes an explicit no-task choice such as "nothing yet" or "I do not need help yet"; that is a complete answer, not a helpRequest.
 - preferences: only explicit choices about a step. "Not Gmail now" defers gmail; "I won't connect Gmail" declines it; "let's do Gmail now" reopens it.
 - exitEvidence: quote an explicit request to leave or skip setup, such as "skip setup" or "let's just get started". Giving a task is not an exit.
@@ -287,6 +287,7 @@ export class OpenAIReplyModel implements ReplyModel {
           finished: committed.state.graduated,
           unsaved: !committed.ok,
           exit: committed.exitRequested,
+          partial: committed.unverified,
         }) + `\n${callNote}`,
         withCallNotes(input),
         700,

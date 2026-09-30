@@ -574,6 +574,69 @@ describe('onboarding progress and automatic finish', () => {
     });
     await call.end();
   });
+  it('saves a spelled-out spoken name and keeps the turn when another detail is unverifiable', async () => {
+    const s = await session();
+    // Reproduces a production call: the interpreter "corrected" the name
+    // from its spelling and re-proposed a task quoted from older history.
+    voiceCommand = (input) => ({
+      expectedRevision: input.state.revision,
+      askOnboarding: true,
+      changes: [
+        {
+          goal: 'agentName',
+          action: 'set',
+          value: 'ATOM',
+          evidence: 'No, I said Adam, A-T-O-M.',
+        },
+      ],
+      preferences: [],
+      exitEvidence: null,
+      intake: {
+        ...blank(),
+        tasks: [
+          {
+            value: 'schedule a Google Calendar meeting',
+            evidence: 'To schedule a Google Calendar meeting.',
+          },
+        ],
+      },
+    });
+    const call = await startCall(s);
+    await speech('spelled-name', 'No, I said Adam, A-T-O-M.');
+    await vi.waitFor(async () =>
+      expect((await s.read()).body.onboarding.facts.agentName.value).toBe(
+        'Atom',
+      ),
+    );
+    expect((await s.read()).body.onboarding.intake.tasks).toEqual([]);
+    await vi.waitFor(() =>
+      expect(JSON.stringify(sent)).toContain(
+        "couldn't be matched to their exact words",
+      ),
+    );
+    expect(JSON.stringify(sent)).not.toContain('Retry saved speech');
+    await call.end();
+  });
+  it('keeps a spoken capture when a transcript is saved during interpretation', async () => {
+    const s = await session();
+    voiceCommand = async (input) => {
+      // Saving the assistant's previous line bumps the revision mid-way.
+      await db.query(
+        'UPDATE conversations SET revision=revision+1 WHERE id=$1',
+        [s.id],
+      );
+      return spokenName(input, 'Taylor');
+    };
+    const call = await startCall(s);
+    await speech('drift-name', 'Call me Taylor.');
+    await vi.waitFor(async () =>
+      expect((await s.read()).body.onboarding.facts.userName.value).toBe(
+        'Taylor',
+      ),
+    );
+    expect(JSON.stringify(sent)).not.toContain('Retry saved speech');
+    await call.end();
+  });
   it('retries a failed current-call capture without asking the user to repeat it', async () => {
     const s = await session();
     voiceCommand = () => {

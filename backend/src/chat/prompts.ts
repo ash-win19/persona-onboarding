@@ -27,6 +27,8 @@ export type GuideTurn = {
   finished?: boolean;
   unsaved?: boolean;
   exit?: boolean;
+  // Some proposed details did not match the user's words and were not saved.
+  partial?: boolean;
 };
 
 export function onboardingGuide(state: OnboardingState, turn: GuideTurn = {}) {
@@ -117,6 +119,10 @@ function guideStatus(state: OnboardingState, turn: GuideTurn) {
   if (turn.exit && !turn.finished && !state.graduated)
     lines.push(
       "They asked to skip setup. It can't be skipped, but it only takes a minute: say so in a few friendly words, mention that Save and exit keeps their progress if they'd rather come back later, then ask for the next detail.",
+    );
+  if (turn.partial && !turn.unsaved)
+    lines.push(
+      "Part of what they just said couldn't be matched to their exact words, so it wasn't saved. If a name or task they gave is missing or different in the status, say what you heard and ask them to confirm.",
     );
   if (turn.unsaved)
     lines.push(

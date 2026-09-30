@@ -58,6 +58,8 @@ export type CaptureResult = {
   permittedGoal?: PolicyGoal | null;
   // The user asked to skip setup, which cannot be skipped.
   exitRequested?: boolean;
+  // A lenient capture dropped details the user's words did not support.
+  unverified?: boolean;
   source?: { turnId: string; text: string };
   sources?: { turnId: string; text: string }[];
   remembered?: MemoryNote[];
@@ -147,6 +149,23 @@ function spokenQuote(source: string, quote: string): string | undefined {
     }
   }
 }
+// Spoken names are often spelled out: "Atom, A-T-O-M". Accept a name whose
+// letters match a spelled-out run in the evidence. The run itself is not a
+// usable name, so keep the proposed spelling, capitalized if it was shouted.
+function spelledName(evidence: string, value: string): string | undefined {
+  const letters = (text: string) =>
+    text.replace(/[^\p{L}]/gu, '').toLocaleLowerCase();
+  const wanted = letters(value);
+  if (wanted.length < 2) return;
+  for (const run of evidence.matchAll(
+    /(?<!\p{L})\p{L}(?:[\s.-]+\p{L}(?!\p{L}))+/gu,
+  ))
+    if (letters(run[0]) === wanted)
+      return value === value.toLocaleUpperCase()
+        ? value.charAt(0) + value.slice(1).toLocaleLowerCase()
+        : value;
+}
+
 function validCommand(value: unknown): value is Command {
   if (object(value) && 'exitEvidence' in value) {
     const { exitEvidence, ...rest } = value;
@@ -508,7 +527,15 @@ export class OnboardingService {
     return delivered.rows.length ? this.advance(sql, id, true) : false;
   }
 
-  async capture(context: FactContext, input: unknown): Promise<CaptureResult> {
+  // Lenient captures come from the server's own interpreter. They keep the
+  // details the user's words support and drop the rest, so one unverifiable
+  // item does not lose the whole turn. Strict captures (the realtime model's
+  // tool calls) reject instead, which triggers their repair.
+  async capture(
+    context: FactContext,
+    input: unknown,
+    { lenient = false }: { lenient?: boolean } = {},
+  ): Promise<CaptureResult> {
     // Working memory is optional and never invalidates an otherwise valid capture.
     const {
       memory,
@@ -661,12 +688,16 @@ export class OnboardingService {
           : normalized(text).includes(normalized(part))
             ? part
             : undefined;
+      // Saving a call transcript bumps the revision without changing
+      // onboarding, so an interpretation that started before it is still
+      // current unless onboarding itself changed.
       const onboardingUnchanged =
         !!context.callId &&
-        command.changes.length > 0 &&
-        !command.askOnboarding &&
-        !command.preferences?.length &&
-        !command.exitEvidence &&
+        (lenient ||
+          (command.changes.length > 0 &&
+            !command.askOnboarding &&
+            !command.preferences?.length &&
+            !command.exitEvidence)) &&
         command.expectedRevision >= conversation.onboarding_revision &&
         command.expectedRevision <= conversation.revision;
       if (
@@ -674,15 +705,39 @@ export class OnboardingService {
         !onboardingUnchanged
       )
         return reject('stale');
+      // Set when a lenient capture drops something not already saved, so the
+      // guide can ask the user to confirm it.
+      let unverified = false;
+      const quoted = (e: string) => sources.some((s) => quote(s.content, e));
+      const same = (a: string | null | undefined, b: string | null) =>
+        !!a &&
+        !!b &&
+        a.trim().toLocaleLowerCase() === b.trim().toLocaleLowerCase();
       if (update) {
-        const evidence = [
-          ...update.tasks.map((t) => t.evidence),
-          update.noTasksEvidence,
-        ].filter((v): v is string => !!v);
-        if (evidence.some((e) => !sources.some((s) => quote(s.content, e))))
-          return reject('invalid');
-        if (update.tasks.some((t) => !quote(t.evidence, t.value)))
-          return reject('invalid');
+        const tasks = update.tasks.filter(
+          (t) => quoted(t.evidence) && quote(t.evidence, t.value),
+        );
+        const noTasks =
+          update.noTasksEvidence && quoted(update.noTasksEvidence)
+            ? update.noTasksEvidence
+            : null;
+        if (
+          tasks.length < update.tasks.length ||
+          noTasks !== update.noTasksEvidence
+        ) {
+          if (!lenient) return reject('invalid');
+          unverified ||=
+            noTasks !== update.noTasksEvidence ||
+            update.tasks.some(
+              (t) =>
+                !tasks.includes(t) &&
+                !state.intake?.tasks.some((saved) => same(saved, t.value)),
+            );
+          update.tasks = tasks;
+          update.noTasksEvidence = noTasks;
+          // Never let a dropped replacement clear the saved list.
+          update.replaceTasks &&= tasks.length > 0;
+        }
       }
       const changes: (Change & { source: Source })[] = [];
       for (const change of command.changes) {
@@ -691,13 +746,22 @@ export class OnboardingService {
           const evidence = quote(candidate.content, change.evidence);
           if (!evidence) continue;
           const value =
-            change.value === null ? null : quote(evidence, change.value);
+            change.value === null
+              ? null
+              : (quote(evidence, change.value) ??
+                (change.goal === 'helpRequest'
+                  ? undefined
+                  : spelledName(evidence, change.value)));
           if (value !== undefined) {
             match = { ...change, evidence, value, source: candidate };
             break;
           }
         }
-        if (!match) return reject('invalid');
+        if (!match) {
+          if (!lenient) return reject('invalid');
+          unverified ||= !same(state.facts[change.goal].value, change.value);
+          continue;
+        }
         changes.push(match);
       }
       const preferences = (command.preferences ?? []).map((p) => ({
@@ -706,14 +770,20 @@ export class OnboardingService {
           (candidate) => quote(candidate.content, p.evidence) !== undefined,
         ),
       }));
-      if (preferences.some((p) => p.sourceIndex < 0)) return reject('invalid');
-      if (
-        command.exitEvidence &&
-        !sources.some((candidate) =>
-          quote(candidate.content, command.exitEvidence!),
-        )
-      )
-        return reject('invalid');
+      if (preferences.some((p) => p.sourceIndex < 0)) {
+        if (!lenient) return reject('invalid');
+        unverified = true;
+        preferences.splice(
+          0,
+          preferences.length,
+          ...preferences.filter((p) => p.sourceIndex >= 0),
+        );
+      }
+      if (command.exitEvidence && !quoted(command.exitEvidence)) {
+        if (!lenient) return reject('invalid');
+        unverified = true;
+        command.exitEvidence = null;
+      }
       notes = (Array.isArray(memory) ? memory.slice(0, 3) : []).flatMap(
         (note: unknown) => {
           if (
@@ -826,9 +896,7 @@ export class OnboardingService {
       const goal = this.nextGoal(
         state,
         askOnboarding,
-        (command.preferences ?? [])
-          .filter((p) => p.outcome === 'open')
-          .map((p) => p.goal),
+        preferences.filter((p) => p.outcome === 'open').map((p) => p.goal),
       );
       for (const assessed of sources)
         await sql.query(
@@ -849,6 +917,7 @@ export class OnboardingService {
         state,
         permittedGoal: goal,
         exitRequested: !!command.exitEvidence,
+        ...(unverified ? { unverified } : {}),
       };
     });
     if (result.code !== 'committed' || !notes.length) return result;
