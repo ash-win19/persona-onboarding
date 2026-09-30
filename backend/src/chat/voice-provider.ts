@@ -2,6 +2,9 @@ import { captureOnboardingTool } from './model.js';
 import WebSocket from 'ws';
 
 export const VOICE_PROVIDER = Symbol('VOICE_PROVIDER');
+export const DEFAULT_REALTIME_MODEL = 'gpt-realtime-2.1-mini';
+// gpt-realtime-mini and earlier reject `reasoning` with a 400.
+const REASONING_MODEL = /^gpt-realtime-[2-9]/;
 export type VoiceEvent = {
   type: string;
   event_id?: string;
@@ -77,9 +80,12 @@ export class OpenAIVoiceProvider implements VoiceProvider {
         instructions,
         output_modalities: ['audio'],
         max_output_tokens: 900,
+        ...(REASONING_MODEL.test(this.model)
+          ? { reasoning: { effort: 'low' } }
+          : {}),
         audio: {
           input: {
-            transcription: { model: 'gpt-4o-mini-transcribe' },
+            transcription: { model: 'gpt-transcribe' },
             turn_detection: {
               type: 'server_vad',
               create_response: false,
