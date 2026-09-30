@@ -160,39 +160,108 @@
 .calendar-connect-button:disabled {
   opacity: 0.5;
 }
-.onboarding-calendar {
-  margin: 0 0 12px;
-  padding: 14px 16px;
-  color: var(--foreground);
-  background: var(--background);
-  border-color: var(--line);
-}
-.onboarding-calendar .calendar-connection {
-  gap: 12px;
-}
-.onboarding-calendar .calendar-identity span {
-  font-size: 12px;
-}
-.onboarding-calendar .calendar-connect-button {
-  padding: 9px 12px;
-  font-size: 12px;
-}
-.onboarding-calendar .meeting-list {
-  max-height: min(240px, 25dvh);
-}
 .onboarding-integrations {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
   align-items: start;
-  gap: 10px;
-  margin: 0 0 12px;
+  gap: 8px;
+  margin: 0 0 10px;
 }
-.onboarding-integrations > .onboarding-calendar {
-  margin: 0;
+
+/* Compact onboarding integration: logo and product name as one lockup, a
+   single line of detail under the name, and a small action. */
+.integration-tile {
+  min-width: 0;
+  padding: 10px 10px 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--background);
+  color: var(--foreground);
+  transition: border-color 160ms ease;
+}
+.integration-tile:hover {
+  border-color: var(--line-strong);
+}
+.integration-tile-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.integration-tile-text {
+  flex: 1;
   min-width: 0;
 }
-.onboarding-integrations .calendar-identity strong {
+.integration-lockup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.integration-lockup img {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+}
+.integration-lockup strong {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 20px;
   white-space: nowrap;
+}
+.integration-tile-detail {
+  margin: 1px 0 0 26px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.integration-tile-action {
+  flex-shrink: 0;
+  height: 30px;
+  padding: 0 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 12.5px;
+  font-weight: 500;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease;
+}
+.integration-tile-action:hover:not(:disabled) {
+  background: var(--soft);
+  border-color: var(--step-300);
+}
+.integration-tile-action:disabled {
+  opacity: 0.5;
+}
+.integration-tile-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 0 4px;
+  color: #27634a;
+  font-size: 12px;
+  font-weight: 500;
+}
+.integration-tile-status svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2.2;
+}
+.integration-tile-note {
+  margin: 8px 0 0 26px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.integration-tile .meeting-list {
+  margin-top: 10px;
+  max-height: min(240px, 25dvh);
 }
 @media (max-width: 1050px) {
   .dashboard-page .connections-page {
@@ -202,14 +271,6 @@
 @media (max-width: 600px) {
   .connections-page > .integration-card {
     padding: 22px;
-  }
-  .onboarding-calendar .calendar-connection {
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: center;
-  }
-  .onboarding-calendar .calendar-identity {
-    flex: 1 1 160px;
   }
 }
 

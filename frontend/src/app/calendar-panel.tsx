@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
+import { IntegrationTile } from "./integration-tile";
 
 type Meeting = {
   id: string;
@@ -295,6 +296,153 @@ export function CalendarPanel({
           : "Connect Google Calendar"}
     </button>
   );
+  const meetingList = meetings.length > 0 && (
+    <details className="meeting-list" open>
+      <summary>
+        {meetings.length === 1 ? "Your meeting" : "Your recent meetings"}
+      </summary>
+      {meetings.map((meeting) => (
+        <article key={meeting.id} className="meeting-card">
+          <div className="meeting-heading">
+            <h3>{meeting.input.title || "Meeting details"}</h3>
+            <span
+              className={
+                meeting.status === "completed"
+                  ? "calendar-connected"
+                  : "meeting-progress"
+              }
+            >
+              {meeting.status === "completed"
+                ? "Scheduled"
+                : ["queued", "running"].includes(meeting.status)
+                  ? "Scheduling…"
+                  : meeting.status === "draft"
+                    ? "Draft"
+                    : "Needs attention"}
+            </span>
+          </div>
+          <p>
+            {when(meeting)} · {meeting.input.durationMinutes} minutes
+          </p>
+          <p>
+            Guests:{" "}
+            {meeting.input.attendees.join(", ") ||
+              "Add an email address in chat"}
+          </p>
+          {meeting.organizer && <p>Organizer: {meeting.organizer}</p>}
+          <p role="status">
+            {meeting.status === "completed"
+              ? "Google Calendar accepted the request to email the invitations."
+              : meeting.status === "connection_required"
+                ? "Connect Calendar to continue your saved request."
+                : meeting.status === "draft"
+                  ? "Continue in chat to finish the meeting details."
+                  : meeting.errorCode
+                    ? messages[meeting.errorCode] ||
+                      "Could not verify completion. Check the saved event before retrying."
+                    : meeting.step === "sending_invites"
+                      ? "Requesting the email invitations…"
+                      : "Preparing the event and Google Meet link…"}
+          </p>
+          <div className="meeting-actions">
+            {meeting.eventUrl && (
+              <a
+                href={meeting.eventUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Open in Calendar
+              </a>
+            )}
+            {meeting.meetUrl && (
+              <a
+                href={meeting.meetUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Join Google Meet
+              </a>
+            )}
+            {[
+              "attention_required",
+              "reconnect_needed",
+              "connection_required",
+            ].includes(meeting.status) && (
+              <button
+                className="secondary-button"
+                disabled={
+                  !enabled ||
+                  busy === meeting.id ||
+                  state.calendar.status !== "connected"
+                }
+                onClick={() => void resume(meeting)}
+              >
+                {busy === meeting.id ? "Checking…" : "Check and continue"}
+              </button>
+            )}
+            {[
+              "draft",
+              "connection_required",
+              "attention_required",
+              "reconnect_needed",
+            ].includes(meeting.status) && (
+              <button
+                className="secondary-button"
+                disabled={!enabled || busy === meeting.id}
+                onClick={() => void dismiss(meeting)}
+                title="Stop tracking this request. Existing Google events and invitations remain in Calendar."
+              >
+                {meeting.status === "draft" ||
+                meeting.status === "connection_required"
+                  ? "Discard request"
+                  : "Stop tracking"}
+              </button>
+            )}
+          </div>
+          {["attention_required", "reconnect_needed"].includes(
+            meeting.status,
+          ) && (
+            <p className="calendar-note">
+              Stopping tracking leaves any Google event and invitations in
+              place.
+            </p>
+          )}
+        </article>
+      ))}
+    </details>
+  );
+  if (onboarding && !settings) {
+    const reconnect = state.calendar.status === "reconnect_needed";
+    return (
+      <IntegrationTile
+        label="Google Calendar and meetings"
+        className="calendar-tile"
+        logo="/calendar.svg"
+        name="Google Calendar"
+        detail={state.calendar.email ?? "Schedules meetings and invites"}
+        connected={connected}
+        action={{
+          text: reconnect ? "Reconnect" : "Connect",
+          name: reconnect ? "Reconnect Calendar" : "Connect Google Calendar",
+          busy: connecting,
+          disabled: !enabled || connecting || !state.calendar.available,
+          onClick: () => void connect(),
+        }}
+      >
+        {!state.calendar.available && (
+          <p className="integration-tile-note">
+            Calendar scheduling isn&apos;t enabled yet.
+          </p>
+        )}
+        {notice && (
+          <p className="integration-tile-note" role="status">
+            {notice}
+          </p>
+        )}
+        {meetingList}
+      </IntegrationTile>
+    );
+  }
   return (
     <section
       className={
@@ -366,121 +514,7 @@ export function CalendarPanel({
           {notice}
         </p>
       )}
-      {meetings.length > 0 && (
-        <details className="meeting-list" open>
-          <summary>
-            {meetings.length === 1 ? "Your meeting" : "Your recent meetings"}
-          </summary>
-          {meetings.map((meeting) => (
-            <article key={meeting.id} className="meeting-card">
-              <div className="meeting-heading">
-                <h3>{meeting.input.title || "Meeting details"}</h3>
-                <span
-                  className={
-                    meeting.status === "completed"
-                      ? "calendar-connected"
-                      : "meeting-progress"
-                  }
-                >
-                  {meeting.status === "completed"
-                    ? "Scheduled"
-                    : ["queued", "running"].includes(meeting.status)
-                      ? "Scheduling…"
-                      : meeting.status === "draft"
-                        ? "Draft"
-                        : "Needs attention"}
-                </span>
-              </div>
-              <p>
-                {when(meeting)} · {meeting.input.durationMinutes} minutes
-              </p>
-              <p>
-                Guests:{" "}
-                {meeting.input.attendees.join(", ") ||
-                  "Add an email address in chat"}
-              </p>
-              {meeting.organizer && <p>Organizer: {meeting.organizer}</p>}
-              <p role="status">
-                {meeting.status === "completed"
-                  ? "Google Calendar accepted the request to email the invitations."
-                  : meeting.status === "connection_required"
-                    ? "Connect Calendar to continue your saved request."
-                    : meeting.status === "draft"
-                      ? "Continue in chat to finish the meeting details."
-                      : meeting.errorCode
-                        ? messages[meeting.errorCode] ||
-                          "Could not verify completion. Check the saved event before retrying."
-                        : meeting.step === "sending_invites"
-                          ? "Requesting the email invitations…"
-                          : "Preparing the event and Google Meet link…"}
-              </p>
-              <div className="meeting-actions">
-                {meeting.eventUrl && (
-                  <a
-                    href={meeting.eventUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Open in Calendar
-                  </a>
-                )}
-                {meeting.meetUrl && (
-                  <a
-                    href={meeting.meetUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Join Google Meet
-                  </a>
-                )}
-                {[
-                  "attention_required",
-                  "reconnect_needed",
-                  "connection_required",
-                ].includes(meeting.status) && (
-                  <button
-                    className="secondary-button"
-                    disabled={
-                      !enabled ||
-                      busy === meeting.id ||
-                      state.calendar.status !== "connected"
-                    }
-                    onClick={() => void resume(meeting)}
-                  >
-                    {busy === meeting.id ? "Checking…" : "Check and continue"}
-                  </button>
-                )}
-                {[
-                  "draft",
-                  "connection_required",
-                  "attention_required",
-                  "reconnect_needed",
-                ].includes(meeting.status) && (
-                  <button
-                    className="secondary-button"
-                    disabled={!enabled || busy === meeting.id}
-                    onClick={() => void dismiss(meeting)}
-                    title="Stop tracking this request. Existing Google events and invitations remain in Calendar."
-                  >
-                    {meeting.status === "draft" ||
-                    meeting.status === "connection_required"
-                      ? "Discard request"
-                      : "Stop tracking"}
-                  </button>
-                )}
-              </div>
-              {["attention_required", "reconnect_needed"].includes(
-                meeting.status,
-              ) && (
-                <p className="calendar-note">
-                  Stopping tracking leaves any Google event and invitations in
-                  place.
-                </p>
-              )}
-            </article>
-          ))}
-        </details>
-      )}
+      {meetingList}
     </section>
   );
 }

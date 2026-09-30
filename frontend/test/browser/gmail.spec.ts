@@ -70,7 +70,7 @@ test("a delayed Gmail status cannot restore account details after a server-side 
   });
   await page.goto("/onboarding");
   const card = page.getByRole("region", { name: "Gmail connection" });
-  await expect(card.getByText("Connected as old@example.test")).toBeVisible();
+  await expect(card.getByText("old@example.test")).toBeVisible();
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect.poll(() => reads).toBe(2);
   conversationId = "new-conversation";
@@ -79,7 +79,7 @@ test("a delayed Gmail status cannot restore account details after a server-side 
     card.getByRole("button", { name: "Connect Gmail", exact: true }),
   ).toBeVisible();
   releaseOld();
-  await expect(page.getByText("Connected as old@example.test")).toHaveCount(0);
+  await expect(page.getByText("old@example.test")).toHaveCount(0);
   await expect(
     card.getByRole("button", { name: "Connect Gmail", exact: true }),
   ).toBeVisible();

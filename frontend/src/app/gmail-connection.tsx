@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChatIcon } from "./chat-icons";
+import { IntegrationTile } from "./integration-tile";
 import Image from "next/image";
 import localFont from "next/font/local";
 
@@ -186,53 +187,41 @@ export function GmailConnection({
     (!introduced && gmail.status === "not_connected" && !gmail.attempt)
   )
     return null;
-  if (card)
+  if (card) {
+    const reconnect = gmail.status === "reconnect_needed";
     return (
-      <section
-        className="calendar-panel onboarding-calendar gmail-card"
-        aria-label="Gmail connection"
+      <IntegrationTile
+        label="Gmail connection"
+        className="gmail-card"
+        logo="/gmail.svg"
+        name="Gmail"
+        detail={
+          gmail.status === "connected" && gmail.email
+            ? gmail.email
+            : "Confirms your email address"
+        }
+        connected={gmail.status === "connected"}
+        action={{
+          text: reconnect ? "Reconnect" : "Connect",
+          name: reconnect ? "Reconnect Gmail" : "Connect Gmail",
+          busy,
+          disabled: !enabled || busy || !gmail.available,
+          onClick: () => void connect(),
+        }}
       >
-        <div className="calendar-connection">
-          <div className="calendar-identity">
-            <Image src="/gmail.svg" alt="" width={24} height={24} />
-            <div>
-              <strong>Gmail</strong>
-              <span>
-                {gmail.status === "connected" && gmail.email
-                  ? `Connected as ${gmail.email}`
-                  : "Only confirms your email address."}
-              </span>
-            </div>
-          </div>
-          {gmail.status === "connected" ? (
-            <span className="connection-badge is-connected">Connected</span>
-          ) : (
-            <button
-              type="button"
-              className="secondary-button calendar-connect-button"
-              disabled={!enabled || busy || !gmail.available}
-              onClick={() => void connect()}
-            >
-              {busy
-                ? "Connecting…"
-                : gmail.status === "reconnect_needed"
-                  ? "Reconnect Gmail"
-                  : "Connect Gmail"}
-            </button>
-          )}
-        </div>
         {!gmail.available && (
-          <p className="calendar-note">
-            Gmail connection setup is not available yet.
+          <p className="integration-tile-note">
+            Gmail connection isn&apos;t available yet.
           </p>
         )}
         {gmail.unavailable && (
-          <p className="calendar-note">
-            Could not verify access just now. Try again shortly.
+          <p className="integration-tile-note">
+            Couldn&apos;t verify access just now. Try again shortly.
           </p>
         )}
-      </section>
+      </IntegrationTile>
     );
+  }
   return (
     <div className={`gmail-controls ${gmailFont.className}`}>
       {gmail.status !== "connected" && (
