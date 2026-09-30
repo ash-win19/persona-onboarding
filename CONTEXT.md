@@ -9,7 +9,7 @@ The personal assistant that the user names and talks to during onboarding.
 _Avoid_: User, customer
 
 **Onboarding agent**:
-The assistant role responsible for introducing a new user to Persona, collecting onboarding information and preparing their first task. Substantive task work belongs to the main experience.
+The assistant role responsible for introducing a new user to Persona, collecting onboarding information and helping with their first task. It can provide useful drafts and answers while setup is still incomplete.
 _Avoid_: General-purpose assistant
 
 **User**:

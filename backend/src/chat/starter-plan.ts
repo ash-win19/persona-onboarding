@@ -6,14 +6,44 @@ export const intakeInputSchema = z
   .object({
     tasks: z
       .array(
-        z.object({ value: z.string().min(1).max(2000), evidence }).strict(),
+        z
+          .object({
+            value: z
+              .string()
+              .min(1)
+              .max(2000)
+              .describe(
+                'Copy a contiguous phrase from evidence exactly. Do not summarize or combine separate phrases.',
+              ),
+            evidence,
+          })
+          .strict(),
       )
       .max(12),
-    replaceTasks: z.boolean(),
-    noTasksEvidence: evidence.nullable(),
+    replaceTasks: z
+      .boolean()
+      .describe(
+        'False unless the user explicitly replaces or removes saved tasks. A follow-up or initial task is not a replacement.',
+      ),
+    noTasksEvidence: evidence
+      .nullable()
+      .describe(
+        'Null unless the user explicitly says they have no tasks or need no help, e.g. "nothing yet" or "I do not need help yet". "No call", "Gmail later", "Gmail is connected", and missing tasks do NOT mean no tasks. Never clear existing tasks for those statements.',
+      ),
     clarification: z.string().min(1).max(400).nullable(),
-    stopQuestionsEvidence: evidence.nullable(),
-    plan: z.array(z.string().min(1).max(400)).min(1).max(3).nullable(),
+    stopQuestionsEvidence: evidence
+      .nullable()
+      .describe(
+        'Null unless the user asks to stop questions or expresses frustration about repeated questions. A declined call or postponed Gmail alone does not qualify.',
+      ),
+    plan: z
+      .array(z.string().min(1).max(400))
+      .min(1)
+      .max(3)
+      .nullable()
+      .describe(
+        'Next useful task actions only. Never include setup steps, name confirmation, Gmail connection, calls, or unsupported scheduling/sending/automation. Continue any draft already produced. Null when unchanged or no task was supplied.',
+      ),
     acceptPlan: z
       .object({ id: z.string().uuid(), evidence })
       .strict()
@@ -84,12 +114,14 @@ export function updateIntake(
     next.noTasks !== current.noTasks;
   const steps = next.noTasks
     ? ['Your Persona is ready whenever you have something you want help with.']
-    : (input?.plan ??
-      (changed || !current.plan
-        ? next.tasks
-            .slice(0, 3)
-            .map((t, i) => `${i ? 'Then work on' : 'Start with'}: ${t}`)
-        : current.plan.steps));
+    : !next.tasks.length
+      ? []
+      : (input?.plan ??
+        (changed || !current.plan
+          ? next.tasks
+              .slice(0, 3)
+              .map((t, i) => `${i ? 'Then work on' : 'Start with'}: ${t}`)
+          : current.plan.steps));
   if (
     steps.length &&
     (changed ||

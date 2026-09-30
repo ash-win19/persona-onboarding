@@ -218,18 +218,64 @@ describe('onboarding progress and accepted plan', () => {
       [s.id],
     );
     command = {
-      changes: names,
+      changes: [
+        ...names,
+        {
+          goal: 'helpRequest',
+          action: 'set',
+          value: 'nothing yet',
+          evidence: 'nothing yet',
+        },
+      ],
       intake: { ...blank(), noTasksEvidence: 'nothing yet' },
     };
     const reply = await s.send(
       'Call yourself Atom. I am Ashwin. I have nothing yet.',
     );
+    expect(reply.body.onboarding.facts.helpRequest.value).toBeNull();
     const intake = reply.body.onboarding.intake;
     expect(intake).toMatchObject({ tasks: [], noTasks: true, ready: true });
     expect(intake.plan.steps[0]).toContain('whenever');
     await s
       .post('/onboarding/plan', { action: 'accept', id: intake.plan.id })
       .expect(200);
+  });
+
+  it('keeps a validated task quote when the model paraphrases its value', async () => {
+    const s = await session();
+    command = {
+      assistance: 'Subject: Test email\n\nBody: Hello, this is a test.',
+      intake: {
+        ...blank(),
+        tasks: [
+          { value: 'Write a sample message', evidence: 'Draft a test email' },
+        ],
+        plan: ['Review the draft.'],
+      },
+    };
+    const reply = await s.send('Draft a test email');
+    expect(reply.body.operation.status).toBe('completed');
+    expect(reply.body.onboarding.intake.tasks).toEqual(['Draft a test email']);
+    expect(reply.body.turns.at(-1).content).toContain('Subject: Test email');
+  });
+
+  it('does not turn a pure setup deferral into an extra generated question', async () => {
+    const s = await session();
+    command = {
+      assistance: 'What would you like to call me?',
+      preferences: [
+        {
+          goal: 'gmail',
+          outcome: 'deferred',
+          evidence: 'Not Gmail now, please.',
+        },
+      ],
+      intake: { ...blank(), plan: ['Choose names', 'Connect Gmail'] },
+    };
+    const reply = await s.send('Not Gmail now, please.');
+    expect(reply.body.operation.status).toBe('completed');
+    expect(reply.body.turns.at(-1).content).not.toContain('?');
+    expect(reply.body.onboarding.intake.plan).toBeNull();
   });
 
   it('caps task clarification across turns and keeps a saved task', async () => {
@@ -656,6 +702,161 @@ describe('onboarding progress and accepted plan', () => {
     expect((await s.read()).body.onboarding.facts.userName.value).toBe(
       'Jordan',
     );
+    await call.end();
+  });
+  it('keeps an onboarding tool continuation on the saved reply instead of stalling or ad-libbing', async () => {
+    const s = await session();
+    voiceCommand = (input) => ({
+      ...spokenName(input, 'Taylor'),
+      assistance: 'Subject: Test email\n\nBody: Hi, this is a test email.',
+    });
+    const call = await startCall(s);
+    await speech('continuation-name', 'Call me Taylor. Draft a test email.');
+    await vi.waitFor(() =>
+      expect(sent.filter((e) => e.type === 'response.create')).toHaveLength(1),
+    );
+    await emit({
+      type: 'response.created',
+      response: {
+        id: 'continuation',
+        status: 'in_progress',
+        metadata: { generation: '1', sourceItem: 'continuation-name' },
+      },
+    });
+    await emit({
+      type: 'response.function_call_arguments.done',
+      response_id: 'continuation',
+      call_id: 'continuation-tool',
+      name: 'capture_onboarding',
+      arguments: JSON.stringify({
+        expectedRevision: (await s.read()).body.revision,
+        askOnboarding: true,
+        changes: [],
+        preferences: [],
+      }),
+    });
+    await emit({
+      type: 'response.done',
+      response: { id: 'continuation', status: 'completed' },
+    });
+    await vi.waitFor(() =>
+      expect(sent.filter((e) => e.type === 'response.create')).toHaveLength(2),
+    );
+    expect(
+      sent.filter((e) => e.type === 'response.create').at(-1),
+    ).toMatchObject({
+      response: {
+        tool_choice: 'none',
+        instructions: expect.stringContaining('Subject: Test email'),
+      },
+    });
+    await call.end();
+  });
+  it('delivers useful work before setup and preserves current-plan approval with a prefixed draft', async () => {
+    const s = await session();
+    const assistance =
+      'Subject: Test email\n\nBody: Hey bro, this is a test email.';
+    command = {
+      assistance,
+      intake: {
+        ...blank(),
+        tasks: [
+          { value: 'draft a test email', evidence: 'draft a test email' },
+        ],
+      },
+    };
+    const first = await s.send('Please draft a test email.');
+    expect(first.body.turns.at(-1).content).toContain(assistance);
+    expect(first.body.onboarding.facts.userName.value).toBeNull();
+    expect(first.body.journey.entered).toBe(false);
+    await db.query(
+      'UPDATE conversations SET gmail_verified_at=now() WHERE id=$1',
+      [s.id],
+    );
+    command = {
+      changes: names,
+      assistance,
+      intake: { ...blank(), plan: ['Review the test email draft.'] },
+    };
+    const next = await s.send(
+      'Call yourself Atom. I am Ashwin. Show the draft again.',
+    );
+    expect(next.body.turns.at(-1).content).toMatch(/^Subject: Test email/);
+    expect(next.body.onboarding.intake.plan.presented).toBe(true);
+    command = {
+      intake: {
+        ...blank(),
+        acceptPlan: {
+          id: next.body.onboarding.intake.plan.id,
+          evidence: 'Yes',
+        },
+      },
+    };
+    expect((await s.send('Yes.')).body.journey.entered).toBe(true);
+  });
+  it('preserves known tasks and identity when a follow-up repeats stale proposals', async () => {
+    const { s } = await ready();
+    command = {
+      changes: [
+        {
+          goal: 'userName',
+          action: 'set',
+          value: 'Ashwin',
+          evidence: 'I am Ashwin',
+        },
+      ],
+      assistance: 'Here is the grocery list: milk, bread and eggs.',
+      intake: {
+        ...blank(),
+        tasks: [{ value: tasks[0].value, evidence: 'old unavailable quote' }],
+        replaceTasks: true,
+      },
+    };
+    const response = await s.send('Just show the list.');
+    expect(response.body.onboarding.intake.tasks).toEqual(
+      tasks.map((t) => t.value),
+    );
+    expect(response.body.onboarding.facts.userName.value).toBe('Ashwin');
+    expect(response.body.turns.at(-1).content).toContain(
+      'milk, bread and eggs',
+    );
+    expect(response.body.turns.at(-1).content).not.toContain(
+      'Does this plan work for you?',
+    );
+    expect(response.body.onboarding.lastResult).toContain(
+      'milk, bread and eggs',
+    );
+  });
+  it('does not erase tasks when a no-task proposal only quotes another goal refusal', async () => {
+    const { s } = await ready();
+    command = {
+      preferences: [
+        { goal: 'voice', outcome: 'declined', evidence: 'No call, thanks.' },
+      ],
+      intake: { ...blank(), noTasksEvidence: 'No call, thanks.' },
+    };
+    const response = await s.send('No call, thanks.');
+    expect(response.body.onboarding.intake.tasks).toEqual(
+      tasks.map((t) => t.value),
+    );
+    expect(response.body.onboarding.intake.noTasks).toBe(false);
+  });
+  it('automatically repairs a rejected speech capture once before offering manual retry', async () => {
+    const s = await session();
+    let attempts = 0;
+    voiceCommand = (input) => {
+      attempts++;
+      return spokenName(input, attempts === 1 ? 'Invented' : 'Taylor');
+    };
+    const call = await startCall(s);
+    await speech('repair-evidence', 'Call me Taylor.');
+    await vi.waitFor(async () =>
+      expect((await s.read()).body.onboarding.facts.userName.value).toBe(
+        'Taylor',
+      ),
+    );
+    expect(attempts).toBe(2);
+    expect(JSON.stringify(sent)).not.toContain('Retry saved speech');
     await call.end();
   });
 });
