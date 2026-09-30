@@ -170,11 +170,15 @@ describe('bounded onboarding', () => {
     expect((await s.read()).body.onboarding.mode).toBe('onboarding');
   });
 
-  it('rejects forged exit evidence and mode writes without mutating the phase', async () => {
+  it('drops forged exit evidence and rejects mode writes without mutating the phase', async () => {
     const s = await session();
     command = { exitEvidence: 'Skip setup' };
     await s.send('Hello.');
-    expect(captured.code).toBe('invalid');
+    expect(captured).toMatchObject({
+      code: 'committed',
+      exitRequested: false,
+      unverified: true,
+    });
     command = { mode: 'helping' };
     await s.send('Hello again.');
     expect(captured.code).toBe('invalid');

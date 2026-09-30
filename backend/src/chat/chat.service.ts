@@ -245,6 +245,7 @@ export class ChatService {
               this.onboarding.capture(
                 { conversationId: conversation.id, submissionId, attempt },
                 scheduling ? captureWhileScheduling(command) : command,
+                { lenient: true },
               ),
             ...(scheduling
               ? {

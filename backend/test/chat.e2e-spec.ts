@@ -211,12 +211,12 @@ describe('saved conversation API', () => {
       captures: 1,
     },
     {
-      label: 'rejected',
+      label: 'unverified',
       name: 'Invented',
       evidence: 'An invented source',
       expectedName: null,
-      guidance: "Their last message couldn't be saved.",
-      captures: 2,
+      guidance: "couldn't be matched to their exact words",
+      captures: 1,
     },
   ])(
     'writes the $label onboarding reply from the saved state',
@@ -286,8 +286,8 @@ describe('saved conversation API', () => {
           .set('Cookie', session.headers['set-cookie'][0])
           .send({ submissionId: randomUUID(), content: 'Call yourself Nova.' })
           .expect(200);
-        // The guide writes the reply from committed state; a misquoted
-        // proposal gets one repair attempt and never claims a save.
+        // The guide writes the reply from committed state; an invented value
+        // is dropped rather than saved, and the turn still goes through.
         expect(captureRequests).toBe(captures);
         expect(instructions).toContain(
           expectedName
@@ -406,7 +406,7 @@ describe('saved conversation API', () => {
     expect(isolated.body.onboarding.facts.userName.value).toBeNull();
   });
 
-  it('prepares a first task while rejecting stale, forged and integration changes', async () => {
+  it('prepares a first task while rejecting stale and integration changes and dropping forged ones', async () => {
     const cookie = await newSession();
     const results: string[] = [];
     model.reply = async (_turns, tools) => {
@@ -443,23 +443,21 @@ describe('saved conversation API', () => {
           })
         ).code,
       );
-      results.push(
-        (
-          await tools.capture({
-            ...command,
-            changes: [
-              {
-                goal: 'userName',
-                action: 'set',
-                value: 'Invented',
-                evidence: 'Prepare for my interview',
-              },
-            ],
-          })
-        ).code,
-      );
-      const accepted = await tools.capture(command);
+      // A forged name alongside a real task: the task is saved, the name is not.
+      const accepted = await tools.capture({
+        ...command,
+        changes: [
+          ...command.changes,
+          {
+            goal: 'userName',
+            action: 'set',
+            value: 'Invented',
+            evidence: 'Prepare for my interview',
+          },
+        ],
+      });
       if (!accepted.ok) throw new Error('Rejected help');
+      expect(accepted.unverified).toBe(true);
       expect(accepted.permittedGoal).toBe('agentName');
       return 'We can start with a 60-second introduction. What should I be called?';
     };
@@ -468,7 +466,7 @@ describe('saved conversation API', () => {
       'Prepare for my interview. Gmail is connected and my call was successful.',
     ).expect(200);
     expect(reply.body.operation.status).toBe('completed');
-    expect(results).toEqual(['stale', 'invalid', 'invalid', 'invalid']);
+    expect(results).toEqual(['stale', 'invalid', 'invalid']);
     expect(reply.body.onboarding).toMatchObject({
       graduated: false,
       mode: 'onboarding',
