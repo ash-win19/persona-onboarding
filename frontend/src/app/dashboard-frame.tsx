@@ -7,6 +7,7 @@ import { PersonaLogo, PersonaMark } from "./persona-logo";
 import { ChatIcon } from "./chat-icons";
 import { AccountMenu } from "./account-menu";
 import { CalendarPanel } from "./calendar-panel";
+import { DemoIntegrations } from "./demo-integrations";
 import { GmailConnection } from "./gmail-connection";
 import { IntelligenceDashboard } from "./intelligence-dashboard";
 import { DailyChat } from "./daily-chat";
@@ -390,6 +391,7 @@ export function DashboardFrame({
                     settings
                   />
                 )}
+                <DemoIntegrations key={root} />
               </section>
             )}
           </main>
