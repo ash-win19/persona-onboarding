@@ -191,11 +191,14 @@ describe('personal intelligence workspace', () => {
       submissionId: randomUUID(),
       content: 'Hello',
     }).expect(200);
-    expect(daily.mock.calls[0]?.[1]).toMatchObject({
-      firstTask: null,
-      tasks: null,
-      starterPlan: plan.join('\n'),
-    });
+    expect(daily.mock.calls[0]).toEqual([
+      expect.any(Array),
+      expect.objectContaining({
+        firstTask: null,
+        tasks: null,
+        starterPlan: plan.join('\n'),
+      }),
+    ]);
   });
   it('retains failed messages for retry without duplicates and blocks further messages until resolved', async () => {
     const { cookie } = await session();
