@@ -139,18 +139,18 @@ export class Meetings implements OnModuleInit, OnModuleDestroy {
         row.status === 'completed' ? 'accepted_by_google' : null,
     };
   }
-  async list(id: string, contextKey?: string) {
+  async list(id: string, contextKey?: string, sql: Sql = this.db) {
     return (
-      await this.db.query<MeetingRow>(
+      await sql.query<MeetingRow>(
         "SELECT * FROM meeting_requests WHERE conversation_id=$1 AND status<>'abandoned' AND ($2::text IS NULL OR context_key=$2) ORDER BY created_at DESC LIMIT 20",
         [id, contextKey ?? null],
       )
     ).rows.map((row) => this.view(row));
   }
-  async state(id: string, contextKey?: string) {
+  async state(id: string, contextKey?: string, sql: Sql = this.db) {
     return {
-      calendar: await this.calendar.status(id),
-      meetings: await this.list(id, contextKey),
+      calendar: await this.calendar.status(id, sql),
+      meetings: await this.list(id, contextKey, sql),
     };
   }
   private async assertCurrent(sql: Sql, context: MeetingContext) {
@@ -161,14 +161,12 @@ export class Meetings implements OnModuleInit, OnModuleDestroy {
         owner_tab: string | null;
         owner_epoch: number;
         owner_until: Date | null;
-        graduated_at: Date | null;
       }>(
-        'SELECT id,revision,owner_tab,owner_epoch,owner_until,graduated_at FROM conversations WHERE id=$1 FOR UPDATE',
+        'SELECT id,revision,owner_tab,owner_epoch,owner_until FROM conversations WHERE id=$1 FOR UPDATE',
         [context.conversationId],
       )
     ).rows[0];
-    if (!c?.graduated_at)
-      throw new ConflictException('MAIN_EXPERIENCE_REQUIRED');
+    if (!c) throw new ConflictException('STALE_REQUEST');
     if (context.callId) {
       const live = await sql.query(
         "SELECT id FROM calls WHERE id=$1 AND conversation_id=$2 AND generation=$3 AND source_item_id=$4 AND status='active' AND owner_epoch=$5 AND deadline>now()",

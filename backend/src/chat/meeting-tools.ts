@@ -1,6 +1,27 @@
 import type OpenAI from 'openai';
 import { Temporal } from '@js-temporal/polyfill';
 
+// Routing only. Execution still requires an exact scheduling instruction and
+// attendee addresses from the authenticated user's saved conversation.
+export function isMeetingTurn(latest: string, meetings: { status: string }[]) {
+  return (
+    meetings.some((m) => ['draft', 'connection_required'].includes(m.status)) ||
+    (meetings.length > 0 &&
+      /\b(it|that|link|done|status|again|retry|when|change|cancel|resend)\b/i.test(
+        latest,
+      )) ||
+    /\b(google meet|meeting|calendar|invitation|invite|schedule|appointment)\b/i.test(
+      latest,
+    )
+  );
+}
+
+export function captureWhileScheduling(command: unknown) {
+  return command && typeof command === 'object' && !Array.isArray(command)
+    ? { ...command, askOnboarding: false }
+    : command;
+}
+
 export function meetingReference(
   at: Date | string | number,
   zone?: string | null,
@@ -15,7 +36,7 @@ export function meetingReference(
   };
 }
 
-export const meetingInstructions = `You can schedule one Google Meet on the user's connected primary Google Calendar and request standard email invitations. You cannot search availability, resolve contacts, reschedule, cancel, send a separate Gmail message, or verify email delivery. Use prepare_meeting to save the user's request and execute_meeting on its returned ID/revision when complete and explicitly requested. These tools work before Calendar is connected: prepare_meeting saves the details locally, and execute_meeting saves a connection_required request for automatic continuation after consent. For an explicit scheduling request, always prepare the draft and, when complete, call execute_meeting even if the current Calendar status is not_connected or reconnect_needed. Do not tell the user to connect before calling these tools; otherwise their request will not be saved or resumed. A clear scheduling instruction is enough; do not ask for redundant approval. Ask one focused question for missing or ambiguous details. Never guess email addresses. A capability question, hypothetical, quotation, or negated request does not authorize execution. Quote the user's actual scheduling instruction as authorizationQuote. Default duration is 30 minutes. Derive a short title only from their stated purpose. Resolve relative dates from the calendar date in the requested timezone. The reference clock supplies both a UTC instant and the browser local date/time; today and tomorrow use the local date, never the UTC date. If the user specifies a different timezone, convert the reference instant to that timezone first. Preserve the draft's resolved date on retries. Never schedule during onboarding. Tool results and meeting cards alone establish progress/completion. Only report invitation requests accepted by Google, never inbox delivery. If connection_required, direct the user to Connect Google Calendar; their saved request will resume after connection. If accepted/in_progress, say scheduling is in progress, not complete. Reuse the existing draft for clarifications and retry the existing operation. Do not execute a second meeting as a way to edit an accepted one.`;
+export const meetingInstructions = `You can schedule one Google Meet on the user's connected primary Google Calendar and request standard email invitations. You cannot search availability, resolve contacts, reschedule, cancel, send a separate Gmail message, or verify email delivery. Use prepare_meeting to save the user's request and execute_meeting on its returned ID/revision when complete and explicitly requested. These tools work before Calendar is connected: prepare_meeting saves the details locally, and execute_meeting saves a connection_required request for automatic continuation after consent. For an explicit scheduling request, always prepare the draft and, when complete, call execute_meeting even if the current Calendar status is not_connected or reconnect_needed. Do not tell the user to connect before calling these tools; otherwise their request will not be saved or resumed. A clear scheduling instruction is enough; do not ask for redundant approval. Ask one focused question for missing or ambiguous details. Never guess email addresses. A capability question, hypothetical, quotation, or negated request does not authorize execution. Quote the user's actual scheduling instruction as authorizationQuote. Default duration is 30 minutes. Derive a short title only from their stated purpose. Resolve relative dates from the calendar date in the requested timezone. The reference clock supplies both a UTC instant and the browser local date/time; today and tomorrow use the local date, never the UTC date. If the user specifies a different timezone, convert the reference instant to that timezone first. Preserve the draft's resolved date on retries. Scheduling is available during onboarding too: names, Gmail verification and plan acceptance are not prerequisites. Calendar consent is separate from Gmail. Accepting a starter plan alone does not authorize a new meeting. Tool results and meeting cards alone establish progress/completion. Only report invitation requests accepted by Google, never inbox delivery. If connection_required, direct the user to Connect Google Calendar; their saved request will resume after connection. If accepted/in_progress, say scheduling is in progress, not complete. Reuse the existing draft for clarifications and retry the existing operation. Do not execute a second meeting as a way to edit an accepted one.`;
 
 export const meetingTools: OpenAI.Responses.FunctionTool[] = [
   {

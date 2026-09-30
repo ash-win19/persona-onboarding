@@ -1,5 +1,7 @@
 import { Meetings } from './meetings.js';
 import {
+  captureWhileScheduling,
+  isMeetingTurn,
   meetingInstructions,
   meetingReference,
   meetingTools,
@@ -359,7 +361,20 @@ export class Calls implements OnModuleDestroy {
       response: {
         output_modalities: [call.reply_mode],
         ...(opening
-          ? { instructions: opening, tools: [], tool_choice: 'none' }
+          ? purpose === 'meeting_reply'
+            ? {
+                instructions: opening,
+                tools: meetingTools.map(
+                  ({ name, description, parameters }) => ({
+                    type: 'function',
+                    name,
+                    description,
+                    parameters,
+                  }),
+                ),
+                tool_choice: 'auto',
+              }
+            : { instructions: opening, tools: [], tool_choice: 'none' }
           : {}),
         ...(repair
           ? {
@@ -713,7 +728,19 @@ export class Calls implements OnModuleDestroy {
     if (source.code === 'pending' || !source.sources?.length) return true;
     runtime.intakeCaptures.add(call.generation);
     runtime.interpreting.add(call.generation);
-    void this.interpretOnboarding(call, runtime, source, context.turns);
+    const scheduling =
+      context.meetings.calendar.available &&
+      isMeetingTurn(
+        source.sources.map((item) => item.text).join('\n'),
+        context.meetings.meetings,
+      );
+    void this.interpretOnboarding(
+      call,
+      runtime,
+      source,
+      context.turns,
+      scheduling,
+    );
     return true;
   }
 
@@ -722,6 +749,7 @@ export class Calls implements OnModuleDestroy {
     runtime: LiveCall,
     source: CaptureResult,
     history: { role: string; content: string }[],
+    scheduling: boolean,
   ) {
     let command: unknown;
     try {
@@ -754,9 +782,19 @@ export class Calls implements OnModuleDestroy {
               generation: current.generation,
               sourceItem: current.source_item_id!,
             },
-            command,
+            scheduling ? captureWhileScheduling(command) : command,
           );
         if (captured?.ok) await this.refresh(current);
+        if (captured?.ok && scheduling && runtime.connection) {
+          this.response(
+            runtime.connection,
+            current,
+            undefined,
+            `${this.instructions(await this.context(current))}\nThe user's onboarding facts have been saved. Handle their current meeting request now using the meeting tools. Ask only for missing meeting details, never a setup question. Plan acceptance is not permission to create another event.`,
+            'meeting_reply',
+          );
+          return;
+        }
         const reply = captured?.ok
           ? captured.reply!
           : 'I could not save that yet. Your words are still here. Please use Retry saved speech in Your setup.';
@@ -919,9 +957,7 @@ export class Calls implements OnModuleDestroy {
     );
     return {
       state,
-      meetings: state.graduated
-        ? await this.meetings.state(call.conversation_id, 'root')
-        : null,
+      meetings: await this.meetings.state(call.conversation_id, 'root', sql),
       referenceClock: meetingReference(
         Date.now(),
         (
@@ -942,7 +978,7 @@ export class Calls implements OnModuleDestroy {
     memory,
     ...context
   }: Awaited<ReturnType<Calls['context']>>) {
-    return `${roleInstructions(context.state)}\n${context.state.graduated && context.meetings?.calendar.available ? meetingInstructions : 'Meeting scheduling tools are unavailable in the current phase or configuration.'}\n${voiceInstructions}\nThe following interpretation rules apply when making a capture proposal, not to ordinary task replies: ${interpretation}\nContext turns are one conversation across chat and calls: channel text was typed in the chat and channel voice was spoken on a call.\n${memoryPrompt(memory)}\nSaved context: ${JSON.stringify(context)}`;
+    return `${roleInstructions(context.state)}\n${context.meetings.calendar.available ? meetingInstructions : 'Meeting scheduling tools are unavailable in the current configuration.'}\n${voiceInstructions}\nThe following interpretation rules apply when making a capture proposal, not to ordinary task replies: ${interpretation}\nContext turns are one conversation across chat and calls: channel text was typed in the chat and channel voice was spoken on a call.\n${memoryPrompt(memory)}\nSaved context: ${JSON.stringify(context)}`;
   }
 
   private async check(id: string) {

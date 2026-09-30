@@ -1,3 +1,4 @@
+import { captureWhileScheduling } from './meeting-tools.js';
 import { MeetingAssistant } from './meeting-assistant.js';
 import { Diagnostics } from './diagnostics.js';
 import { ConflictException, Inject, Injectable } from '@nestjs/common';
@@ -210,46 +211,47 @@ export class ChatService {
     const memory = await this.memory.context(conversation.id);
     let reply: string;
     try {
+      const meetingContext = {
+        conversationId: conversation.id,
+        sourceId: submissionId,
+        attempt,
+        owner,
+      };
+      const deliveredTurns = snapshot.turns.filter(
+        (turn) =>
+          turn.role === 'user' || ['text', 'played'].includes(turn.delivery),
+      );
+      const scheduling =
+        !snapshot.onboarding.graduated &&
+        (await this.meetingAssistant.handles(meetingContext, deliveredTurns));
       const meetingReply = snapshot.onboarding.graduated
-        ? await this.meetingAssistant.reply(
-            {
-              conversationId: conversation.id,
-              sourceId: submissionId,
-              attempt,
-              owner,
-            },
-            snapshot.turns.filter(
-              (turn) =>
-                turn.role === 'user' ||
-                ['text', 'played'].includes(turn.delivery),
-            ),
-          )
+        ? await this.meetingAssistant.reply(meetingContext, deliveredTurns)
         : null;
       if (meetingReply) stream?.delta(meetingReply);
       reply =
         meetingReply ??
         (await this.model.reply(
-          memoryWindow(
-            snapshot.turns.filter(
-              (turn) =>
-                turn.role === 'user' ||
-                ['text', 'played'].includes(turn.delivery),
-            ),
-            memory,
-            { recent: 10, max: 40 },
-          ).map(({ role, content: text, callId }) => ({
-            role,
-            content: text,
-            callId,
-          })),
+          memoryWindow(deliveredTurns, memory, { recent: 10, max: 40 }).map(
+            ({ role, content: text, callId }) => ({
+              role,
+              content: text,
+              callId,
+            }),
+          ),
           {
             state: snapshot.onboarding,
             memory,
             capture: (command) =>
               this.onboarding.capture(
                 { conversationId: conversation.id, submissionId, attempt },
-                command,
+                scheduling ? captureWhileScheduling(command) : command,
               ),
+            ...(scheduling
+              ? {
+                  replyToTask: () =>
+                    this.meetingAssistant.reply(meetingContext, deliveredTurns),
+                }
+              : {}),
           },
           stream && ((text) => stream.delta(text)),
         ));

@@ -9,6 +9,7 @@ import { DashboardFrame } from "./dashboard-frame";
 import { DashboardHandoff } from "./dashboard-handoff";
 import { OnboardingProgress } from "./onboarding-progress";
 import { GmailConnection } from "./gmail-connection";
+import { CalendarPanel } from "./calendar-panel";
 import { AssistantMessage } from "./assistant-message";
 import { useVoice, type Control, type CallState } from "./use-voice";
 import { ChatIcon } from "./chat-icons";
@@ -1073,6 +1074,17 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
           )}
 
         <footer className="composer-area">
+          {snapshot?.control &&
+            (!snapshot.journey?.entered ||
+              pathname === "/dashboard/onboarding") && (
+              <CalendarPanel
+                key={snapshot.conversationId}
+                conversationId={snapshot.conversationId}
+                headers={headers}
+                enabled={hasControl && connection === "ready"}
+                onboarding
+              />
+            )}
           {voice.active &&
             snapshot?.turns.at(-1)?.content.includes("Retry saved speech") && (
               <div className="notice" role="alert">

@@ -61,6 +61,8 @@ export interface OnboardingTools {
   state: OnboardingState;
   memory?: MemoryContext | null;
   capture(command: unknown): Promise<CaptureResult>;
+  // Run the explicit task only after the user's onboarding facts are saved.
+  replyToTask?(): Promise<string | null>;
 }
 // Only the authenticated coordinator supplies this context, never model arguments.
 export type FactContext = { conversationId: string } & (

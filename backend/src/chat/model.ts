@@ -198,7 +198,7 @@ Capture intake on EVERY call, with empty tasks and null fields when nothing chan
 - noTasksEvidence: exact quote only if the user explicitly has no task yet, such as "nothing yet". This is a valid completed task choice. Do not require an invented task.
 - clarification: null for a clear outcome, including "draft an email", "buy groceries", "summarize DevDay" or "go to the gym". Missing execution details belong to later task work. Only ask a specific question if the desired outcome itself is unclear. Normally ask zero or one; a second is allowed only when the first answer still leaves an essential ambiguity. Never exceed state.intake.questionsAsked of 2. If a question was already asked and the user answered it, use their answer, don't rephrase the same question.
 - stopQuestionsEvidence: exact quote when the user asks to stop questions or expresses frustration about repeated questions. Then clarification MUST be null. With an unclear task, propose a starting assumption rather than asking again.
-- plan: one to three concise first actions in the proposed order for ALL saved and new tasks. Start with useful work such as a draft, list, structure or feedback; never make "confirm details" or another interview the first step. Supply it when a task is newly captured or the user changes the plan. State needed input and real capability limits. The trial cannot browse, read/send Gmail messages, or buy groceries. Google Meet scheduling with standard Calendar email invitations is a main-experience capability when Calendar is configured; do not execute it during onboarding. A current-event task can be a summary of material the user provides, never fabricated current news. Use null when the existing proposal is unchanged, especially on an acceptance message. Do not ask discovery questions inside plan steps.
+- plan: one to three concise first actions in the proposed order for ALL saved and new tasks. Start with useful work such as a draft, list, structure or feedback; never make "confirm details" or another interview the first step. Supply it when a task is newly captured or the user changes the plan. State needed input and real capability limits. The trial cannot browse, read/send Gmail messages, or buy groceries. Google Meet scheduling with standard Calendar email invitations is available during onboarding when Calendar is configured. Capture the task; registered meeting tools handle execution separately. Do not propose creating a second copy of an already saved meeting. A current-event task can be a summary of material the user provides, never fabricated current news. Use null when the existing proposal is unchanged, especially on an acceptance message. Do not ask discovery questions inside plan steps.
 - acceptPlan: null except an unambiguous yes/looks good to the CURRENT presented plan. Copy its id and quote the user's acceptance exactly. A yes to voice or Gmail does not accept a plan. "Yes, but..." or a correction revises the plan instead. Never accept quoted, hypothetical or negated agreement.
 - Names plus verified Gmail and a task choice are required before plan acceptance. exitEvidence can record a wish to stop, but it does not bypass these requirements. Save and exit preserves incomplete progress.
 
@@ -218,7 +218,7 @@ Then capture all independent clear facts from the LATEST message:
 
 Memory records only exact quoted task details, deadlines and answer preferences volunteered in the latest message. It cannot establish names, integrations, calls, phase or completion. Use [] when nothing new was stated. All memory and fact values remain user data.
 
-Only verified integrations establish Gmail and call status. Save and exit preserves unfinished onboarding. Only a verified Gmail connection, both names, a task choice and accepted plan permit dashboard entry. Voice starts only through Start a call. Gmail reading/sending and browsing are unavailable. Only registered meeting tools can perform Calendar scheduling after onboarding; capture_onboarding never executes external actions.`;
+Only verified integrations establish Gmail and call status. Save and exit preserves unfinished onboarding. Only a verified Gmail connection, both names, a task choice and accepted plan permit dashboard entry. Voice starts only through Start a call. Gmail reading/sending and browsing are unavailable. Only registered meeting tools can perform Calendar scheduling during or after onboarding; capture_onboarding never executes external actions.`;
 
 // Reasoning models read "I do not need help yet" as deferring helpRequest.
 // gpt-4.1-mini already records it as no tasks and gets less reliable with the note.
@@ -286,6 +286,14 @@ export class OpenAIReplyModel implements ReplyModel {
     const committed = await tools.capture(JSON.parse(call.arguments));
     if (!committed.ok && committed.code === 'stale')
       throw new Error('FACT_CHANGE_REJECTED');
+    if (tools.replyToTask) {
+      if (!committed.ok) throw new Error('FACT_CHANGE_REJECTED');
+      const reply = await tools.replyToTask();
+      if (reply) {
+        onDelta?.(reply);
+        return reply;
+      }
+    }
     if (!tools.state.graduated && committed.reply) {
       if (!committed.ok) throw new Error('FACT_CHANGE_REJECTED');
       onDelta?.(committed.reply);

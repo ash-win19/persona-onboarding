@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 
 type Meeting = {
   id: string;
@@ -66,11 +67,13 @@ export function CalendarPanel({
   headers,
   enabled,
   settings = false,
+  onboarding = false,
 }: {
   conversationId: string;
   headers: () => Record<string, string>;
   enabled: boolean;
   settings?: boolean;
+  onboarding?: boolean;
 }) {
   const [state, setState] = useState<CalendarState | null>(null);
   const [notice, setNotice] = useState("");
@@ -278,36 +281,83 @@ export function CalendarPanel({
   )
     return null;
   const meetings = state.meetings.slice(0, 5);
+  const connected = state.calendar.status === "connected";
+  const connectButton = !connected && (
+    <button
+      className="secondary-button calendar-connect-button"
+      disabled={!enabled || connecting || !state.calendar.available}
+      onClick={() => void connect()}
+    >
+      {connecting
+        ? "Connecting…"
+        : state.calendar.status === "reconnect_needed"
+          ? "Reconnect Calendar"
+          : "Connect Google Calendar"}
+    </button>
+  );
   return (
     <section
-      className="calendar-panel"
+      className={
+        settings
+          ? "dashboard-card integration-card calendar-settings"
+          : `calendar-panel${onboarding ? " onboarding-calendar" : ""}`
+      }
       aria-label="Google Calendar and meetings"
     >
-      <div className="calendar-connection">
-        <div>
-          <strong>Google Calendar</strong>
-          <span>
-            {state.calendar.email
-              ? `Organizing as ${state.calendar.email}`
-              : "Create a Google Meet and email the invitation."}
-          </span>
+      <div className={settings ? "connection-heading" : "calendar-connection"}>
+        <div
+          className={
+            settings ? "card-icon integration-icon" : "calendar-identity"
+          }
+        >
+          <Image
+            src="/calendar.svg"
+            alt=""
+            width={settings ? 32 : 24}
+            height={settings ? 32 : 24}
+          />
+          {!settings && (
+            <div>
+              <strong>Google Calendar</strong>
+              <span>
+                {state.calendar.email
+                  ? `Organizing as ${state.calendar.email}`
+                  : "Create a Meet and invite your guests."}
+              </span>
+            </div>
+          )}
         </div>
-        {state.calendar.status === "connected" ? (
-          <span className="calendar-connected">Connected</span>
+        {settings && (
+          <div>
+            <h2>Google Calendar</h2>
+            <p>Meetings and invitations.</p>
+          </div>
+        )}
+        {connected ? (
+          <span className="connection-badge is-connected">Connected</span>
+        ) : settings ? (
+          <span className="connection-badge">Optional</span>
         ) : (
-          <button
-            className="secondary-button"
-            disabled={!enabled || connecting || !state.calendar.available}
-            onClick={() => void connect()}
-          >
-            {connecting
-              ? "Connecting…"
-              : state.calendar.status === "reconnect_needed"
-                ? "Reconnect Calendar"
-                : "Connect Google Calendar"}
-          </button>
+          connectButton
         )}
       </div>
+      {settings && (
+        <>
+          <p>
+            Create Google Calendar events with a Meet link and email invitations
+            for your guests.
+          </p>
+          {state.calendar.email && (
+            <p className="integration-account">
+              Organizing as {state.calendar.email}
+            </p>
+          )}
+          {connectButton}
+          <p className="connection-note">
+            Calendar access is separate from your Gmail connection.
+          </p>
+        </>
+      )}
       {!state.calendar.available && (
         <p className="calendar-note">Calendar scheduling is not enabled yet.</p>
       )}
