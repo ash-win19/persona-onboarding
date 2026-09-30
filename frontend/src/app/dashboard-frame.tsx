@@ -222,7 +222,8 @@ export function DashboardFrame({
           snapshot &&
           !onboarding &&
           !integrations &&
-          (daily || call) && (
+          !daily &&
+          call && (
             <CalendarPanel
               key={snapshot.conversationId}
               conversationId={snapshot.conversationId}

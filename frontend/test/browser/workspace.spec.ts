@@ -184,6 +184,36 @@ for (const width of [1440, 390, 320]) {
     });
   });
 }
+test("daily chat keeps its composer on screen without the Calendar card", async ({
+  page,
+}) => {
+  await workspaceFixture(page);
+  await page.route("**/api/calendar/status", (route) =>
+    route.fulfill({
+      json: {
+        calendar: {
+          available: true,
+          enabled: true,
+          status: "connected",
+          email: "organizer@example.test",
+          attempt: null,
+        },
+        meetings: [],
+      },
+    }),
+  );
+  await page.setViewportSize({ width: 1000, height: 710 });
+  await page.goto("/dashboard/conversation");
+  await expect(
+    page.getByRole("heading", { name: "What can we take off your mind?" }),
+  ).toBeVisible();
+  await page.waitForLoadState("networkidle");
+  await expect(
+    page.getByRole("region", { name: "Google Calendar and meetings" }),
+  ).toHaveCount(0);
+  const composer = await page.locator(".daily-composer").boundingBox();
+  expect(composer!.y + composer!.height).toBeLessThanOrEqual(710);
+});
 test("failed daily replies retry without creating another conversation or message", async ({
   page,
 }) => {
