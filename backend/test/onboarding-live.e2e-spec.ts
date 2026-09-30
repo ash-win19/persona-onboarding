@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { ChatModule } from '../src/chat/chat.module.js';
 import { DATABASE, type Database } from '../src/chat/database.js';
 import { MODEL, OpenAIReplyModel } from '../src/chat/model.js';
-import { CHAT_CONFIG } from '../src/chat/config.js';
+import { CHAT_CONFIG, DEFAULT_MODEL } from '../src/chat/config.js';
 import { GMAIL_PROVIDER } from '../src/chat/gmail-provider.js';
 import { TOKEN_KEY } from '../src/chat/gmail.js';
 import { CONVERSATION_MEMORY, DisabledMemory } from '../src/chat/memory.js';
@@ -38,7 +38,7 @@ describe.skipIf(process.env.PERSONA_LIVE_MODEL !== '1')(
         .useValue(
           new OpenAIReplyModel(
             process.env.OPENAI_API_KEY,
-            process.env.OPENAI_MODEL || 'gpt-4.1-mini',
+            process.env.OPENAI_MODEL || DEFAULT_MODEL,
           ),
         )
         .overrideProvider(GMAIL_PROVIDER)

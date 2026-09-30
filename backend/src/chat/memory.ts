@@ -1,3 +1,4 @@
+import { DEFAULT_MODEL } from './config.js';
 import type { Sql } from './database.js';
 
 export const CONVERSATION_MEMORY = Symbol('CONVERSATION_MEMORY');
@@ -161,7 +162,7 @@ export async function createConversationMemory(
   return new MastraMemory(
     memoryPool(),
     sql,
-    process.env.OPENAI_MODEL || 'gpt-4.1-mini',
+    process.env.OPENAI_MODEL || DEFAULT_MODEL,
   );
 }
 

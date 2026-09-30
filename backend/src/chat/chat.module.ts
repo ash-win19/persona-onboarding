@@ -21,7 +21,7 @@ import { Module } from '@nestjs/common';
 import { ChatController } from './chat.controller.js';
 import { ChatService } from './chat.service.js';
 import { DATABASE, PostgresDatabase, type Database } from './database.js';
-import { CHAT_CONFIG, chatConfig, required } from './config.js';
+import { CHAT_CONFIG, chatConfig, DEFAULT_MODEL, required } from './config.js';
 import { MODEL, OpenAIReplyModel } from './model.js';
 import { FACT_REPAIR, OpenAIFactRepair } from './fact-repair.js';
 import { CALL_RECAP, OpenAICallRecap } from './call-recap.js';
@@ -45,7 +45,7 @@ import { CONVERSATION_MEMORY, createConversationMemory } from './memory.js';
       useFactory: () =>
         new OpenAIDailyModel(
           process.env.OPENAI_API_KEY ?? '',
-          process.env.OPENAI_MODEL || 'gpt-4.1-mini',
+          process.env.OPENAI_MODEL || DEFAULT_MODEL,
         ),
     },
     Accounts,
@@ -54,7 +54,7 @@ import { CONVERSATION_MEMORY, createConversationMemory } from './memory.js';
       useFactory: () =>
         new OpenAIFactRepair(
           process.env.OPENAI_API_KEY ?? '',
-          process.env.OPENAI_MODEL || 'gpt-4.1-mini',
+          process.env.OPENAI_MODEL || DEFAULT_MODEL,
         ),
     },
     {
@@ -62,7 +62,7 @@ import { CONVERSATION_MEMORY, createConversationMemory } from './memory.js';
       useFactory: () =>
         new OpenAICallRecap(
           process.env.OPENAI_API_KEY ?? '',
-          process.env.OPENAI_MODEL || 'gpt-4.1-mini',
+          process.env.OPENAI_MODEL || DEFAULT_MODEL,
         ),
     },
     ChatService,
@@ -107,7 +107,7 @@ import { CONVERSATION_MEMORY, createConversationMemory } from './memory.js';
       useFactory: () =>
         new OpenAIReplyModel(
           required('OPENAI_API_KEY'),
-          process.env.OPENAI_MODEL || 'gpt-4.1-mini',
+          process.env.OPENAI_MODEL || DEFAULT_MODEL,
         ),
     },
   ],
