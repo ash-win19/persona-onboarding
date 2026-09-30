@@ -23,23 +23,6 @@
   font-weight: 500;
   letter-spacing: -0.035em;
 }
-.integration-demo-badge {
-  border: 1px solid #e8dec7;
-  color: #82662d;
-  background: #faf6ec;
-  border-radius: 6px;
-  padding: 3px 7px;
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-}
-.demo-integrations-heading p {
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.65;
-  margin: 8px 0 0;
-  max-width: 440px;
-}
 .integration-search {
   flex: 0 0 224px;
   display: flex;
@@ -215,12 +198,6 @@
 .integration-empty button:focus-visible {
   outline: 2px solid #729381;
   outline-offset: 3px;
-}
-.integration-demo-footnote {
-  color: var(--subtle);
-  font-size: 11px;
-  line-height: 1.6;
-  margin: 20px 0 0;
 }
 .integration-empty {
   text-align: center;

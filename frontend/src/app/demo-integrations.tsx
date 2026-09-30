@@ -152,12 +152,7 @@ export function DemoIntegrations() {
         <div>
           <div className="demo-integrations-title">
             <h2 id="demo-integrations-heading">Explore integrations</h2>
-            <span className="integration-demo-badge">Demo</span>
           </div>
-          <p id="integration-demo-description">
-            Try the switches to preview a connection. No accounts are linked or
-            data shared.
-          </p>
         </div>
         <label className="integration-search">
           <svg
@@ -239,8 +234,7 @@ export function DemoIntegrations() {
                   type="button"
                   role="switch"
                   aria-checked={connected}
-                  aria-label={`${app.name} demo connection`}
-                  aria-describedby="integration-demo-description"
+                  aria-label={`${app.name} connection`}
                   className="integration-switch"
                   onClick={() =>
                     setConnections((current) => ({
@@ -274,10 +268,6 @@ export function DemoIntegrations() {
           </button>
         </div>
       )}
-      <p className="integration-demo-footnote">
-        Preview selections reset when you leave this page. Gmail and Google
-        Calendar above use real connections.
-      </p>
     </section>
   );
 }
