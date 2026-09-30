@@ -9,7 +9,7 @@ The personal assistant that the user names and talks to during onboarding.
 _Avoid_: User, customer
 
 **Onboarding agent**:
-The assistant role responsible for introducing a new user to Persona, collecting onboarding information and preparing their first task. Substantive task work belongs to the main experience.
+The assistant role that gets to know a new user: it collects the onboarding goals, then hands off to the main experience. Substantive task work belongs to the main experience.
 _Avoid_: General-purpose assistant
 
 **User**:
@@ -25,7 +25,7 @@ The concrete outcome the user wants Persona to help with first, together with on
 _Avoid_: User profile
 
 **Onboarding scratchpad**:
-The visible summary of onboarding details accepted from the conversation, including the assistant name, user name, Gmail connection and task choice. Its progress marks distinguish saved details from information still needed.
+The visible summary of onboarding details accepted from the conversation, including the assistant name, user name, Gmail and Calendar connections and task choice. Its progress marks distinguish saved details from information still needed.
 _Avoid_: Private reasoning, conversation transcript
 
 **Task choice**:
@@ -33,7 +33,7 @@ The tasks the user wants help with, or their explicit decision that they have no
 _Avoid_: Required task
 
 **Starter plan**:
-A short, ordered proposal describing the first useful work Persona will do for the user's stated tasks, including any input it still needs. The user can accept the proposal or change it before starting.
+The ordered list of the user's saved tasks, accepted automatically when onboarding finishes and shown on the dashboard. The user does not review or approve it.
 _Avoid_: Completed task, general capabilities menu
 
 **Main experience**:
@@ -73,15 +73,15 @@ The agent's voice reply is playing for the user during a call.
 _Avoid_: Reply generated, call active
 
 **Onboarding goal**:
-One of the four details collected before a new user enters the dashboard: an assistant name, a user name, a verified Gmail connection or a task choice.
+One of the details collected before a new user enters the dashboard: an assistant name, a user name, a verified Google connection (Gmail, plus Calendar when the server can connect it) or a task choice.
 _Avoid_: Delivered invitation
 
 **Graduation**:
-The transition from onboarding into the main experience after the assistant name, user name, Gmail connection and task choice are established and the user accepts the starter plan.
+The transition from onboarding into the main experience. It happens automatically in the same commit that establishes the last onboarding goal.
 _Avoid_: Invitation delivered, setup attempted
 
 **Onboarding completion**:
-The state in which the assistant name, user name and task choice are known, Gmail access is confirmed, and the user has accepted the starter plan.
+The state in which the assistant name, user name and task choice are known and the Google connection is confirmed.
 _Avoid_: All questions asked
 
 **Save and exit**:

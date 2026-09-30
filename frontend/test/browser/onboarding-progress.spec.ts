@@ -8,10 +8,11 @@ async function fixture(page: Page) {
   let freshStarts = 0;
   const plan = {
     id: "58d992af-404f-4624-9212-a1cde4da3602",
-    steps: ["Make a grocery list.", "Sketch a gym session."],
+    steps: ["Start with: Buy groceries", "Then work on: Go to the gym"],
     presented: true,
-    accepted: false,
+    accepted: true,
   };
+  let finishRequests = 0;
   const intake = {
     tasks: [] as string[],
     noTasks: false,
@@ -24,7 +25,7 @@ async function fixture(page: Page) {
     ready: false,
     prepared: false,
     entered: false,
-    message: "Your plan is saved. Let's get started.",
+    message: "You're all set, Ashwin! Let's head in and get started.",
     delivery: "text",
   };
   const turns = [
@@ -86,10 +87,14 @@ async function fixture(page: Page) {
         },
       });
     if (path.endsWith("/turns")) {
+      // The last missing detail finishes onboarding in the same reply.
       const body = route.request().postDataJSON();
       intake.tasks = ["Buy groceries", "Go to the gym"];
       intake.ready = true;
       intake.plan = plan;
+      journey.entered = true;
+      journey.prepared = true;
+      journey.ready = true;
       turns.push(
         {
           id: body.submissionId,
@@ -100,37 +105,33 @@ async function fixture(page: Page) {
           kind: "message",
         },
         {
-          id: "plan",
+          id: "closing",
           submissionId: body.submissionId,
           role: "assistant",
           content:
-            "Here's the plan:\n\n1. Make a grocery list.\n2. Sketch a gym session.\n\nDoes this plan work for you?",
+            "Groceries and the gym, got it. You're all set, Ashwin! I'll get started on those in the app.",
           delivery: "text",
           kind: "message",
+          createdAt: new Date().toISOString(),
         },
       );
     }
     if (path.endsWith("/onboarding/plan")) {
-      expect(route.request().postDataJSON()).toEqual({
-        action: "accept",
-        id: plan.id,
-      });
-      plan.accepted = true;
-      journey.entered = true;
-      journey.prepared = true;
-      journey.ready = true;
+      expect(route.request().postDataJSON()).toEqual({ action: "finish" });
+      finishRequests++;
     }
     return route.fulfill({ json: snapshot() });
   });
-  return { freshStarts: () => freshStarts };
+  return {
+    freshStarts: () => freshStarts,
+    finishRequests: () => finishRequests,
+  };
 }
 
 for (const width of [1440, 390, 320])
-  test(`progress and immediate plan approval at ${width}px`, async ({
-    page,
-  }) => {
+  test(`progress and automatic finish at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
-    await fixture(page);
+    const data = await fixture(page);
     await page.goto("/onboarding");
     const rail = page.getByRole("complementary", {
       name: "Onboarding progress",
@@ -143,7 +144,7 @@ for (const width of [1440, 390, 320])
       page.getByRole("button", { name: "Save and exit", exact: true }),
     ).toBeInViewport({ ratio: 1 });
     await expect(rail.locator(".setup-detail:visible")).toHaveCount(0);
-    await expect(rail.locator(".setup-trigger")).toHaveCount(5);
+    await expect(rail.locator(".setup-trigger")).toHaveCount(4);
     await page.screenshot({
       path: test.info().outputPath("collapsed.png"),
       fullPage: true,
@@ -185,18 +186,18 @@ for (const width of [1440, 390, 320])
       .getByRole("textbox", { name: "Message Persona" })
       .fill("I want to buy groceries and go to the gym.");
     await page.getByRole("button", { name: "Send message" }).click();
-    await expect(
-      page.getByRole("button", { name: "Looks good" }),
-    ).toBeEnabled();
-    await page.getByRole("button", { name: "Looks good" }).click();
-    await expect(page).toHaveURL(/\/dashboard$/);
+    // The closing line stays on screen for a moment before the dashboard.
+    await expect(page.getByText("You're all set, Ashwin!")).toBeVisible();
+    await expect(page).toHaveURL(/\/onboarding$/);
+    await expect(page).toHaveURL(/\/dashboard$/, { timeout: 10000 });
+    expect(data.finishRequests()).toBe(0);
     await expect(
       page.getByRole("heading", { name: "Your plan", exact: true }),
     ).toBeVisible();
     await expect(
       page
         .getByRole("region", { name: "Your saved plan" })
-        .getByText("Make a grocery list.", { exact: true }),
+        .getByText("Start with: Buy groceries", { exact: true }),
     ).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Go to dashboard", exact: true }),

@@ -204,7 +204,7 @@ describe('streamed text replies', () => {
     expect(list.at(-1)!.data.turns.at(-1).role).toBe('user');
   });
 
-  it('streams the saved onboarding reply without requesting another model answer', async () => {
+  it('streams the guide reply written from the saved state, question included', async () => {
     let streamedRequests = 0;
     const provider = createServer(async (req, res) => {
       let body = '';
@@ -213,9 +213,9 @@ describe('streamed text replies', () => {
       if (input.stream) {
         streamedRequests++;
         return streamText(res, [
-          'Nova it',
-          ' is. What is your',
-          ' name? Here is a tip.',
+          'Nova. I',
+          ' like that. What should',
+          ' I call you?',
         ]);
       }
       res.setHeader('Content-Type', 'application/json');
@@ -268,11 +268,10 @@ describe('streamed text replies', () => {
         .join('');
       const saved = list.at(-1)!.data.turns.at(-1);
       expect(saved.role).toBe('assistant');
-      expect(saved.content).toContain('Start a call');
+      expect(saved.content).toBe('Nova. I like that. What should I call you?');
       expect(list.at(-1)!.data.onboarding.facts.agentName.value).toBe('Nova');
-      expect(streamedRequests).toBe(0);
+      expect(streamedRequests).toBe(1);
       expect(streamed).toBe(saved.content);
-      expect(streamed).not.toContain('What is your name');
     } finally {
       await new Promise<void>((resolve, reject) =>
         provider.close((error) => (error ? reject(error) : resolve())),

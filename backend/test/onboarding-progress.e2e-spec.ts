@@ -15,21 +15,18 @@ import { VOICE_PROVIDER, type VoiceEvent } from '../src/chat/voice-provider.js';
 import { migrate } from '../src/chat/migration.js';
 import { invitedAccount } from './invited-account.js';
 
-describe('onboarding progress and accepted plan', () => {
+describe('onboarding progress and automatic finish', () => {
   let app: INestApplication, pg: PGlite, db: Database;
   let command: Record<string, unknown> = {};
   let emit: (event: VoiceEvent) => Promise<void>;
   let voiceCommand: (input: RepairInput) => unknown;
   const sent: Record<string, unknown>[] = [];
+  const steps: (string | null | undefined)[] = [];
   const origin = 'https://persona.example';
   const blank = () => ({
     tasks: [],
     replaceTasks: false,
     noTasksEvidence: null,
-    clarification: null,
-    stopQuestionsEvidence: null,
-    plan: null,
-    acceptPlan: null,
   });
   const model: ReplyModel = {
     reply: async (_, tools) => {
@@ -43,7 +40,10 @@ describe('onboarding progress and accepted plan', () => {
         ...command,
       });
       if (!result.ok) throw new Error('CAPTURE_FAILED');
-      return result.reply!;
+      steps.push(result.permittedGoal);
+      return result.state.graduated
+        ? "You're all set, Ashwin!"
+        : `Next: ${result.permittedGoal}`;
     },
   };
   beforeAll(async () => {
@@ -94,6 +94,7 @@ describe('onboarding progress and accepted plan', () => {
   beforeEach(() => {
     command = {};
     sent.length = 0;
+    steps.length = 0;
   });
   async function session() {
     const login = await request(app.getHttpServer())
@@ -141,38 +142,24 @@ describe('onboarding progress and accepted plan', () => {
     { value: 'buy groceries', evidence: 'buy groceries' },
     { value: 'go to the gym', evidence: 'go to the gym' },
   ];
-  async function ready() {
+  const verifyGmail = (id: string) =>
+    db.query('UPDATE conversations SET gmail_verified_at=now() WHERE id=$1', [
+      id,
+    ]);
+  // Everything except the first task, so the next detail finishes onboarding.
+  async function almostReady() {
     const s = await session();
-    await db.query(
-      'UPDATE conversations SET gmail_verified_at=now() WHERE id=$1',
-      [s.id],
-    );
-    command = {
-      changes: names,
-      intake: {
-        ...blank(),
-        tasks,
-        plan: ['Make a grocery list.', 'Sketch a gym session.'],
-      },
-    };
-    const response = await s.send(
-      'Call yourself Atom. I am Ashwin. I want to buy groceries and go to the gym.',
-    );
-    expect(response.body.operation.status).toBe('completed');
-    expect(response.body.onboarding.intake.ready).toBe(true);
-    return { s, plan: response.body.onboarding.intake.plan };
+    await verifyGmail(s.id);
+    command = { changes: names };
+    const response = await s.send('Call yourself Atom. I am Ashwin.');
+    expect(response.body.onboarding.intake.ready).toBe(false);
+    expect(steps.at(-1)).toBe('helpRequest');
+    return s;
   }
 
-  it('saves all tasks and waits for verified Gmail and an accepted current plan', async () => {
+  it('saves all tasks and finishes as soon as Google connects', async () => {
     const s = await session();
-    command = {
-      changes: names,
-      intake: {
-        ...blank(),
-        tasks,
-        plan: ['Make a grocery list.', 'Sketch a gym session.'],
-      },
-    };
+    command = { changes: names, intake: { ...blank(), tasks } };
     const first = await s.send(
       'Call yourself Atom. I am Ashwin. I want to buy groceries and go to the gym.',
     );
@@ -181,109 +168,78 @@ describe('onboarding progress and accepted plan', () => {
       'go to the gym',
     ]);
     expect(first.body.onboarding.graduated).toBe(false);
-    await s
-      .post('/onboarding/plan', {
-        action: 'accept',
-        id: first.body.onboarding.intake.plan.id,
-      })
-      .expect(409);
+    expect(steps.at(-1)).toBe('gmail');
     await s.post('/journey', { action: 'skip' }).expect(409);
-    await db.query(
-      'UPDATE conversations SET gmail_verified_at=now() WHERE id=$1',
-      [s.id],
-    );
-    const review = await s
-      .post('/onboarding/plan', { action: 'review' })
+    const early = await s
+      .post('/onboarding/plan', { action: 'finish' })
       .expect(200);
-    expect(review.body.turns.at(-1).content).toContain(
-      'Does this plan work for you?',
-    );
-    const planId = review.body.onboarding.intake.plan.id;
-    const accepted = await s
-      .post('/onboarding/plan', { action: 'accept', id: planId })
+    expect(early.body.journey.entered).toBe(false);
+    await verifyGmail(s.id);
+    const finished = await s
+      .post('/onboarding/plan', { action: 'finish' })
       .expect(200);
-    expect(accepted.body.journey.entered).toBe(true);
-    expect(accepted.body.onboarding.onboardingComplete).toBe(true);
-    await s
-      .post('/onboarding/plan', { action: 'accept', id: planId })
+    expect(finished.body.journey.entered).toBe(true);
+    expect(finished.body.onboarding).toMatchObject({
+      graduated: true,
+      onboardingComplete: true,
+    });
+    expect(finished.body.onboarding.intake.plan).toMatchObject({
+      accepted: true,
+      steps: ['Start with: buy groceries', 'Then work on: go to the gym'],
+    });
+    expect(finished.body.turns.at(-1)).toMatchObject({
+      kind: 'handoff',
+      content: "You're all set, Ashwin! Let's head in and get started.",
+    });
+    // A client from before automatic finishing still gets the same result.
+    const again = await s
+      .post('/onboarding/plan', { action: 'accept', id: 'old-plan' })
       .expect(200);
+    expect(again.body.turns).toHaveLength(finished.body.turns.length);
     await migrate(db);
     expect((await s.read()).body.journey.entered).toBe(true);
   });
 
-  it('accepts a no-task choice without inventing work', async () => {
-    const s = await session();
-    await db.query(
-      'UPDATE conversations SET gmail_verified_at=now() WHERE id=$1',
-      [s.id],
-    );
-    command = {
-      changes: names,
-      intake: { ...blank(), noTasksEvidence: 'nothing yet' },
-    };
-    const reply = await s.send(
-      'Call yourself Atom. I am Ashwin. I have nothing yet.',
-    );
-    const intake = reply.body.onboarding.intake;
-    expect(intake).toMatchObject({ tasks: [], noTasks: true, ready: true });
-    expect(intake.plan.steps[0]).toContain('whenever');
-    await s
-      .post('/onboarding/plan', { action: 'accept', id: intake.plan.id })
-      .expect(200);
-  });
-
-  it('caps task clarification across turns and keeps a saved task', async () => {
-    const s = await session();
-    command = {
-      intake: {
-        ...blank(),
-        tasks: [{ value: 'organize my work', evidence: 'organize my work' }],
-        clarification: 'What outcome would make work easier?',
-      },
-    };
-    await s.send('Help organize my work.');
-    command = {
-      intake: { ...blank(), clarification: 'Which deadline is most urgent?' },
-    };
-    await s.send('There are many deadlines.');
-    command = {
-      intake: { ...blank(), clarification: 'What else should I know?' },
-    };
-    const reply = await s.send('I already told you.');
-    expect(reply.body.onboarding.intake).toMatchObject({
-      questionsAsked: 2,
-      clarification: null,
-      tasks: ['organize my work'],
+  it('finishes in the same reply that supplies the last detail', async () => {
+    const s = await almostReady();
+    command = { intake: { ...blank(), tasks } };
+    const reply = await s.send('I want to buy groceries and go to the gym.');
+    expect(reply.body.journey.entered).toBe(true);
+    expect(reply.body.onboarding).toMatchObject({
+      graduated: true,
+      onboardingComplete: true,
     });
-    expect(reply.body.turns.at(-1).content).not.toContain('What else');
+    expect(reply.body.turns.at(-1).content).toBe("You're all set, Ashwin!");
   });
 
-  it('rejects stale approval and quoted or qualified yes, then accepts the revised plan once', async () => {
-    const { s, plan } = await ready();
+  it('accepts a no-task choice without inventing work', async () => {
+    const s = await almostReady();
+    command = { intake: { ...blank(), noTasksEvidence: 'nothing yet' } };
+    const reply = await s.send('I have nothing yet.');
+    const intake = reply.body.onboarding.intake;
+    expect(intake).toMatchObject({ tasks: [], noTasks: true });
+    expect(intake.plan.steps[0]).toContain('whenever');
+    expect(reply.body.journey.entered).toBe(true);
+  });
+
+  it('works through the missing details in order and moves past a postponed step', async () => {
+    const s = await session();
+    command = { intake: { ...blank(), tasks } };
+    await s.send('I want to buy groceries and go to the gym.');
+    command = { changes: [names[0]] };
+    await s.send('Call yourself Atom.');
+    command = { changes: [names[1]] };
+    await s.send('I am Ashwin.');
+    command = {};
+    await s.send('What can you do?');
     command = {
-      intake: { ...blank(), acceptPlan: { id: plan.id, evidence: 'yes' } },
+      preferences: [
+        { goal: 'gmail', outcome: 'deferred', evidence: 'Gmail later' },
+      ],
     };
-    expect(
-      (await s.send('You said yes, but I did not.')).body.journey.entered,
-    ).toBe(false);
-    command = {
-      intake: {
-        ...blank(),
-        plan: ['Sketch a gym session first.', 'Then make a grocery list.'],
-      },
-    };
-    const revised = await s.send('Change the plan: start with the gym.');
-    const current = revised.body.onboarding.intake.plan;
-    expect(current.id).not.toBe(plan.id);
-    await s
-      .post('/onboarding/plan', { action: 'accept', id: plan.id })
-      .expect(409);
-    command = {
-      intake: { ...blank(), acceptPlan: { id: current.id, evidence: 'Yes' } },
-    };
-    const final = await s.send('Yes.');
-    expect(final.body.journey.entered).toBe(true);
-    expect(final.body.turns.at(-1).content).toContain('Your plan is saved');
+    const deferred = await s.send('Gmail later.');
+    expect(steps).toEqual(['agentName', 'userName', 'gmail', 'gmail', null]);
+    expect(deferred.body.onboarding.graduated).toBe(false);
   });
 
   it('captures a finalized spoken task without any realtime tool call', async () => {
@@ -307,7 +263,6 @@ describe('onboarding progress and accepted plan', () => {
       intake: {
         ...blank(),
         tasks: [{ value: 'buy groceries', evidence: 'buy groceries' }],
-        plan: ['Make a grocery list.'],
       },
     });
     await post('/calls/start', { id: callId, sdp: 'v=0' }).expect(200);
@@ -375,20 +330,29 @@ describe('onboarding progress and accepted plan', () => {
       transcript,
     });
   }
-  it('accepts the current plan by speech and keeps the same call active on dashboard entry', async () => {
-    const { s, plan } = await ready();
-    voiceCommand = (input) => ({
-      expectedRevision: input.state.revision,
-      askOnboarding: false,
-      changes: [],
-      preferences: [],
-      exitEvidence: null,
-      intake: { ...blank(), acceptPlan: { id: plan.id, evidence: 'Yes' } },
-    });
+  const spokenTask = (input: RepairInput) => ({
+    expectedRevision: input.state.revision,
+    askOnboarding: true,
+    changes: [],
+    preferences: [],
+    exitEvidence: null,
+    intake: {
+      ...blank(),
+      tasks: [{ value: 'buy groceries', evidence: 'buy groceries' }],
+    },
+  });
+  it('finishes by speech and keeps the same call active on dashboard entry', async () => {
+    const s = await almostReady();
+    voiceCommand = spokenTask;
     const call = await startCall(s);
-    await speech('plan-yes', 'Yes.');
+    await speech('last-detail', 'Help me buy groceries.');
     await vi.waitFor(async () =>
       expect((await s.read()).body.journey.entered).toBe(true),
+    );
+    await vi.waitFor(() =>
+      expect(
+        JSON.stringify(sent.filter((e) => e.type === 'response.create')),
+      ).toContain('onboarding just finished'),
     );
     const status = await request(app.getHttpServer())
       .get('/calls/status')
@@ -397,16 +361,9 @@ describe('onboarding progress and accepted plan', () => {
     expect(status.body.call).toMatchObject({ id: call.id, status: 'active' });
     await call.end();
   });
-  it('accepts the current plan by typed input during a muted text-only call', async () => {
-    const { s, plan } = await ready();
-    voiceCommand = (input) => ({
-      expectedRevision: input.state.revision,
-      askOnboarding: false,
-      changes: [],
-      preferences: [],
-      exitEvidence: null,
-      intake: { ...blank(), acceptPlan: { id: plan.id, evidence: 'Yes' } },
-    });
+  it('finishes from typed input during a muted text-only call', async () => {
+    const s = await almostReady();
+    voiceCommand = spokenTask;
     const call = await startCall(s);
     await call
       .post('/calls/preferences', {
@@ -420,15 +377,17 @@ describe('onboarding progress and accepted plan', () => {
       .post('/calls/turns', {
         id: call.id,
         submissionId: randomUUID(),
-        content: 'Yes.',
+        content: 'Help me buy groceries.',
       })
       .expect(200);
     await vi.waitFor(async () =>
       expect((await s.read()).body.journey.entered).toBe(true),
     );
-    expect(
-      sent.filter((e) => e.type === 'response.create').at(-1),
-    ).toMatchObject({ response: { output_modalities: ['text'] } });
+    await vi.waitFor(() =>
+      expect(
+        sent.filter((e) => e.type === 'response.create').at(-1),
+      ).toMatchObject({ response: { output_modalities: ['text'] } }),
+    );
     const status = await request(app.getHttpServer())
       .get('/calls/status')
       .set('Cookie', s.cookie)
@@ -564,19 +523,24 @@ describe('onboarding progress and accepted plan', () => {
     await call.end();
   });
 
-  it('blocks button approval while newer speech is awaiting interpretation', async () => {
-    const { s, plan } = await ready();
+  it('does not finish while newer speech is awaiting interpretation', async () => {
+    const s = await session();
+    command = { changes: names, intake: { ...blank(), tasks } };
+    await s.send(
+      'Call yourself Atom. I am Ashwin. I want to buy groceries and go to the gym.',
+    );
     let finish!: (value: unknown) => void;
     const pending = new Promise<unknown>((resolve) => {
       finish = resolve;
     });
     voiceCommand = () => pending;
     const call = await startCall(s);
-    await speech('changing-plan', 'Actually, change that plan.');
-    await call
-      .post('/onboarding/plan', { action: 'accept', id: plan.id })
-      .expect(409);
-    expect((await s.read()).body.journey.entered).toBe(false);
+    await speech('changing-task', 'Actually, change my task.');
+    await verifyGmail(s.id);
+    const held = await call
+      .post('/onboarding/plan', { action: 'finish' })
+      .expect(200);
+    expect(held.body.journey.entered).toBe(false);
     await call.end();
     finish(undefined);
   });
@@ -587,7 +551,6 @@ describe('onboarding progress and accepted plan', () => {
       intake: {
         ...blank(),
         tasks: [{ value: 'buy groceries', evidence: 'buy groceries' }],
-        plan: ['Make a grocery list.'],
       },
     });
     const call = await startCall(s);

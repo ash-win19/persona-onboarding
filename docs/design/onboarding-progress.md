@@ -1,5 +1,7 @@
 # Onboarding with visible progress and a confirmed plan
 
+The plan review and approval step in this design is superseded by [ADR 0008](../adr/0008-finish-onboarding-automatically.md): onboarding now finishes automatically once the details are saved.
+
 Implementation design, September 29, 2026. The [interview](onboarding-progress-interview.md) records the accepted decisions and subsequent clarification: allow an explicit no-task choice, use zero or one task clarification normally, and a second only for unresolved essential ambiguity. Changes are on the feature branch for review.
 
 ## Finish rule

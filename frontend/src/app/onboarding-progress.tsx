@@ -43,19 +43,23 @@ export function OnboardingProgress({
       value: state.gmail === "connected" ? "Connected" : null,
       pending: "Connection required",
     },
+    ...(state.calendarAvailable
+      ? [
+          {
+            id: "calendar",
+            label: "Calendar",
+            done: state.calendar === "connected",
+            value: state.calendar === "connected" ? "Connected" : null,
+            pending: "Use Connect Google Calendar below the chat",
+          },
+        ]
+      : []),
     {
       id: "tasks",
       label: "Your tasks",
       done: !!intake?.tasks.length || !!intake?.noTasks,
       value: intake?.noTasks ? "Nothing yet" : intake?.tasks.join("\n"),
       pending: "A place to start",
-    },
-    {
-      id: "plan",
-      label: "Plan",
-      done: !!intake?.plan?.accepted,
-      value: intake?.plan?.accepted ? "Accepted" : null,
-      pending: intake?.ready ? "Ready to review" : "Up next",
     },
   ];
   const first = rows.find((r) => !r.done)?.id;
@@ -91,7 +95,7 @@ export function OnboardingProgress({
     >
       <h2 className="sr-only">Your setup</h2>
       <p className="sr-only" role="status">
-        {saved} of 5 setup items saved.
+        {saved} of {rows.length} setup items saved.
       </p>
       <ol id="setup-steps" className="setup-steps">
         {rows.map((row) => (
@@ -200,13 +204,6 @@ export function OnboardingProgress({
                 </button>
               )}
               {row.id === "gmail" && gmail}
-              {row.id === "plan" && !!intake?.plan?.steps.length && (
-                <ol className="setup-plan">
-                  {intake.plan.steps.map((step, index) => (
-                    <li key={index}>{step}</li>
-                  ))}
-                </ol>
-              )}
             </section>
           </li>
         ))}

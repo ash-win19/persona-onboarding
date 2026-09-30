@@ -1,3 +1,5 @@
 # Require complete intake and plan acceptance before dashboard entry
 
+Superseded in part by [ADR 0008](0008-finish-onboarding-automatically.md): plan acceptance is no longer required.
+
 After a real onboarding conversation repeatedly requested an already-stated task and failed to finish, the user chose a visible completion rule: save the assistant name, user name, verified Gmail connection and task choice, then obtain acceptance of a short starter plan. This replaces normal graduation based on a task and attempted invitations from ADR 0005, and requires Gmail rather than allowing it to remain incomplete under ADR 0001. It makes the finish explicit and reviewable, at the cost of preventing new users from reaching the dashboard while Gmail authorization is unavailable. Save and exit preserves unfinished onboarding without granting dashboard access. An explicit no-task choice is valid. Existing completion and dashboard-entry records retain their prior meaning and access.

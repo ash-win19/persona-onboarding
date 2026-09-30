@@ -302,19 +302,19 @@ export class ChatService {
     return { ready: true };
   }
 
-  async plan(
-    credential: string | undefined,
-    action: 'review' | 'accept',
-    planId: string | undefined,
-    owner?: Owner,
-  ) {
+  // Finishes onboarding when every setup item is in but no reply did it,
+  // such as after returning from Google consent. Returns the closing line.
+  async finish(credential: string | undefined, owner?: Owner) {
     let message: string | null = null;
     await this.db.transaction(async (sql) => {
       const c = await this.authority.authorize(credential, sql, true);
       this.authority.assertOwner(c, owner);
-      if (action === 'accept')
-        await this.onboarding.acceptPlan(sql, c.id, planId ?? '');
-      else message = await this.onboarding.presentPlan(sql, c.id);
+      message = await this.onboarding.finish(sql, c.id);
+      if (message)
+        await sql.query(
+          "INSERT INTO turns(id,conversation_id,submission_id,role,content,kind) VALUES($1,$2,$3,'assistant',$4,'handoff')",
+          [randomUUID(), c.id, randomUUID(), message],
+        );
     });
     return { snapshot: await this.read(credential), message };
   }

@@ -347,7 +347,7 @@ describe('browser call API', () => {
         tool_choice: 'none',
         metadata: { generation: '0', purpose: 'opening' },
         instructions: expect.stringContaining(
-          'What name would you like me to use for you?',
+          'This turn: Ask what they would like to call you.',
         ),
       },
     });
@@ -388,7 +388,7 @@ describe('browser call API', () => {
       {
         response: {
           instructions: expect.stringContaining(
-            'What name would you like me to use for you?',
+            'This turn: Ask what they would like to call you.',
           ),
         },
       },
@@ -498,7 +498,7 @@ describe('browser call API', () => {
       { content: 'What should I call you?', delivery: 'played' },
     ]);
     expect(saved.body.onboarding.call).toBe('not_started');
-    expect(saved.body.onboarding.policy.goals.userName.introduced).toBe(true);
+    expect(saved.body.onboarding.policy.goals.agentName.introduced).toBe(true);
     await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
   });
 

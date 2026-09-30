@@ -40,10 +40,6 @@ function capture(state: OnboardingState, text: string) {
       tasks: [{ value: text, evidence: text }],
       replaceTasks: false,
       noTasksEvidence: null,
-      clarification: null,
-      stopQuestionsEvidence: null,
-      plan: ['Schedule the requested Persona demo meeting.'],
-      acceptPlan: null,
     },
   };
 }
@@ -158,7 +154,7 @@ describe('Calendar during unfinished onboarding', () => {
       let args: unknown;
       if (body.tool_choice?.name === 'capture_onboarding') {
         const state = JSON.parse(
-          body.instructions.split('\nCurrent server state: ')[1],
+          body.instructions.split('\nCurrent server state: ')[1].split('\n')[0],
         );
         name = 'capture_onboarding';
         args = failCapture ? {} : capture(state, body.input.at(-1).content);
@@ -348,6 +344,48 @@ describe('Calendar during unfinished onboarding', () => {
     expect(google.inserts).toBe(1);
     expect(google.invitations).toBe(1);
     expect((await s.read()).body.journey.entered).toBe(false);
+  });
+  it('waits for Calendar as well as Gmail before finishing', async () => {
+    const s = await session();
+    const opening = (await s.read()).body.turns[0].id;
+    for (const [goal, value] of [
+      ['agentName', 'Atom'],
+      ['userName', 'Ashwin'],
+    ])
+      await db.query(
+        `INSERT INTO onboarding_facts(id,conversation_id,goal,value,status,source_turn_id,revision,evidence)
+        VALUES($1,$2,$3,$4,'known',$5,1,$4)`,
+        [randomUUID(), s.id, goal, value, opening],
+      );
+    await db.query(
+      'UPDATE conversations SET gmail_verified_at=now(),onboarding_intake=$2 WHERE id=$1',
+      [
+        s.id,
+        JSON.stringify({
+          tasks: ['buy groceries'],
+          noTasks: false,
+          questionsAsked: 0,
+          clarification: null,
+          plan: null,
+        }),
+      ],
+    );
+    const waiting = await s
+      .post('/onboarding/plan', { action: 'finish' })
+      .expect(200);
+    expect(waiting.body.onboarding).toMatchObject({
+      calendarAvailable: true,
+      calendar: 'not_connected',
+      graduated: false,
+      missingGoals: ['calendar'],
+    });
+    expect(waiting.body.journey.entered).toBe(false);
+    await connect(s);
+    const finished = await s
+      .post('/onboarding/plan', { action: 'finish' })
+      .expect(200);
+    expect(finished.body.onboarding.calendar).toBe('connected');
+    expect(finished.body.journey.entered).toBe(true);
   });
   it('does not run meeting tools when onboarding capture fails', async () => {
     const s = await session();

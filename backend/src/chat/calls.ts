@@ -8,7 +8,13 @@ import {
 } from './meeting-tools.js';
 import { Diagnostics } from './diagnostics.js';
 import { captureOnboardingTool, interpretation } from './model.js';
-import { roleInstructions, voiceInstructions } from './prompts.js';
+import {
+  onboardingGuide,
+  onboardingVoice,
+  roleInstructions,
+  voiceInstructions,
+  type GuideTurn,
+} from './prompts.js';
 import {
   ConflictException,
   Inject,
@@ -101,6 +107,9 @@ type LiveCall = {
   repairResponses: Map<string, number>;
   closing: boolean;
 };
+
+export const unsavedSpeech =
+  "Sorry, I didn't catch that properly. Your words are saved, so you can use Retry saved speech, or just say it again.";
 
 @Injectable()
 export class Calls implements OnModuleDestroy {
@@ -290,14 +299,16 @@ export class Calls implements OnModuleDestroy {
         ]);
         // Speech or typing that arrived before readiness takes precedence.
         if (call.generation !== 0 || runtime.responding) return null;
+        const { direction, goal } = await this.onboarding.callOpening(
+          sql,
+          c.id,
+          c.revision,
+          id,
+        );
         return {
           call,
-          direction: await this.onboarding.callOpening(
-            sql,
-            c.id,
-            c.revision,
-            id,
-          ),
+          direction,
+          goal,
           context: await this.context(call, sql),
         };
       });
@@ -306,8 +317,8 @@ export class Calls implements OnModuleDestroy {
           runtime.connection,
           opening.call,
           undefined,
-          this.instructions(opening.context) +
-            '\nThis is the first spoken turn after the browser connected. The server has already verified the saved context and selected the permitted opening. There is no new user input to capture. Do not call tools during this opening. Never ask for the assistant name. ' +
+          this.instructions(opening.context, { next: opening.goal }) +
+            '\nThis is the first spoken turn after the browser connected. There is no new user input to capture. Do not call tools during this opening. ' +
             opening.direction,
         );
       }
@@ -687,7 +698,9 @@ export class Calls implements OnModuleDestroy {
     if (call) await this.refresh(call);
   }
 
-  async sayPlan(credential: string | undefined, message: string) {
+  // Speaks the closing line when onboarding finishes outside a call turn,
+  // such as after Google consent in the browser.
+  async sayClosing(credential: string | undefined) {
     const c = await this.authority.authorize(credential);
     const call = (
       await this.db.query<Call>(
@@ -702,8 +715,8 @@ export class Calls implements OnModuleDestroy {
       runtime.connection,
       call,
       undefined,
-      `Speak exactly this saved plan, without adding questions or calling tools: ${JSON.stringify(message)}`,
-      'onboarding_plan',
+      `${this.instructions(await this.context(call), { finished: true })}\nSay it now, without calling tools.`,
+      'onboarding_closing',
     );
   }
 
@@ -795,29 +808,23 @@ export class Calls implements OnModuleDestroy {
           );
           return;
         }
-        const reply = captured?.ok
-          ? captured.reply!
-          : 'I could not save that yet. Your words are still here. Please use Retry saved speech in Your setup.';
-        if (
-          captured?.ok &&
-          captured.state.intake?.ready &&
-          captured.state.intake.plan
-        ) {
-          // The exact plan is also visible in the browser while spoken playback
-          // remains interruptible. Approval is still bound to this plan's id.
-          await this.db.transaction((sql) =>
-            this.onboarding.presentPlan(sql, current.conversation_id),
-          );
-        }
         if (!captured?.ok) runtime.intakeCaptures.delete(call.generation);
-        if (runtime.connection)
-          this.response(
-            runtime.connection,
-            current,
-            undefined,
-            `Speak exactly this response, without adding any question or using tools: ${JSON.stringify(reply)}`,
-            'onboarding_reply',
-          );
+        if (!runtime.connection) return;
+        // The server picks the next step; the voice model says it in its own
+        // words. A failed save keeps the exact retry wording the browser shows.
+        this.response(
+          runtime.connection,
+          current,
+          undefined,
+          captured?.ok
+            ? this.instructions(await this.context(current), {
+                next: captured.permittedGoal ?? null,
+                finished: captured.state.graduated,
+                exit: captured.exitRequested,
+              }) + '\nReply to what they just said, without calling tools.'
+            : `Speak exactly this response, without adding any question or using tools: ${JSON.stringify(unsavedSpeech)}`,
+          'onboarding_reply',
+        );
       })
       .catch(() => this.finish(call.id, 'event_failed'));
   }
@@ -974,11 +981,17 @@ export class Calls implements OnModuleDestroy {
       },
     };
   }
-  private instructions({
-    memory,
-    ...context
-  }: Awaited<ReturnType<Calls['context']>>) {
-    return `${roleInstructions(context.state)}\n${context.meetings.calendar.available ? meetingInstructions : 'Meeting scheduling tools are unavailable in the current configuration.'}\n${voiceInstructions}\nThe following interpretation rules apply when making a capture proposal, not to ordinary task replies: ${interpretation}\nContext turns are one conversation across chat and calls: channel text was typed in the chat and channel voice was spoken on a call.\n${memoryPrompt(memory)}\nSaved context: ${JSON.stringify(context)}`;
+  private instructions(
+    { memory, ...context }: Awaited<ReturnType<Calls['context']>>,
+    turn?: GuideTurn,
+  ) {
+    const shared = `${context.meetings.calendar.available ? meetingInstructions : 'Meeting scheduling tools are unavailable in the current configuration.'}\nContext turns are one conversation across chat and calls: channel text was typed in the chat and channel voice was spoken on a call.\n${memoryPrompt(memory)}\nSaved context: ${JSON.stringify(context)}`;
+    // During onboarding the server interprets speech itself, so the call only
+    // needs the guide, not the capture rules. The closing line after the last
+    // detail still comes from the guide.
+    return context.state.graduated && !turn?.finished
+      ? `${roleInstructions(context.state)}\n${voiceInstructions}\nThe following interpretation rules apply when making a capture proposal, not to ordinary task replies: ${interpretation}\n${shared}`
+      : `${onboardingGuide(context.state, turn)}\n${onboardingVoice}\n${shared}`;
   }
 
   private async check(id: string) {
