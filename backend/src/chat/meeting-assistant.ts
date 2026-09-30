@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import OpenAI from 'openai';
+import { DEFAULT_MODEL, reasoningFor } from './config.js';
 import { DATABASE, type Database } from './database.js';
 import { Meetings, type MeetingContext } from './meetings.js';
 import {
@@ -62,10 +63,12 @@ export class MeetingAssistant {
       .slice(-30)
       .map(({ role, content }) => ({ role, content }));
     const signal = AbortSignal.timeout(60000);
+    const model = process.env.OPENAI_MODEL || DEFAULT_MODEL;
     for (let i = 0; i < 4; i++) {
       const response = await this.client.responses.create(
         {
-          model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
+          model,
+          ...reasoningFor(model, 'low'),
           store: false,
           max_output_tokens: 1600,
           instructions:

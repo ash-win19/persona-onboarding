@@ -218,6 +218,11 @@ export async function migrate(db: Database) {
     await sql.query(
       'CREATE INDEX IF NOT EXISTS priorities_owner ON priorities(conversation_id)',
     );
+    await sql.query(`CREATE TABLE IF NOT EXISTS onboarding_task_checks (
+      conversation_id uuid NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      task_id text NOT NULL, completed boolean NOT NULL DEFAULT false,
+      PRIMARY KEY(conversation_id,task_id)
+    )`);
     await sql.query(`ALTER TABLE calls
       ADD COLUMN IF NOT EXISTS microphone_enabled boolean NOT NULL DEFAULT true,
       ADD COLUMN IF NOT EXISTS reply_mode text NOT NULL DEFAULT 'audio',

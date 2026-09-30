@@ -10,7 +10,7 @@ Use Node.js 22 or later. Install each app with `npm --prefix frontend ci` and `n
 
 Create `backend/.env` from `backend/.env.example` and set a PostgreSQL connection string and OpenAI API key. Real environment files are ignored by Git. For local development, `APP_ORIGINS=http://localhost:3000` and frontend `BACKEND_URL` defaults to `http://localhost:3001`.
 
-Voice uses `OPENAI_REALTIME_MODEL`, with `gpt-realtime-mini` as the default. Gmail requires a Google web OAuth client, the matching `GOOGLE_REDIRECT_URI`, and a stable `GMAIL_TOKEN_KEY`. The [Google setup instructions](docs/release-checks.md#google-testing-configuration) cover evaluator allowlisting and encrypted credential storage. The trial requests Gmail metadata permission and fetches only the verified account address.
+Voice uses `OPENAI_REALTIME_MODEL`, with `gpt-realtime-2.1-mini` as the default. Gmail requires a Google web OAuth client, the matching `GOOGLE_REDIRECT_URI`, and a stable `GMAIL_TOKEN_KEY`. The [Google setup instructions](docs/release-checks.md#google-testing-configuration) cover evaluator allowlisting and encrypted credential storage. The trial requests Gmail metadata permission and fetches only the verified account address.
 
 ```sh
 npm --prefix backend run build

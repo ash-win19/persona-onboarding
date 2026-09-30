@@ -1,5 +1,5 @@
 "use client";
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Snapshot } from "./chat";
 import { ChatIcon } from "./chat-icons";
 
@@ -14,7 +14,9 @@ export function OnboardingProgress({
   enabled: boolean;
   onSave: (message: string) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const rail = useRef<HTMLElement>(null);
+  const triggers = useRef<Record<string, HTMLButtonElement | null>>({});
   const [editing, setEditing] = useState<string | null>(null);
   const [value, setValue] = useState("");
   const state = snapshot.onboarding!;
@@ -58,29 +60,36 @@ export function OnboardingProgress({
   ];
   const first = rows.find((r) => !r.done)?.id;
   const saved = rows.filter((r) => r.done).length;
+  useEffect(() => {
+    if (!expanded) return;
+    const dismiss = (event: PointerEvent) => {
+      if (!rail.current?.contains(event.target as Node)) setExpanded(null);
+    };
+    document.addEventListener("pointerdown", dismiss);
+    return () => document.removeEventListener("pointerdown", dismiss);
+  }, [expanded]);
+  function close() {
+    if (expanded) triggers.current[expanded]?.focus();
+    setExpanded(null);
+  }
   function edit(id: string, initial: string | null | undefined) {
     setEditing(id);
     setValue(initial ?? "");
-    setExpanded(true);
+    setExpanded(id);
   }
   return (
     <aside
+      ref={rail}
       className="setup-rail"
       aria-label="Onboarding progress"
-      data-expanded={expanded}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          close();
+        }
+      }}
     >
-      <h2>Your setup</h2>
-      <button
-        className="setup-summary"
-        aria-expanded={expanded}
-        aria-controls="setup-steps"
-        onClick={() => setExpanded(!expanded)}
-      >
-        <span>
-          Your setup <span className="setup-count">{saved} of 5</span>
-        </span>
-        <ChatIcon name={expanded ? "arrowUp" : "arrowDown"} />
-      </button>
+      <h2 className="sr-only">Your setup</h2>
       <p className="sr-only" role="status">
         {saved} of 5 setup items saved.
       </p>
@@ -90,17 +99,51 @@ export function OnboardingProgress({
             key={row.id}
             className={`setup-step ${row.done ? "is-saved" : row.id === first ? "is-current" : "is-pending"}`}
           >
-            <span className="setup-mark" aria-hidden="true">
-              {row.done ? <ChatIcon name="check" /> : <span />}
-            </span>
-            <div className="setup-detail">
+            <button
+              className="setup-trigger"
+              ref={(node) => {
+                triggers.current[row.id] = node;
+              }}
+              aria-label={`${row.label}: ${row.done ? "complete" : row.id === first ? "current" : "up next"}`}
+              title={row.label}
+              aria-expanded={expanded === row.id}
+              aria-controls={`setup-detail-${row.id}`}
+              onClick={() => setExpanded(expanded === row.id ? null : row.id)}
+            >
+              <span className="setup-mark" aria-hidden="true">
+                {row.done ? <ChatIcon name="check" /> : <span />}
+              </span>
+            </button>
+            <section
+              id={`setup-detail-${row.id}`}
+              className="setup-detail"
+              aria-label={`${row.label} details`}
+              hidden={expanded !== row.id}
+            >
               <div className="setup-label">
-                <span>{row.label}</span>
+                <h3>{row.label}</h3>
                 <span className="sr-only">
                   {row.done ? " saved" : " pending"}
                 </span>
-                {["agentName", "userName", "tasks"].includes(row.id) && (
+                <button
+                  type="button"
+                  onClick={close}
+                  aria-label={`Close ${row.label.toLowerCase()} details`}
+                >
+                  <ChatIcon name="close" />
+                </button>
+              </div>
+              <p className="setup-phase-status">
+                {row.done
+                  ? "Complete"
+                  : row.id === first
+                    ? "In progress"
+                    : "Up next"}
+              </p>
+              {["agentName", "userName", "tasks"].includes(row.id) &&
+                editing !== row.id && (
                   <button
+                    className="setup-edit-toggle"
                     disabled={!enabled}
                     aria-label={`Edit ${row.label.toLowerCase()}`}
                     onClick={() => edit(row.id, row.value)}
@@ -108,7 +151,6 @@ export function OnboardingProgress({
                     {row.done ? "Edit" : "Add"}
                   </button>
                 )}
-              </div>
               {editing === row.id ? (
                 <form
                   className="setup-edit"
@@ -158,7 +200,14 @@ export function OnboardingProgress({
                 </button>
               )}
               {row.id === "gmail" && gmail}
-            </div>
+              {row.id === "plan" && !!intake?.plan?.steps.length && (
+                <ol className="setup-plan">
+                  {intake.plan.steps.map((step, index) => (
+                    <li key={index}>{step}</li>
+                  ))}
+                </ol>
+              )}
+            </section>
           </li>
         ))}
       </ol>

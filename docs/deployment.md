@@ -10,7 +10,7 @@ Use the personal Render workspace `My Personal Workspace`, ID `tea-d731qrp9fqoc7
 
 ## Configuration
 
-The backend requires `DATABASE_URL`, `OPENAI_API_KEY` and `APP_ORIGINS`. Set `NODE_ENV=production` on Render for Secure cookies. `APP_ORIGINS` is a comma-separated list of exact permitted browser origins. Never configure a wildcard. Set `OPENAI_MODEL` to select a model, defaulting to `gpt-4.1-mini`. Local secrets belong in the ignored `backend/.env` file.
+The backend requires `DATABASE_URL`, `OPENAI_API_KEY` and `APP_ORIGINS`. Set `NODE_ENV=production` on Render for Secure cookies. `APP_ORIGINS` is a comma-separated list of exact permitted browser origins. Never configure a wildcard. Set `OPENAI_MODEL` to select a model, defaulting to `gpt-6-luna` with `low` reasoning effort. Setting `gpt-4.1-mini` rolls back to the previous model, which takes no reasoning setting. Local secrets belong in the ignored `backend/.env` file.
 
 Use the Neon Free project `persona-onboarding` in Ashwin's personal organization, production branch, database `persona`, Oregon region. The Render service uses the Free web-service plan in Oregon. The repository's `render.yaml` describes its settings. Configure secret variables in Render, never in the Blueprint or repository.
 

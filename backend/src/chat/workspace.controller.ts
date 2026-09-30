@@ -80,6 +80,23 @@ export class WorkspaceController {
     res.set('Cache-Control', 'no-store');
     return this.workspace.readThread(credential(req), id);
   }
+  @Patch('onboarding-tasks/:id')
+  completeOnboardingTask(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() input: unknown,
+  ) {
+    browserWrite(req, this.config);
+    const body = object(input);
+    if (!/^[a-f0-9]{64}$/.test(id) || typeof body.completed !== 'boolean')
+      throw new BadRequestException();
+    return this.workspace.completeOnboardingTask(
+      credential(req),
+      id,
+      body.completed,
+      owner(req),
+    );
+  }
   @Post('threads/:id')
   @HttpCode(200)
   send(@Req() req: Request, @Param('id') id: string, @Body() input: unknown) {

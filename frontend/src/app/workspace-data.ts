@@ -1,5 +1,7 @@
 export type Priority = { id: string; title: string; completed: boolean };
+export type OnboardingTask = Priority & { source: "request" | "plan" };
 export type WorkspaceData = {
+  onboardingTasks?: OnboardingTask[];
   priorities: Priority[];
   threads: { id: string; title: string }[];
 };

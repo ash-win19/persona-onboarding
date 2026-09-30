@@ -103,6 +103,122 @@ describe('personal intelligence workspace', () => {
       (await complete(a.cookie, id, false)).body.priorities[0].completed,
     ).toBe(false);
   });
+  it('restores onboarding task checks, deduplicates steps, and preserves their identity across reordering', async () => {
+    const a = await session(),
+      b = await session();
+    const intake = {
+      tasks: ['Buy groceries', 'Go to the gym'],
+      noTasks: false,
+      questionsAsked: 0,
+      clarification: null,
+      plan: {
+        id: randomUUID(),
+        steps: ['Make a grocery list', 'Buy groceries'],
+        presented: true,
+        accepted: true,
+      },
+    };
+    const save = () =>
+      db.query('UPDATE conversations SET onboarding_intake=$2 WHERE id=$1', [
+        a.root,
+        JSON.stringify(intake),
+      ]);
+    await save();
+    const tasks = (await get(a.cookie)).body.onboardingTasks;
+    expect(tasks).toHaveLength(3);
+    expect(tasks.map((task: { title: string }) => task.title)).toEqual([
+      'Buy groceries',
+      'Go to the gym',
+      'Make a grocery list',
+    ]);
+    expect(tasks.every((task: { completed: boolean }) => !task.completed)).toBe(
+      true,
+    );
+    const patch = (cookie: string, completed: boolean) =>
+      request(app.getHttpServer())
+        .patch(`/workspace/onboarding-tasks/${tasks[2].id}`)
+        .set('Cookie', cookie)
+        .set('Origin', origin)
+        .set('X-Persona-Client', 'web')
+        .send({ completed });
+    await patch(a.cookie, true).expect(200);
+    await patch(a.cookie, true).expect(200);
+    expect((await get(a.cookie)).body.onboardingTasks[2].completed).toBe(true);
+    await patch(b.cookie, true).expect(404);
+    expect((await get(b.cookie)).body.onboardingTasks).toEqual([]);
+    intake.tasks.reverse();
+    intake.plan.steps.reverse();
+    await save();
+    expect(
+      (await get(a.cookie)).body.onboardingTasks.find(
+        (task: { id: string }) => task.id === tasks[2].id,
+      ).completed,
+    ).toBe(true);
+    await patch(a.cookie, false).expect(200);
+    expect((await get(a.cookie)).body.onboardingTasks[2].completed).toBe(false);
+    intake.plan.steps = ['A replacement task'];
+    await save();
+    await patch(a.cookie, true).expect(404);
+    expect((await get(a.cookie)).body.onboardingTasks[2].completed).toBe(false);
+    intake.plan.accepted = false;
+    await save();
+    expect((await get(a.cookie)).body.onboardingTasks).toHaveLength(2);
+    intake.noTasks = true;
+    intake.tasks = [];
+    await save();
+    expect((await get(a.cookie)).body.onboardingTasks).toEqual([]);
+    await db.query('DELETE FROM conversations WHERE id=$1', [a.root]);
+    expect(
+      (
+        await db.query(
+          'SELECT * FROM onboarding_task_checks WHERE conversation_id=$1',
+          [a.root],
+        )
+      ).rows,
+    ).toEqual([]);
+  });
+
+  it('protects onboarding task writes with session, dashboard, origin, owner and input checks', async () => {
+    const a = await session(),
+      unentered = await session(false);
+    await db.query(
+      'UPDATE conversations SET onboarding_intake=$2 WHERE id=$1',
+      [
+        a.root,
+        JSON.stringify({
+          tasks: ['A task'],
+          noTasks: false,
+          questionsAsked: 0,
+          clarification: null,
+          plan: null,
+        }),
+      ],
+    );
+    const id = (await get(a.cookie)).body.onboardingTasks[0].id;
+    const patch = (cookie: string, taskId = id, completed: unknown = true) =>
+      request(app.getHttpServer())
+        .patch(`/workspace/onboarding-tasks/${taskId}`)
+        .set('Cookie', cookie)
+        .set('Origin', origin)
+        .set('X-Persona-Client', 'web')
+        .send({ completed });
+    await patch('').expect(401);
+    await patch(unentered.cookie).expect(403);
+    await patch(a.cookie, 'invalid').expect(400);
+    await patch(a.cookie, id, 'true').expect(400);
+    await request(app.getHttpServer())
+      .patch(`/workspace/onboarding-tasks/${id}`)
+      .set('Cookie', a.cookie)
+      .send({ completed: true })
+      .expect(403);
+    const tabId = randomUUID();
+    const claim = await post(a.cookie, '/control', { tabId, takeover: false });
+    await patch(a.cookie).expect(403);
+    await patch(a.cookie)
+      .set('X-Persona-Tab', tabId)
+      .set('X-Persona-Epoch', String(claim.body.control.epoch))
+      .expect(200);
+  });
   it('keeps daily messages apart from onboarding and other daily chats, carries profile, and restores history', async () => {
     const { cookie, root } = await session();
     const source = randomUUID();

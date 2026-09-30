@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { MeetingAssistant } from './meeting-assistant.js';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Authority, type Owner } from './authority.js';
 import { DATABASE, type Database, type Sql } from './database.js';
 import { DAILY_MODEL, type DailyModel } from './daily-model.js';
@@ -63,7 +63,78 @@ export class Workspace {
       'SELECT id,title FROM daily_threads WHERE conversation_id=$1 ORDER BY updated_at DESC,id LIMIT 100',
       [root.id],
     );
-    return { priorities: priorities.rows, threads: threads.rows };
+    const onboardingTasks = await this.onboardingTasks(this.db, root);
+    return {
+      priorities: priorities.rows,
+      threads: threads.rows,
+      onboardingTasks,
+    };
+  }
+
+  private async onboardingTasks(
+    sql: Sql,
+    root: { id: string; revision: number },
+  ) {
+    const state = await this.onboarding.read(sql, root.id, root.revision);
+    const intake = state.intake;
+    if (intake?.noTasks) return [];
+    const tasks =
+      intake?.tasks ??
+      (state.facts.helpRequest.status === 'known' &&
+      state.facts.helpRequest.value
+        ? [state.facts.helpRequest.value]
+        : []);
+    const candidates = [
+      ...tasks.map((title) => ({ title, source: 'request' as const })),
+      ...(intake?.plan?.accepted
+        ? intake.plan.steps.map((title) => ({ title, source: 'plan' as const }))
+        : []),
+    ];
+    const checks = await sql.query<{ task_id: string; completed: boolean }>(
+      'SELECT task_id,completed FROM onboarding_task_checks WHERE conversation_id=$1',
+      [root.id],
+    );
+    const completed = new Map(
+      checks.rows.map((row) => [row.task_id, row.completed]),
+    );
+    const seen = new Set<string>();
+    return candidates.flatMap(({ title, source }) => {
+      const normalized = title.trim().replace(/\s+/g, ' ').toLowerCase();
+      if (!normalized || seen.has(normalized)) return [];
+      seen.add(normalized);
+      // Content-based identity preserves checks when a plan is reordered, but
+      // does not mark a newly worded task complete by reusing its old position.
+      const id = createHash('sha256')
+        .update(`${root.id}\n${normalized}`)
+        .digest('hex');
+      return [
+        {
+          id,
+          title: title.trim(),
+          source,
+          completed: completed.get(id) ?? false,
+        },
+      ];
+    });
+  }
+
+  async completeOnboardingTask(
+    token: string | undefined,
+    id: string,
+    completed: boolean,
+    owner?: Owner,
+  ) {
+    await this.db.transaction(async (sql) => {
+      const root = await this.access(token, sql, owner, true);
+      const tasks = await this.onboardingTasks(sql, root);
+      if (!tasks.some((task) => task.id === id)) throw new NotFoundException();
+      await sql.query(
+        `INSERT INTO onboarding_task_checks(conversation_id,task_id,completed) VALUES($1,$2,$3)
+         ON CONFLICT(conversation_id,task_id) DO UPDATE SET completed=$3`,
+        [root.id, id, completed],
+      );
+    });
+    return this.read(token);
   }
 
   async priority(
