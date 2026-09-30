@@ -1,9 +1,10 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { PersonaLogo, PersonaMark } from "./persona-logo";
 import { ChatIcon } from "./chat-icons";
+import { AccountMenu } from "./account-menu";
 import { GmailConnection } from "./gmail-connection";
 import type { Snapshot } from "./chat";
 
@@ -11,7 +12,6 @@ const pages = [
   { href: "/dashboard", label: "Overview", icon: "home" },
   { href: "/dashboard/conversation", label: "Conversation", icon: "message" },
   { href: "/dashboard/connections", label: "Connections", icon: "mail" },
-  { href: "/dashboard/account", label: "Account", icon: "user" },
 ] as const;
 
 export function DashboardFrame({
@@ -40,10 +40,18 @@ export function DashboardFrame({
   notice: string;
 }) {
   const pathname = usePathname();
+  const [collapsed, setCollapsed] = useState(false);
   const dashboard =
     pathname.startsWith("/dashboard") && !!snapshot?.journey?.entered;
   const conversation = !dashboard || pathname === "/dashboard/conversation";
-  const active = pages.find((page) => page.href === pathname) ?? pages[0];
+  const active =
+    pathname === "/dashboard/account"
+      ? { label: "Account" }
+      : (pages.find((page) => page.href === pathname) ?? pages[0]);
+  const messages =
+    snapshot?.turns.filter(
+      (turn) => turn.kind !== "opening" && turn.kind !== "handoff",
+    ) ?? [];
   const heading = useRef<HTMLHeadingElement>(null);
   const name = snapshot?.onboarding?.facts.userName.value;
   const agent = snapshot?.onboarding?.facts.agentName.value || "Persona";
@@ -53,7 +61,10 @@ export function DashboardFrame({
     if (dashboard && !conversation) heading.current?.focus();
   }, [pathname, dashboard, conversation]);
   return (
-    <div className={dashboard ? "dashboard-shell" : "onboarding-shell"}>
+    <div
+      className={dashboard ? "dashboard-shell" : "onboarding-shell"}
+      data-collapsed={collapsed || undefined}
+    >
       {dashboard && (
         <>
           <a className="skip-link" href="#dashboard-main">
@@ -65,12 +76,19 @@ export function DashboardFrame({
               href="/dashboard"
               aria-label="Persona dashboard"
             >
-              <PersonaLogo />
+              <span className="sidebar-wordmark">
+                <PersonaLogo />
+              </span>
+              <span className="sidebar-brand-mark">
+                <PersonaMark />
+              </span>
             </Link>
-            <p className="sidebar-caption">YOUR SPACE</p>
+            <p className="sidebar-caption">WORKSPACE</p>
             <nav aria-label="Dashboard navigation">
               {pages.map((page) => (
                 <Link
+                  aria-label={page.label}
+                  title={page.label}
                   key={page.href}
                   href={page.href}
                   aria-current={pathname === page.href ? "page" : undefined}
@@ -80,22 +98,12 @@ export function DashboardFrame({
                 </Link>
               ))}
             </nav>
-            <div className="sidebar-bottom">
-              <div className="account-avatar">
-                {(name || "You").slice(0, 1).toUpperCase()}
-              </div>
-              <span>
-                {name || "Your account"}
-                <small>Personal space</small>
-              </span>
-              <button
-                aria-label="Sign out"
-                disabled={signingOut}
-                onClick={onSignOut}
-              >
-                <ChatIcon name="logout" />
-              </button>
-            </div>
+            <AccountMenu
+              name={name}
+              active={pathname === "/dashboard/account"}
+              signingOut={signingOut}
+              onSignOut={onSignOut}
+            />
           </aside>
           <header className="mobile-app-header">
             <Link
@@ -110,6 +118,30 @@ export function DashboardFrame({
         </>
       )}
       <div className="app-content" id="dashboard-main">
+        {dashboard && (
+          <header className="dashboard-toolbar">
+            <button
+              className="sidebar-toggle"
+              onClick={() => setCollapsed(!collapsed)}
+              aria-expanded={!collapsed}
+              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            >
+              <ChatIcon name="panel" />
+            </button>
+            <span className="toolbar-divider" />
+            <span className="toolbar-workspace">Your space</span>
+            <span className="toolbar-slash" aria-hidden="true">
+              /
+            </span>
+            <strong>{active.label}</strong>
+            <span className="toolbar-status">
+              <span className="status-dot" />
+              {call ? "Call in progress" : "Personal to you"}
+            </span>
+          </header>
+        )}
+
         {dashboard && !conversation && notice && (
           <p className="dashboard-notice" role="status">
             {notice}
@@ -117,12 +149,6 @@ export function DashboardFrame({
         )}
         {dashboard && !conversation && (
           <main className="dashboard-page">
-            <div className="dashboard-topline">
-              <span>Your space / {active.label}</span>
-              <span className="personal-label">
-                <span className="status-dot" /> Personal to you
-              </span>
-            </div>
             <header className="dashboard-heading">
               <p className="eyebrow">
                 {pathname === "/dashboard"
@@ -146,12 +172,40 @@ export function DashboardFrame({
             </header>
             {pathname === "/dashboard" && (
               <>
+                <dl
+                  className="dashboard-stats"
+                  aria-label="Your Persona at a glance"
+                >
+                  <div>
+                    <dt>Your assistant</dt>
+                    <dd>{agent}</dd>
+                    <span>Ready when you are</span>
+                  </div>
+                  <div>
+                    <dt>Conversation</dt>
+                    <dd>
+                      {messages.length}
+                      <small> messages</small>
+                    </dd>
+                    <span>Saved in your personal space</span>
+                  </div>
+                  <div>
+                    <dt>Gmail</dt>
+                    <dd>{gmail ? "Connected" : "Not connected"}</dd>
+                    <Link href="/dashboard/connections">
+                      {gmail
+                        ? "Manage connection"
+                        : "Connect when you're ready"}
+                      <ChatIcon name="arrowRight" />
+                    </Link>
+                  </div>
+                </dl>
                 <section className="assistant-card">
                   <div className="assistant-card-mark">
                     <PersonaMark />
                   </div>
                   <div>
-                    <p className="eyebrow">YOUR PERSONAL ASSISTANT</p>
+                    <p className="eyebrow">PICK UP WHERE YOU LEFT OFF</p>
                     <h2>{agent} is here.</h2>
                     <p>
                       {task
@@ -197,9 +251,57 @@ export function DashboardFrame({
                     </Link>
                   </section>
                 </div>
-                <p className="dashboard-footnote">
-                  Your conversation stays with you, even when you step away.
-                </p>
+                <section
+                  className="recent-conversation"
+                  aria-labelledby="recent-title"
+                >
+                  <header>
+                    <div>
+                      <h2 id="recent-title">Recent conversation</h2>
+                      <p>A few words from where you left off.</p>
+                    </div>
+                    <Link href="/dashboard/conversation" className="text-link">
+                      View conversation
+                      <ChatIcon name="arrowRight" />
+                    </Link>
+                  </header>
+                  {messages.length ? (
+                    <ul>
+                      {messages
+                        .slice(-3)
+                        .reverse()
+                        .map((turn) => (
+                          <li key={turn.id}>
+                            <span className="message-avatar">
+                              {turn.role === "user" ? (
+                                (name || "You").slice(0, 1).toUpperCase()
+                              ) : (
+                                <PersonaMark />
+                              )}
+                            </span>
+                            <div>
+                              <strong>
+                                {turn.role === "user" ? "You" : agent}
+                              </strong>
+                              <p>{turn.content}</p>
+                            </div>
+                            <span className="message-channel">
+                              {turn.channel === "voice" ? "Voice" : "Chat"}
+                            </span>
+                          </li>
+                        ))}
+                    </ul>
+                  ) : (
+                    <div className="dashboard-empty">
+                      <ChatIcon name="message" />
+                      <p>Your next conversation starts here.</p>
+                      <Link href="/dashboard/conversation">
+                        Tell {agent} what&apos;s on your mind
+                        <ChatIcon name="arrowRight" />
+                      </Link>
+                    </div>
+                  )}
+                </section>
               </>
             )}
             {pathname.endsWith("account") && (

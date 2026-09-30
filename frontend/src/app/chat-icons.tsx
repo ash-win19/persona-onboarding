@@ -1,6 +1,8 @@
 import type { SVGProps } from "react";
 
 const paths = {
+  panel: "M3 4h18v16H3zM9 4v16",
+  chevrons: "m9 8 3-3 3 3m-6 8 3 3 3-3",
   arrowRight: "M5 12h14m-6-6 6 6-6 6",
   home: "m3 10 9-7 9 7v10H3zM9 20v-7h6v7",
   message: "M4 4h16v12H9l-5 4z",
