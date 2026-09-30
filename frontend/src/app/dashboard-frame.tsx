@@ -152,16 +152,6 @@ export function DashboardFrame({
                   <ChatIcon name="settings" />
                   <span>Settings</span>
                 </Link>
-                {settings && (
-                  <Link
-                    className="settings-child"
-                    href="/dashboard/settings/integrations"
-                    aria-current={integrations ? "page" : undefined}
-                  >
-                    <ChatIcon name="plug" />
-                    <span>Integrations</span>
-                  </Link>
-                )}
               </nav>
               <AccountMenu
                 name={name}
