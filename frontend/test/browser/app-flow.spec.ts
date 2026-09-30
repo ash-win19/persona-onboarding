@@ -169,6 +169,18 @@ for (const width of [1440, 390, 320]) {
       await expect(
         page.getByRole("heading", { name: "Welcome, Ashwin." }),
       ).toBeVisible();
+      if (width === 1440) {
+        await page.getByRole("button", { name: "Collapse sidebar" }).click();
+        await expect(
+          page.getByRole("link", { name: "Overview", exact: true }),
+        ).toBeVisible();
+        await page.getByRole("button", { name: "Expand sidebar" }).click();
+      }
+      const profile = page.getByRole("button", {
+        name: "Account menu",
+        exact: true,
+      });
+      expect((await profile.boundingBox())!.y).toBeGreaterThan(700);
       expect(
         await page.evaluate(
           () => document.documentElement.scrollWidth <= innerWidth,
@@ -185,9 +197,30 @@ for (const width of [1440, 390, 320]) {
       await expect(
         page.getByRole("button", { name: "Reconnect Gmail" }),
       ).toBeVisible();
+      await expect(
+        page
+          .getByRole("navigation", { name: "Dashboard navigation" })
+          .getByRole("link", { name: "Account" }),
+      ).toHaveCount(0);
       await page
-        .getByRole("navigation", { name: "Dashboard navigation" })
-        .getByRole("link", { name: "Account" })
+        .getByRole("button", { name: "Account menu", exact: true })
+        .click();
+      await expect(
+        page.getByRole("navigation", { name: "Account navigation" }),
+      ).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(
+        page.getByRole("navigation", { name: "Account navigation" }),
+      ).toBeHidden();
+      await expect(profile).toBeFocused();
+      await page.keyboard.press("Space");
+      await page.screenshot({
+        path: testInfo.outputPath("account-menu.png"),
+        fullPage: true,
+      });
+      await page
+        .getByRole("navigation", { name: "Account navigation" })
+        .getByRole("link", { name: "Account", exact: true })
         .click();
       await expect(
         page.getByRole("heading", { name: "Account." }),
