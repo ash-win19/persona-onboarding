@@ -227,6 +227,10 @@ describe('onboarding progress and accepted plan', () => {
           evidence: 'nothing yet',
         },
       ],
+      preferences: [
+        { goal: 'helpRequest', outcome: 'declined', evidence: 'nothing yet' },
+        { goal: 'gmail', outcome: 'declined', evidence: 'nothing yet' },
+      ],
       intake: { ...blank(), noTasksEvidence: 'nothing yet' },
     };
     const reply = await s.send(
@@ -784,6 +788,7 @@ describe('onboarding progress and accepted plan', () => {
     expect(next.body.turns.at(-1).content).toMatch(/^Subject: Test email/);
     expect(next.body.onboarding.intake.plan.presented).toBe(true);
     command = {
+      assistance: 'What subject and body would you like?',
       intake: {
         ...blank(),
         acceptPlan: {
@@ -792,7 +797,10 @@ describe('onboarding progress and accepted plan', () => {
         },
       },
     };
-    expect((await s.send('Yes.')).body.journey.entered).toBe(true);
+    const accepted = (await s.send('Yes.')).body;
+    expect(accepted.journey.entered).toBe(true);
+    expect(accepted.onboarding.lastResult).toBe(assistance);
+    expect(accepted.turns.at(-1).content).not.toContain('subject and body');
   });
   it('preserves known tasks and identity when a follow-up repeats stale proposals', async () => {
     const { s } = await ready();

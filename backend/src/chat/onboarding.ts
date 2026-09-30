@@ -743,7 +743,10 @@ export class OnboardingService {
         );
         if (proposed && !update.tasks.length) update.replaceTasks = false;
         // A choice about another setup goal cannot also erase the task list.
-        if (update.noTasksEvidence) {
+        if (
+          update.noTasksEvidence &&
+          !command.preferences?.some((p) => p.goal === 'helpRequest')
+        ) {
           let remainder = normalized(update.noTasksEvidence);
           for (const preference of command.preferences ?? [])
             if (preference.goal !== 'helpRequest')
@@ -967,6 +970,7 @@ export class OnboardingService {
           .map((p) => p.goal),
       );
       const question = invitation?.question ?? null;
+      if (state.graduated) usefulResult = null;
       for (const assessed of sources)
         await sql.query(
           `INSERT INTO onboarding_assessments(conversation_id,submission_id,ask_onboarding,question,permitted_goal,visit_id,exit_evidence,assistance)
