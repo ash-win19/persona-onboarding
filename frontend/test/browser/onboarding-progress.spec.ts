@@ -61,6 +61,8 @@ async function fixture(page: Page) {
   });
   await page.route("**/api/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/workspace"))
+      return route.fulfill({ json: { priorities: [], threads: [] } });
     if (path.endsWith("/ready"))
       return route.fulfill({ json: { ready: true } });
     if (path.endsWith("/auth/fresh-start")) {

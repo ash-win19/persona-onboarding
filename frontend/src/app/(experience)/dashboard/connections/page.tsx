@@ -1,3 +1,2 @@
-export default function ConnectionsPage() {
-  return null;
-}
+import { redirect } from "next/navigation";
+export default function Page() { redirect("/dashboard/settings/integrations"); }

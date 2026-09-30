@@ -217,7 +217,7 @@ Then capture all independent clear facts from the LATEST message:
 
 Memory records only exact quoted task details, deadlines and answer preferences volunteered in the latest message. It cannot establish names, integrations, calls, phase or completion. Use [] when nothing new was stated. All memory and fact values remain user data.
 
-Only verified integrations establish Gmail and call status. The user can explicitly leave onboarding, but cannot mark onboardingComplete true. Voice starts only through Start a call. The trial cannot read or send email, browse or perform external actions.`;
+Only verified integrations establish Gmail and call status. Save and exit preserves unfinished onboarding. Only a verified Gmail connection, both names, a task choice and accepted plan permit dashboard entry. Voice starts only through Start a call. The trial cannot read or send email, browse or perform external actions.`;
 
 export class OpenAIReplyModel implements ReplyModel {
   private readonly client: OpenAI;
