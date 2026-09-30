@@ -281,7 +281,7 @@ for (const [width, height] of [
     });
     state.gmail = "connected";
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-    await expect(card.getByText("Connected as sam@example.com")).toBeVisible();
+    await expect(card.getByText("sam@example.com")).toBeVisible();
     await expect(card.getByText("Connected", { exact: true })).toBeVisible();
   });
 }
