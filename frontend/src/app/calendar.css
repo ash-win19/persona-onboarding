@@ -1,0 +1,95 @@
+.calendar-panel {
+  margin: 12px clamp(16px, 3vw, 40px);
+  padding: 16px 20px;
+  border: 1px solid #e1e5e3;
+  border-radius: 16px;
+  background: #fbfcfa;
+  color: #253b32;
+  flex-shrink: 0;
+}
+.calendar-connection,
+.meeting-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.calendar-connection strong {
+  display: block;
+  font-size: 14px;
+}
+.calendar-connection span,
+.calendar-note,
+.meeting-card p {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.calendar-connection > div > span {
+  color: #65736c;
+  overflow-wrap: anywhere;
+}
+.calendar-connected {
+  color: #27634a;
+  font-size: 12px;
+  background: #e9f3ec;
+  padding: 5px 10px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+.calendar-note {
+  margin-top: 10px;
+  color: #65736c;
+}
+.meeting-list {
+  margin-top: 12px;
+  max-height: 330px;
+  overflow: auto;
+}
+.meeting-list > summary {
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 6px 0;
+}
+.meeting-card {
+  border-top: 1px solid #e1e5e3;
+  padding: 14px 0 6px;
+  overflow-wrap: anywhere;
+}
+.meeting-heading h3 {
+  font-size: 15px;
+  margin: 0;
+}
+.meeting-card p {
+  margin: 5px 0;
+}
+.meeting-progress {
+  font-size: 12px;
+  color: #7b622c;
+  white-space: nowrap;
+}
+.meeting-actions {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  font-size: 13px;
+}
+.meeting-actions a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+@media (max-width: 600px) {
+  .calendar-connection {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .calendar-panel {
+    padding: 14px;
+  }
+  .meeting-list {
+    max-height: 250px;
+  }
+}

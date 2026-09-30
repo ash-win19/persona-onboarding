@@ -1,12 +1,7 @@
+import { sealGoogleToken, openGoogleToken } from './google-token-vault.js';
 import { Diagnostics } from './diagnostics.js';
 import { ConflictException, Inject, Injectable } from '@nestjs/common';
-import {
-  createCipheriv,
-  createDecipheriv,
-  createHash,
-  randomBytes,
-  randomUUID,
-} from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { Authority, type Owner } from './authority.js';
 import { DATABASE, type Database, type Sql } from './database.js';
 import {
@@ -48,32 +43,10 @@ export class Gmail {
     @Inject(OnboardingPolicy) private readonly policy: OnboardingPolicy,
   ) {}
   private seal(value: unknown) {
-    const key = Buffer.from(this.key, 'base64');
-    if (key.length !== 32) throw new Error('GMAIL_ENCRYPTION_UNAVAILABLE');
-    const iv = randomBytes(12);
-    const cipher = createCipheriv('aes-256-gcm', key, iv);
-    const encrypted = Buffer.concat([
-      cipher.update(JSON.stringify(value), 'utf8'),
-      cipher.final(),
-    ]);
-    return Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString(
-      'base64',
-    );
+    return sealGoogleToken(this.key, value);
   }
   private open<T>(value: string): T {
-    const b = Buffer.from(value, 'base64');
-    const decipher = createDecipheriv(
-      'aes-256-gcm',
-      Buffer.from(this.key, 'base64'),
-      b.subarray(0, 12),
-    );
-    decipher.setAuthTag(b.subarray(12, 28));
-    return JSON.parse(
-      Buffer.concat([
-        decipher.update(b.subarray(28)),
-        decipher.final(),
-      ]).toString('utf8'),
-    ) as T;
+    return openGoogleToken<T>(this.key, value);
   }
   available() {
     return (

@@ -1,3 +1,8 @@
+import { Calendar } from './calendar.js';
+import { CalendarProvider } from './calendar-provider.js';
+import { CalendarController } from './calendar.controller.js';
+import { Meetings } from './meetings.js';
+import { MeetingAssistant } from './meeting-assistant.js';
 import { Workspace } from './workspace.js';
 import { WorkspaceController } from './workspace.controller.js';
 import { DAILY_MODEL, OpenAIDailyModel } from './daily-model.js';
@@ -31,6 +36,7 @@ import { CONVERSATION_MEMORY, createConversationMemory } from './memory.js';
 
 @Module({
   controllers: [
+    CalendarController,
     WorkspaceController,
     AccountsController,
     ChatController,
@@ -39,6 +45,10 @@ import { CONVERSATION_MEMORY, createConversationMemory } from './memory.js';
     ResetController,
   ],
   providers: [
+    CalendarProvider,
+    Calendar,
+    Meetings,
+    MeetingAssistant,
     Workspace,
     {
       provide: DAILY_MODEL,

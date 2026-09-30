@@ -1,5 +1,10 @@
 import { Diagnostics } from './diagnostics.js';
-import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  ConflictException,
+  Inject,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { createHmac, randomUUID } from 'node:crypto';
 import { Authority, credentialHash, type Owner } from './authority.js';
 import { DATABASE, type Database, type Sql } from './database.js';
@@ -11,6 +16,12 @@ import { saveOpening } from './opening.js';
 import { CONVERSATION_MEMORY, type ConversationMemory } from './memory.js';
 
 export async function removeConversation(sql: Sql, id: string) {
+  await sql.query('SELECT id FROM conversations WHERE id=$1 FOR UPDATE', [id]);
+  const meetings = await sql.query(
+    "SELECT id FROM meeting_requests WHERE conversation_id=$1 AND status IN ('queued','running','attention_required','reconnect_needed') LIMIT 1",
+    [id],
+  );
+  if (meetings.rows.length) throw new ConflictException('MEETING_IN_PROGRESS');
   const calls = (
     await sql.query<{ id: string }>(
       'SELECT id FROM calls WHERE conversation_id=$1',

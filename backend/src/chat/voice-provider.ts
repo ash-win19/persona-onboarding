@@ -1,3 +1,4 @@
+import { meetingTools } from './meeting-tools.js';
 import { captureOnboardingTool } from './model.js';
 import WebSocket from 'ws';
 
@@ -95,6 +96,14 @@ export class OpenAIVoiceProvider implements VoiceProvider {
           output: { voice: 'marin' },
         },
         tools: [
+          ...(process.env.CALENDAR_SCHEDULING_ENABLED === 'true'
+            ? meetingTools.map(({ name, description, parameters }) => ({
+                type: 'function' as const,
+                name,
+                description,
+                parameters,
+              }))
+            : []),
           {
             type: 'function',
             name: captureOnboardingTool.name,

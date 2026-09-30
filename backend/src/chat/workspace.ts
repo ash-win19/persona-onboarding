@@ -5,6 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { MeetingAssistant } from './meeting-assistant.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { Authority, type Owner } from './authority.js';
 import { DATABASE, type Database, type Sql } from './database.js';
@@ -23,6 +24,8 @@ type Entry = {
 @Injectable()
 export class Workspace {
   constructor(
+    @Inject(MeetingAssistant)
+    private readonly meetingAssistant: MeetingAssistant,
     @Inject(DATABASE) private readonly db: Database,
     @Inject(Authority) private readonly authority: Authority,
     @Inject(OnboardingService) private readonly onboarding: OnboardingService,
@@ -268,25 +271,42 @@ export class Workspace {
         claimed.revision,
       );
       const thread = await this.thread(this.db, claimed.id, id);
-      const reply = await this.model.reply(
+      const meetingReply = await this.meetingAssistant.reply(
+        {
+          conversationId: claimed.id,
+          threadId: id,
+          sourceId: submissionId,
+          attempt,
+          owner,
+        },
         thread.entries.flatMap((entry) => [
           { role: 'user' as const, content: entry.content },
           ...(entry.reply
             ? [{ role: 'assistant' as const, content: entry.reply }]
             : []),
         ]),
-        {
-          userName: state.facts.userName.value,
-          agentName: state.facts.agentName.value,
-          firstTask: state.intake
-            ? (state.intake.tasks[0] ?? null)
-            : state.facts.helpRequest.value,
-          tasks: state.intake?.tasks.join('\n') || null,
-          starterPlan: state.intake?.plan?.accepted
-            ? state.intake.plan.steps.join('\n')
-            : null,
-        },
       );
+      const reply =
+        meetingReply ??
+        (await this.model.reply(
+          thread.entries.flatMap((entry) => [
+            { role: 'user' as const, content: entry.content },
+            ...(entry.reply
+              ? [{ role: 'assistant' as const, content: entry.reply }]
+              : []),
+          ]),
+          {
+            userName: state.facts.userName.value,
+            agentName: state.facts.agentName.value,
+            firstTask: state.intake
+              ? (state.intake.tasks[0] ?? null)
+              : state.facts.helpRequest.value,
+            tasks: state.intake?.tasks.join('\n') || null,
+            starterPlan: state.intake?.plan?.accepted
+              ? state.intake.plan.steps.join('\n')
+              : null,
+          },
+        ));
       await this.db.transaction(async (sql) => {
         const current = await this.access(token, sql, owner, true);
         if (
