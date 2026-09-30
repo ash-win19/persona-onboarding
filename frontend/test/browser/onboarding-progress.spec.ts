@@ -28,7 +28,7 @@ async function fixture(page: Page) {
     message: "You're all set, Ashwin! Let's head in and get started.",
     delivery: "text",
   };
-  const turns = [
+  const turns: Record<string, string>[] = [
     {
       id: "opening",
       submissionId: "opening",
