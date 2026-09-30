@@ -7,7 +7,7 @@ test.setTimeout(60000);
 for (const width of [1440, 390, 320]) {
   test.describe(`app at ${width}px`, () => {
     test.use({ viewport: { width, height: 900 } });
-    test("landing, sign-in, skip, dashboard and account form a complete journey", async ({
+    test("landing, sign-in, existing graduation, dashboard and account form a complete journey", async ({
       page,
     }, testInfo) => {
       const fixture = await appFixture(page, { signedIn: false });
@@ -29,7 +29,8 @@ for (const width of [1440, 390, 320]) {
       await page.getByLabel("Password", { exact: true }).fill("test-password");
       await page.getByRole("button", { name: "Sign in", exact: true }).click();
       await expect(page).toHaveURL(/\/onboarding$/);
-      await page.getByRole("button", { name: "Skip for now" }).click();
+      fixture.journey.ready = true;
+      await page.reload();
       await expect(
         page.getByRole("button", { name: "Go to dashboard", exact: true }),
       ).toBeVisible();

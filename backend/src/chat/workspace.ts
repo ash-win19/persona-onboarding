@@ -207,7 +207,13 @@ export class Workspace {
         {
           userName: state.facts.userName.value,
           agentName: state.facts.agentName.value,
-          firstTask: state.facts.helpRequest.value,
+          firstTask: state.intake
+            ? (state.intake.tasks[0] ?? null)
+            : state.facts.helpRequest.value,
+          tasks: state.intake?.tasks.join('\n') || null,
+          starterPlan: state.intake?.plan?.accepted
+            ? state.intake.plan.steps.join('\n')
+            : null,
         },
       );
       await this.db.transaction(async (sql) => {

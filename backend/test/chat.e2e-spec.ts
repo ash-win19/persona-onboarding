@@ -184,8 +184,8 @@ describe('saved conversation API', () => {
       .set('Cookie', cookie)
       .expect(200);
     expect(restored.body.onboarding).toMatchObject({
-      mode: 'helping',
-      graduated: true,
+      mode: 'onboarding',
+      graduated: false,
       onboardingComplete: false,
       gmail: 'not_connected',
       call: 'not_started',
@@ -326,10 +326,16 @@ describe('saved conversation API', () => {
           .set('Cookie', session.headers['set-cookie'][0])
           .send({ submissionId: randomUUID(), content: 'Call yourself Nova.' })
           .expect(200);
-        expect(receivedAuthoritativeState).toBe(true);
-        expect(reply.body.turns[2].content).toBe(
-          [answer, question].filter(Boolean).join('\n\n'),
-        );
+        // Onboarding now uses the committed server action, with no second
+        // free-form generation that could add unrelated questions.
+        expect(receivedAuthoritativeState).toBe(false);
+        if (label === 'rejected') {
+          expect(reply.body.operation.status).toBe('failed');
+          expect(reply.body.turns).toHaveLength(2);
+        } else
+          expect(reply.body.turns[2].content).toBe(
+            'Would you like to finish getting set up on a call? You can use Start a call whenever you are ready.',
+          );
         expect(reply.body.onboarding.facts.agentName.value).toBe(expectedName);
       } finally {
         await new Promise<void>((resolve, reject) =>
@@ -407,7 +413,7 @@ describe('saved conversation API', () => {
       cookie,
       'Leave my name for now. Help me prepare for my interview.',
     ).expect(200);
-    expect(deferred.body.onboarding.mode).toBe('helping');
+    expect(deferred.body.onboarding.mode).toBe('onboarding');
     expect(deferred.body.onboarding.facts.userName).toEqual({
       ...original,
       status: 'ambiguous',

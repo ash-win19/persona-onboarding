@@ -190,4 +190,34 @@ export class ChatController {
       await this.calls.refreshContext(credential(req)).catch(() => undefined);
     return result;
   }
+
+  @Post('onboarding/plan')
+  @HttpCode(200)
+  async plan(
+    @Req() req: Request,
+    @Body() body: unknown,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    browserWrite(req, this.config);
+    res.set('Cache-Control', 'no-store');
+    if (
+      !body ||
+      typeof body !== 'object' ||
+      !('action' in body) ||
+      !['review', 'accept'].includes(String(body.action)) ||
+      ('id' in body && typeof body.id !== 'string')
+    )
+      throw new BadRequestException();
+    const result = await this.chat.plan(
+      credential(req),
+      body.action as 'review' | 'accept',
+      'id' in body ? (body.id as string) : undefined,
+      owner(req),
+    );
+    if (result.message)
+      await this.calls.sayPlan(credential(req), result.message);
+    if (body.action === 'accept')
+      await this.calls.refreshContext(credential(req)).catch(() => undefined);
+    return result.snapshot;
+  }
 }

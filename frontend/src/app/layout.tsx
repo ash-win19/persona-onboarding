@@ -3,6 +3,7 @@ import localFont from "next/font/local";
 import "./globals.css";
 import "./app-flow.css";
 import "./dashboard-blocks.css";
+import "./onboarding-progress.css";
 import "./intelligence.css";
 
 const inter = localFont({

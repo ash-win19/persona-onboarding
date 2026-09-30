@@ -1,5 +1,7 @@
 # Persona onboarding instructions
 
+The completion and progress rules in this document are superseded by [the onboarding progress design](onboarding-progress.md).
+
 Approved design based on the two accepted rounds in [the design interview](onboarding-instructions-interview.md), followed by approval to ship. The executable role instructions live in [prompts.ts](../../backend/src/chat/prompts.ts), with interpretation and text composition in [model.ts](../../backend/src/chat/model.ts). This document records the design; the source files are authoritative for the installed wording.
 
 ## Agreed behavior

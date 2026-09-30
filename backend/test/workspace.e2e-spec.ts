@@ -139,6 +139,8 @@ describe('personal intelligence workspace', () => {
         userName: 'Lea',
         agentName: 'Nova',
         firstTask: 'Prepare for an interview',
+        tasks: 'Prepare for an interview',
+        starterPlan: null,
       },
     ]);
     await post(cookie, `/workspace/threads/${id}`, {
@@ -162,6 +164,41 @@ describe('personal intelligence workspace', () => {
       submissionId: randomUUID(),
       content: 'Read secret',
     }).expect(404);
+  });
+  it('carries an accepted no-task plan without reviving an older task', async () => {
+    const { cookie, root } = await session();
+    const plan = ['Your Persona is ready whenever you want help.'];
+    await db.query(
+      'UPDATE conversations SET onboarding_intake=$2 WHERE id=$1',
+      [
+        root,
+        JSON.stringify({
+          tasks: [],
+          noTasks: true,
+          questionsAsked: 0,
+          clarification: null,
+          plan: {
+            id: randomUUID(),
+            steps: plan,
+            presented: true,
+            accepted: true,
+          },
+        }),
+      ],
+    );
+    daily.mockClear();
+    await post(cookie, `/workspace/threads/${randomUUID()}`, {
+      submissionId: randomUUID(),
+      content: 'Hello',
+    }).expect(200);
+    expect(daily.mock.calls[0]).toEqual([
+      expect.any(Array),
+      expect.objectContaining({
+        firstTask: null,
+        tasks: null,
+        starterPlan: plan.join('\n'),
+      }),
+    ]);
   });
   it('retains failed messages for retry without duplicates and blocks further messages until resolved', async () => {
     const { cookie } = await session();
