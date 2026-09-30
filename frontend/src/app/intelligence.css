@@ -20,10 +20,6 @@
 .app-sidebar .settings-nav a[aria-current] {
   background: white;
 }
-.app-sidebar .settings-nav .settings-child {
-  margin-left: 22px;
-  font-size: 12px;
-}
 .type-badge,
 .count-badge {
   display: inline-flex;
@@ -706,8 +702,7 @@
     justify-content: center;
     padding: 11px;
   }
-  .dashboard-shell[data-collapsed] .settings-nav a span,
-  .dashboard-shell[data-collapsed] .settings-child {
+  .dashboard-shell[data-collapsed] .settings-nav a span {
     display: none;
   }
 }
@@ -746,9 +741,6 @@
   }
   .app-sidebar .settings-nav a[aria-current] {
     background: var(--soft);
-  }
-  .app-sidebar .settings-nav .settings-child {
-    display: none;
   }
   .daily-brief {
     padding: 24px;
