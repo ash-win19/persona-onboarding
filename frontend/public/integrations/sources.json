@@ -1,0 +1,88 @@
+[
+  {
+    "file": "google-drive.svg",
+    "source": "https://raw.githubusercontent.com/pheralb/svgl/main/static/library/drive.svg",
+    "brand": "https://www.google.com/drive/"
+  },
+  {
+    "file": "figma.svg",
+    "source": "https://raw.githubusercontent.com/pheralb/svgl/main/static/library/figma.svg",
+    "brand": "https://www.figma.com/using-the-figma-brand/"
+  },
+  {
+    "file": "spotify-wordmark.svg",
+    "source": "https://raw.githubusercontent.com/pheralb/svgl/main/static/library/spotify_wordmark.svg",
+    "brand": "https://www.spotify.com/"
+  },
+  {
+    "file": "teams.svg",
+    "source": "https://raw.githubusercontent.com/pheralb/svgl/main/static/library/microsoft-teams.svg",
+    "brand": "https://www.microsoft.com/microsoft-teams/group-chat-software"
+  },
+  {
+    "file": "linear.svg",
+    "source": "https://raw.githubusercontent.com/pheralb/svgl/main/static/library/linear.svg",
+    "brand": "https://linear.app/"
+  },
+  {
+    "file": "chatgpt.svg",
+    "source": "https://raw.githubusercontent.com/pheralb/svgl/main/static/library/openai.svg",
+    "brand": "https://openai.com/brand/"
+  },
+  {
+    "file": "x.svg",
+    "source": "https://raw.githubusercontent.com/pheralb/svgl/main/static/library/x.svg",
+    "brand": "https://about.x.com/en/who-we-are/brand-toolkit"
+  },
+  {
+    "file": "slack-wordmark.svg",
+    "source": "https://raw.githubusercontent.com/pheralb/svgl/main/static/library/slack-wordmark.svg",
+    "brand": "https://www.slack.com"
+  },
+  {
+    "file": "notion.svg",
+    "source": "https://raw.githubusercontent.com/pheralb/svgl/main/static/library/notion.svg",
+    "brand": "https://notion.so/"
+  },
+  {
+    "file": "asana-wordmark.svg",
+    "source": "https://raw.githubusercontent.com/pheralb/svgl/main/static/library/asana-wordmark-light.svg",
+    "brand": "https://asana.com"
+  },
+  {
+    "file": "zoom.svg",
+    "source": "https://raw.githubusercontent.com/pheralb/svgl/main/static/library/zoom.svg",
+    "brand": "https://zoom.us/"
+  },
+  {
+    "file": "todoist.svg",
+    "source": "https://raw.githubusercontent.com/pheralb/svgl/main/static/library/todoist.svg",
+    "brand": "https://todoist.com/"
+  },
+  {
+    "file": "claude-wordmark.svg",
+    "source": "https://raw.githubusercontent.com/pheralb/svgl/main/static/library/claude-ai-wordmark-icon_light.svg",
+    "brand": "https://claude.ai/"
+  },
+  {
+    "file": "dropbox-wordmark.svg",
+    "source": "https://raw.githubusercontent.com/pheralb/svgl/main/static/library/dropbox_wordmark.svg",
+    "brand": "https://brand.dropbox.com/"
+  },
+  {
+    "file": "github.svg",
+    "source": "https://raw.githubusercontent.com/pheralb/svgl/main/static/library/github_light.svg",
+    "brand": "https://brand.github.com/"
+  },
+  {
+    "file": "trello-wordmark.svg",
+    "source": "https://raw.githubusercontent.com/pheralb/svgl/main/static/library/trello-wordmark.svg",
+    "brand": "https://trello.com/brand"
+  },
+  {
+    "file": "google-health.png",
+    "source": "https://developers.google.com/static/health/resources/Google_Health_logos.zip",
+    "asset": "Google_Health_logos/Google_Health_Heart_RGB.png",
+    "brand": "https://developers.google.com/health/promote"
+  }
+]

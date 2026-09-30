@@ -1,0 +1,292 @@
+.demo-integrations {
+  grid-column: 1 / -1;
+  min-width: 0;
+  margin-top: 24px;
+  padding-top: 30px;
+  border-top: 1px solid var(--line);
+}
+.demo-integrations-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+.demo-integrations-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.demo-integrations-title h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.035em;
+}
+.integration-demo-badge {
+  border: 1px solid #e8dec7;
+  color: #82662d;
+  background: #faf6ec;
+  border-radius: 6px;
+  padding: 3px 7px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+.demo-integrations-heading p {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.65;
+  margin: 8px 0 0;
+  max-width: 440px;
+}
+.integration-search {
+  flex: 0 0 224px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 42px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+  background: var(--background);
+}
+.integration-search svg {
+  flex-shrink: 0;
+}
+.integration-search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 13px;
+}
+.integration-search:focus-within {
+  outline: 2px solid #729381;
+  outline-offset: 2px;
+}
+.integration-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 22px 0;
+}
+.integration-filters button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 8px 13px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+}
+.integration-filters button:hover {
+  background: var(--soft);
+}
+.integration-filters button[aria-pressed="true"] {
+  color: var(--foreground);
+  background: #f0f1ef;
+  border-color: #e6e7e3;
+}
+.integration-filters button span {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #e2e5e0;
+}
+.demo-integrations-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+.demo-integration-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 23px 22px 12px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--background);
+  transition:
+    border-color 160ms ease,
+    background 160ms ease;
+}
+.demo-integration-card:hover {
+  border-color: #c9cdc7;
+}
+.demo-integration-card[data-connected] {
+  background: #fbfdfb;
+  border-color: #b8cfbf;
+}
+.demo-integration-brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  height: 42px;
+  margin: 0;
+  color: #20211f;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+}
+.demo-integration-brand span {
+  min-width: 0;
+}
+.integration-brand-icon {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.integration-wordmark {
+  object-fit: contain;
+  max-width: 100%;
+}
+.demo-integration-card > p {
+  margin: 14px 0 22px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--muted);
+  max-width: 260px;
+}
+.demo-integration-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  margin-top: auto;
+  padding-top: 9px;
+}
+.demo-integration-category {
+  color: var(--subtle);
+  font-size: 11px;
+}
+.integration-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 44px;
+  padding: 4px 0 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+.integration-switch[aria-checked="true"] {
+  color: #306a49;
+}
+.integration-switch-track {
+  display: inline-flex;
+  align-items: center;
+  width: 34px;
+  height: 20px;
+  padding: 3px;
+  border-radius: 20px;
+  background: #dddeda;
+  transition: background 160ms ease;
+}
+.integration-switch-track > span {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 1px 2px #00000016;
+  transition: transform 160ms ease;
+}
+.integration-switch[aria-checked="true"] .integration-switch-track {
+  background: #478361;
+}
+.integration-switch[aria-checked="true"] .integration-switch-track > span {
+  transform: translateX(14px);
+}
+.integration-switch:focus-visible,
+.integration-filters button:focus-visible,
+.integration-empty button:focus-visible {
+  outline: 2px solid #729381;
+  outline-offset: 3px;
+}
+.integration-demo-footnote {
+  color: var(--subtle);
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 20px 0 0;
+}
+.integration-empty {
+  text-align: center;
+  padding: 48px 20px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 16px;
+}
+.integration-empty h3 {
+  margin: 0;
+  font-weight: 500;
+  font-size: 17px;
+}
+.integration-empty p {
+  color: var(--muted);
+  font-size: 13px;
+}
+.integration-empty button {
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--background);
+  min-height: 40px;
+  padding: 8px 14px;
+  font-size: 12px;
+  cursor: pointer;
+}
+@media (max-width: 1180px) {
+  .demo-integrations-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .demo-integrations-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .integration-search {
+    flex-basis: auto;
+    width: min(100%, 320px);
+  }
+}
+@media (max-width: 600px) {
+  .demo-integrations {
+    margin-top: 10px;
+    padding-top: 24px;
+  }
+  .demo-integrations-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+  .integration-search {
+    width: 100%;
+  }
+  .integration-filters {
+    gap: 4px;
+    margin: 16px 0;
+  }
+  .integration-filters button {
+    padding: 8px 10px;
+  }
+  .demo-integration-card {
+    padding: 22px 22px 12px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .demo-integration-card,
+  .integration-switch-track,
+  .integration-switch-track > span {
+    transition: none;
+  }
+}

@@ -7,6 +7,7 @@ import "./onboarding-progress.css";
 import "./intelligence.css";
 import "./your-tasks.css";
 import "./calendar.css";
+import "./demo-integrations.css";
 
 const inter = localFont({
   src: "./fonts/inter-latin.woff2",
