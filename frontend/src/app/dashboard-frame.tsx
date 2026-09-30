@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { PersonaLogo, PersonaMark } from "./persona-logo";
@@ -218,13 +219,14 @@ export function DashboardFrame({
         )}
         {dashboard &&
           snapshot &&
-          (daily || integrations || onboarding || call) && (
+          !onboarding &&
+          !integrations &&
+          (daily || call) && (
             <CalendarPanel
               key={snapshot.conversationId}
               conversationId={snapshot.conversationId}
               headers={headers}
               enabled={enabled}
-              settings={integrations}
             />
           )}
         {dashboard && !onboarding && notice && (
@@ -342,47 +344,56 @@ export function DashboardFrame({
                 </button>
               </section>
             )}
+            {integrations && (
+              <section
+                className="connections-page"
+                aria-label="Your integrations"
+              >
+                <div className="dashboard-card integration-card">
+                  <div className="connection-heading">
+                    <div className="card-icon integration-icon">
+                      <Image src="/gmail.svg" alt="" width={32} height={32} />
+                    </div>
+                    <div>
+                      <h2>Gmail</h2>
+                      <p>Verify your Google account.</p>
+                    </div>
+                    <span
+                      className={`connection-badge ${gmail ? "is-connected" : ""}`}
+                    >
+                      {gmail ? "Connected" : "Optional"}
+                    </span>
+                  </div>
+                  <p>
+                    This version verifies your Gmail connection. It does not
+                    read or send your emails.
+                  </p>
+                  {snapshot?.control && snapshot.journey?.entered && (
+                    <GmailConnection
+                      headers={headers}
+                      enabled={enabled}
+                      introduced
+                      conversationId={snapshot.conversationId}
+                      onChanged={onRefresh}
+                      onNotice={onNotice}
+                    />
+                  )}
+                  <p className="connection-note">
+                    Gmail access is separate from your Calendar connection.
+                  </p>
+                </div>
+                {snapshot?.control && (
+                  <CalendarPanel
+                    conversationId={snapshot.conversationId}
+                    headers={headers}
+                    enabled={enabled}
+                    settings
+                  />
+                )}
+              </section>
+            )}
           </main>
         )}
-        <section
-          className="connections-page"
-          hidden={!dashboard || !integrations}
-          aria-label="Your integrations"
-        >
-          <div className="dashboard-card">
-            <div className="connection-heading">
-              <div className="card-icon">
-                <ChatIcon name="mail" />
-              </div>
-              <div>
-                <h2>Gmail</h2>
-                <p>Connect your Google account.</p>
-              </div>
-              <span
-                className={`connection-badge ${gmail ? "is-connected" : ""}`}
-              >
-                {gmail ? "Connected" : "Optional"}
-              </span>
-            </div>
-            <p>
-              This version verifies your Gmail connection. It does not read or
-              send your emails.
-            </p>
-            {snapshot?.control && snapshot.journey?.entered && (
-              <GmailConnection
-                headers={headers}
-                enabled={enabled}
-                introduced
-                conversationId={snapshot.conversationId}
-                onChanged={onRefresh}
-                onNotice={onNotice}
-              />
-            )}
-            <p className="connection-note">
-              You can use Persona without connecting Gmail.
-            </p>
-          </div>
-        </section>
         {daily && (
           <DailyChat
             key={`${pathname}:${initialPrompt}`}

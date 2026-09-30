@@ -93,3 +93,118 @@
     max-height: 250px;
   }
 }
+
+/* Shared Google integration cards and the optional onboarding connection. */
+.dashboard-page .connections-page {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  padding: 0;
+  margin: 0;
+  max-width: none;
+  align-items: stretch;
+}
+.connections-page > .integration-card {
+  max-width: none;
+  min-width: 0;
+  padding: 28px;
+}
+.integration-card .connection-heading {
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.integration-card .connection-heading h2 {
+  font-size: 20px;
+}
+.integration-card .connection-heading p {
+  font-size: 13px;
+}
+.integration-card .integration-icon {
+  background: transparent;
+  width: 40px;
+  height: 40px;
+}
+.integration-card > p {
+  font-size: 14px;
+  line-height: 1.7;
+}
+.integration-card .connection-note {
+  font-size: 12px;
+  margin-top: 24px;
+}
+.integration-account {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+.connection-badge.is-connected {
+  background: #e9f3ec;
+  color: #27634a;
+}
+.calendar-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.calendar-identity img {
+  flex-shrink: 0;
+}
+.calendar-identity span {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.calendar-connect-button {
+  flex-shrink: 0;
+}
+.calendar-connect-button:disabled {
+  opacity: 0.5;
+}
+.onboarding-calendar {
+  margin: 0 0 12px;
+  padding: 14px 16px;
+  color: var(--foreground);
+  background: var(--background);
+  border-color: var(--line);
+}
+.onboarding-calendar .calendar-connection {
+  gap: 12px;
+}
+.onboarding-calendar .calendar-identity span {
+  font-size: 12px;
+}
+.onboarding-calendar .calendar-connect-button {
+  padding: 9px 12px;
+  font-size: 12px;
+}
+.onboarding-calendar .meeting-list {
+  max-height: min(240px, 25dvh);
+}
+@media (max-width: 1050px) {
+  .dashboard-page .connections-page {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 600px) {
+  .connections-page > .integration-card {
+    padding: 22px;
+  }
+  .onboarding-calendar .calendar-connection {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .onboarding-calendar .calendar-identity {
+    flex: 1 1 160px;
+  }
+}
+
+.integration-card .gmail-controls .tool-button:not(.gmail-connected) {
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  padding: 11px 16px;
+  min-height: 44px;
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 400;
+}

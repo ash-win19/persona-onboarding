@@ -115,10 +115,18 @@ export class CalendarController {
     );
     if (result === 'connected')
       await this.calls.refreshContext(credential(req)).catch(() => undefined);
+    const conversation = await this.authority.authorize(credential(req));
+    const entered = (
+      await this.db.query<{ dashboard_entered_at: Date | null }>(
+        'SELECT dashboard_entered_at FROM conversations WHERE id=$1',
+        [conversation.id],
+      )
+    ).rows[0]?.dashboard_entered_at;
     res.redirect(
       303,
       this.config.origins[0] +
-        '/dashboard/conversation?calendar=' +
+        (entered ? '/dashboard/conversation' : '/onboarding') +
+        '?calendar=' +
         encodeURIComponent(result),
     );
   }

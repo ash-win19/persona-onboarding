@@ -1,7 +1,7 @@
 import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { Authority, type Owner } from './authority.js';
-import { DATABASE, type Database } from './database.js';
+import { DATABASE, type Database, type Sql } from './database.js';
 import {
   CalendarError,
   CalendarProvider,
@@ -42,18 +42,18 @@ export class Calendar {
       Buffer.from(this.key, 'base64').length === 32
     );
   }
-  async connection(id: string) {
+  async connection(id: string, sql: Sql = this.db) {
     return (
-      await this.db.query<Connection>(
+      await sql.query<Connection>(
         'SELECT * FROM calendar_connections WHERE conversation_id=$1',
         [id],
       )
     ).rows[0];
   }
-  async status(id: string) {
-    const connection = await this.connection(id);
+  async status(id: string, sql: Sql = this.db) {
+    const connection = await this.connection(id, sql);
     const attempt = (
-      await this.db.query<{ id: string; status: string }>(
+      await sql.query<{ id: string; status: string }>(
         "SELECT id,CASE WHEN status IN ('pending','exchanging') AND expires_at<=now() THEN 'expired' ELSE status END AS status FROM calendar_attempts WHERE conversation_id=$1 ORDER BY created_at DESC LIMIT 1",
         [id],
       )

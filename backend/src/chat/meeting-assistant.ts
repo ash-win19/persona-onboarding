@@ -4,6 +4,7 @@ import { DEFAULT_MODEL, reasoningFor } from './config.js';
 import { DATABASE, type Database } from './database.js';
 import { Meetings, type MeetingContext } from './meetings.js';
 import {
+  isMeetingTurn,
   meetingInstructions,
   meetingReference,
   meetingTools,
@@ -23,6 +24,17 @@ export class MeetingAssistant {
     @Inject(Meetings) private readonly meetings: Meetings,
     @Inject(DATABASE) private readonly db: Database,
   ) {}
+  async handles(context: MeetingContext, turns: ModelTurn[]): Promise<boolean> {
+    if (!this.meetings.calendar.enabled()) return false;
+    const state = await this.meetings.state(
+      context.conversationId,
+      context.threadId ? 'daily:' + context.threadId : 'root',
+    );
+    return isMeetingTurn(
+      turns.filter((t) => t.role === 'user').at(-1)?.content ?? '',
+      state.meetings,
+    );
+  }
   async reply(
     context: MeetingContext,
     turns: ModelTurn[],
@@ -33,22 +45,7 @@ export class MeetingAssistant {
       context.conversationId,
       context.threadId ? 'daily:' + context.threadId : 'root',
     );
-    const pending = state.meetings.some((m) =>
-      ['draft', 'connection_required'].includes(m.status),
-    );
-    if (
-      !pending &&
-      !(
-        state.meetings.length &&
-        /\b(it|that|link|done|status|again|retry|when|change|cancel|resend)\b/i.test(
-          latest,
-        )
-      ) &&
-      !/\b(google meet|meeting|calendar|invitation|invite|schedule|appointment)\b/i.test(
-        latest,
-      )
-    )
-      return null;
+    if (!isMeetingTurn(latest, state.meetings)) return null;
     if (!state.calendar.available)
       return 'Google Calendar scheduling is not configured yet. Once it is enabled, I can create a Google Meet and have Calendar email the invitations.';
     if (!this.client) throw new Error('MEETING_MODEL_UNAVAILABLE');

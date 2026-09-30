@@ -1,6 +1,6 @@
 # Google Meet scheduling
 
-Persona can create a Google Meet on the connected Google account's primary calendar and ask Calendar to email its standard invitation. The meeting card shows the real Calendar and Meet links. Scheduling works in daily text chats and the original conversation's text/voice experience after onboarding.
+Persona can create a Google Meet on the connected Google account's primary calendar and ask Calendar to email its standard invitation. The meeting card shows the real Calendar and Meet links. Scheduling works as a first task during onboarding, in text or voice, as well as in daily chats. Names, Gmail verification and starter-plan acceptance do not block an explicit meeting request. Calendar consent is still required.
 
 ## Enable the integration
 
@@ -25,18 +25,18 @@ Restart the backend after changing configuration. Startup applies additive migra
 
 ## Demo
 
-Use a recipient inbox you control. After onboarding, ask:
+Use a recipient inbox you control. As the first message or spoken request during onboarding, ask:
 
 > Schedule a 30-minute Google Meet with alex@example.com tomorrow at 3 PM Pacific, titled "Persona demo", and email the invitation.
 
-Replace the address with your actual demo recipient. If Calendar is not connected, Persona saves the request and shows Connect Google Calendar. The current controlling tab continues the saved request after consent. The OAuth callback itself performs no scheduling.
+Replace the address with your actual demo recipient. If Calendar is not connected, Persona saves the request and shows Connect Google Calendar. The current controlling tab continues the saved request after consent. The OAuth callback itself performs no scheduling. It returns unfinished users to onboarding, including when popup blocking required full-page consent. The Calendar card stays available beside the onboarding composer, and Settings groups Gmail and Calendar under Integrations.
 
 Watch the meeting card change from scheduling to scheduled. Open the event, open its Meet link, then inspect the recipient's invitation and RSVP controls. Calendar accepting the notification request does not prove inbox delivery; verify that last step in the recipient account.
 
 ## Implementation
 
 - `CalendarProvider` performs Google OAuth and Calendar requests. `Calendar` verifies Google identity, stores encrypted grants, and serializes token refreshes.
-- `MeetingAssistant` handles scheduling dialogue in text. Voice exposes the same prepare, execute, and status tools through the backend sideband connection. Both call `Meetings`; onboarding cannot execute these tools.
+- `MeetingAssistant` handles scheduling dialogue in text. Voice exposes the same prepare, execute, and status tools through the backend sideband connection. Both call `Meetings`. During onboarding, the server saves the task and any volunteered setup facts before handing the turn to meeting tools, with no competing setup question.
 - `calendar_attempts` and `calendar_connections` isolate Calendar from Gmail. `meeting_requests` combines the draft, frozen operation, lease, and reconciliation record in one row, with a revision and unique originating request key.
 - The runner creates an organizer-only event with a stable event ID, waits for the Meet conference, then uses an ETag-conditional update to add attendees with `sendUpdates=all`. An operation marker written with that update allows recovery after a lost response without a second invitation mutation.
 - PostgreSQL stores progress. The runner recovers expired leases after a restart and continues accepted requests independently of chat generation or audio playback. Hosting suspension can delay work until the backend wakes.
@@ -57,3 +57,5 @@ Backend/frontend type checks, lint, and production builds; the existing Gmail in
 Browser verification also exercised the actual NestJS and Next.js applications with the configured OpenAI model, an isolated PostgreSQL database, and a simulated Google provider. The demo prompt saved September 30, 2026 at 3 PM Pacific while the UTC date was already September 30, resumed after simulated consent, and rendered the event and Meet links. Refresh preserved the result with exactly one event creation and one invitation request. Desktop and 390-pixel mobile views rendered without horizontal overflow or JavaScript errors. A capability question created no meeting; a missing recipient prompted a question, and the follow-up address completed the existing request with the correct local date and default duration.
 
 That verification found and fixed two model-instruction issues: requests must be saved before asking for Calendar connection, and relative dates need the server-computed local reference clock instead of only a UTC timestamp. Text and voice now receive the same reference-clock format. Real Google consent, inbox delivery, and a live voice scheduling session remain unverified.
+
+Onboarding regression tests use the real chat/call coordinators with local model responses and a simulated Google provider. They cover first-task capture before scheduling, failed capture, Calendar consent returning to unfinished onboarding, exactly one event/invitation across repeated execution, required attendee evidence, voice readiness, and stale voice tools after hangup. Browser tests cover consent return and reload without resetting the request, plus branded onboarding and paired integration cards at 1440, 390, and 320 pixels. These tests do not establish live Google delivery or real-model speech behavior.
