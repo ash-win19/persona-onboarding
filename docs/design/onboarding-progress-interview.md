@@ -1,6 +1,6 @@
 # Onboarding progress and plan confirmation
 
-Design interview opened September 29, 2026. This revisits the shipped onboarding behavior after the user's supplied conversation showed repeated questions and no clear finish. Product changes have not started; unsettled choices remain proposals.
+Design interview opened September 29, 2026. This revisits the shipped onboarding behavior after the user's supplied conversation showed repeated questions and no clear finish. The decisions below were settled before implementation; the final clarification supersedes the initial one-question limit.
 
 ## Evidence
 
@@ -8,7 +8,7 @@ The supplied transcript shows the assistant repeatedly promising a Gmail authori
 
 The transcript proves these conversational failures. It does not, by itself, establish which fact proposals were accepted by the server or which phase was active for every response.
 
-The shipped behavior distinguishes graduation from completion of every setup item. The user has replaced that normal finish rule: both names, verified Gmail and a task must be saved, then the user accepts a first-task plan before dashboard entry. The glossary now records that agreed target; runtime changes are pending.
+The shipped behavior distinguishes graduation from completion of every setup item. The user has replaced that normal finish rule: both names, verified Gmail and a task must be saved, then the user accepts a first-task plan before dashboard entry. The glossary and implementation now follow the final agreed completion rule.
 
 ## Confirmed requirements
 

@@ -319,7 +319,9 @@ export class OnboardingService {
     ).rows[0];
     const state = await this.read(sql, id, current?.revision ?? revision);
     if (state.graduated)
-      return (state.intake ? state.intake.tasks.length : state.facts.helpRequest.value)
+      return (
+        state.intake ? state.intake.tasks.length : state.facts.helpRequest.value
+      )
         ? 'Continue the saved first task with a concrete useful next step. Do not restart onboarding.'
         : 'Briefly greet the user and say you are ready whenever they want help. Do not ask setup questions.';
     if (state.intake?.ready && state.intake.plan)

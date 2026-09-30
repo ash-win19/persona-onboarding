@@ -40,7 +40,7 @@ The visual states are a check for saved, a filled dot for the current action, an
 
 Checks are automatic. Names and tasks have an accessible Edit action so a speech recognition error can be corrected without restarting the chat. Editing a required fact updates the saved state; editing task content replaces any unaccepted proposal. Use text labels rather than an unexplained pencil icon alone.
 
-Keep one canonical Gmail status in the rail, with Connect Gmail or Retry as needed. Remove redundant success banners once that status is visible. Keep transient failure feedback beside the relevant action. Offer voice once with an actual Start a call control. A typed yes to a call offer highlights that control; it does not open another consent interview.
+Keep one canonical Gmail status in the rail, with Connect Gmail or Retry as needed. Remove redundant success banners once that status is visible. Keep transient failure feedback beside the relevant action. Offer voice once with an actual Start a call control. A typed yes to a call offer points the user to that control; it does not open another consent interview.
 
 ## Conversation sequence
 
@@ -98,6 +98,9 @@ in the plan. If the user asks you to stop asking questions, propose the plan
 as soon as required setup is ready. Never ask “what task?” again when one
 has already been saved.
 
+An explicit "nothing yet" completes the task choice. Prepare a brief welcome
+plan for confirmation instead of forcing the user to invent work.
+
 If several tasks are supplied, save all of them and propose a simple order.
 Do not force the user to choose one or discard another. Keep the proposal
 brief, normally one sentence or up to three short actions. Include needed
@@ -147,7 +150,7 @@ Dashboard navigation must keep the existing conversation and call owner alive. C
 
 ## Focused verification after implementation
 
-Verify the supplied failure path, split spoken tasks, one-question budget across text/voice/reconnect, Gmail denial and retry, plan revision followed by stale approval, repeated acceptance, active-call dashboard navigation, refresh during a failed save, and preservation of existing dashboard access. Check the rail at desktop and mobile sizes with keyboard and screen reader status announcements. Keep verification focused on these changed behaviors.
+Verify the supplied failure path, split spoken tasks, shared clarification budget across text/voice/reconnect, Gmail denial and retry, plan revision followed by stale approval, repeated acceptance, active-call dashboard navigation, refresh during a failed save, and preservation of existing dashboard access. Check the rail at desktop and mobile sizes with keyboard and screen reader status announcements. Keep verification focused on these changed behaviors.
 
 ## Implementation limits
 

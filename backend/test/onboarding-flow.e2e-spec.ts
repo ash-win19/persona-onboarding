@@ -166,7 +166,7 @@ describe('bounded onboarding', () => {
       facts: { helpRequest: { value: null } },
     });
     expect(result.body.onboarding.policy.goals.gmail.outcome).toBe('deferred');
-    expect((await s.read()).body.onboarding.mode).toBe('helping');
+    expect((await s.read()).body.onboarding.mode).toBe('onboarding');
   });
 
   it('rejects forged exit evidence and mode writes without mutating the phase', async () => {

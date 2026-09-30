@@ -334,4 +334,161 @@ describe('onboarding progress and accepted plan', () => {
     expect(sent.some((e) => e.type === 'response.create')).toBe(true);
     await post('/calls/end', { id: callId, reason: 'user_hangup' }).expect(200);
   });
+  async function startCall(s: Awaited<ReturnType<typeof session>>) {
+    const tabId = randomUUID(),
+      id = randomUUID();
+    const control = await s
+      .post('/control', { tabId, takeover: false })
+      .expect(200);
+    const post = (path: string, body: object) =>
+      s
+        .post(path, body)
+        .set('X-Persona-Tab', tabId)
+        .set('X-Persona-Epoch', String(control.body.control.epoch));
+    await post('/calls/start', { id, sdp: 'v=0' }).expect(200);
+    return {
+      id,
+      post,
+      end: () => post('/calls/end', { id, reason: 'user_hangup' }).expect(200),
+    };
+  }
+  const spokenName = (input: RepairInput, name: string) => ({
+    expectedRevision: input.state.revision,
+    askOnboarding: true,
+    changes: [
+      {
+        goal: 'userName',
+        action: 'set',
+        value: name,
+        evidence: `Call me ${name}`,
+      },
+    ],
+    preferences: [],
+    exitEvidence: null,
+    intake: blank(),
+  });
+  async function speech(item: string, transcript: string) {
+    await emit({ type: 'input_audio_buffer.committed', item_id: item });
+    await emit({
+      type: 'conversation.item.input_audio_transcription.completed',
+      item_id: item,
+      transcript,
+    });
+  }
+  it('accepts the current plan by speech and keeps the same call active on dashboard entry', async () => {
+    const { s, plan } = await ready();
+    voiceCommand = (input) => ({
+      expectedRevision: input.state.revision,
+      askOnboarding: false,
+      changes: [],
+      preferences: [],
+      exitEvidence: null,
+      intake: { ...blank(), acceptPlan: { id: plan.id, evidence: 'Yes' } },
+    });
+    const call = await startCall(s);
+    await speech('plan-yes', 'Yes.');
+    await vi.waitFor(async () =>
+      expect((await s.read()).body.journey.entered).toBe(true),
+    );
+    const status = await request(app.getHttpServer())
+      .get('/calls/status')
+      .set('Cookie', s.cookie)
+      .expect(200);
+    expect(status.body.call).toMatchObject({ id: call.id, status: 'active' });
+    await call.end();
+  });
+  it('blocks button approval while newer speech is awaiting interpretation', async () => {
+    const { s, plan } = await ready();
+    let finish!: (value: unknown) => void;
+    const pending = new Promise<unknown>((resolve) => {
+      finish = resolve;
+    });
+    voiceCommand = () => pending;
+    const call = await startCall(s);
+    await speech('changing-plan', 'Actually, change that plan.');
+    await call
+      .post('/onboarding/plan', { action: 'accept', id: plan.id })
+      .expect(409);
+    expect((await s.read()).body.journey.entered).toBe(false);
+    await call.end();
+    finish(undefined);
+  });
+  it('collects split speech after delayed transcription without repeating a saved question', async () => {
+    const s = await session();
+    voiceCommand = (input) => ({
+      ...spokenName(input, 'Taylor'),
+      intake: {
+        ...blank(),
+        tasks: [{ value: 'buy groceries', evidence: 'buy groceries' }],
+        plan: ['Make a grocery list.'],
+      },
+    });
+    const call = await startCall(s);
+    for (const item of ['name-part', 'task-part'])
+      await emit({ type: 'input_audio_buffer.committed', item_id: item });
+    await emit({
+      type: 'conversation.item.input_audio_transcription.completed',
+      item_id: 'task-part',
+      transcript: 'Help me buy groceries.',
+    });
+    expect((await s.read()).body.onboarding.facts.userName.value).toBeNull();
+    await emit({
+      type: 'conversation.item.input_audio_transcription.completed',
+      item_id: 'name-part',
+      transcript: 'Call me Taylor.',
+    });
+    await vi.waitFor(async () => {
+      const state = (await s.read()).body.onboarding;
+      expect(state.facts.userName.value).toBe('Taylor');
+      expect(state.intake.tasks).toEqual(['buy groceries']);
+    });
+    await call.end();
+  });
+  it('retries a failed current-call capture without asking the user to repeat it', async () => {
+    const s = await session();
+    voiceCommand = () => {
+      throw new Error('provider unavailable');
+    };
+    const call = await startCall(s);
+    await speech('retry-name', 'Call me Sam.');
+    await vi.waitFor(() =>
+      expect(JSON.stringify(sent)).toContain('Retry saved speech'),
+    );
+    expect((await s.read()).body.onboarding.facts.userName.value).toBeNull();
+    voiceCommand = (input) => spokenName(input, 'Sam');
+    await call.post('/calls/retry-onboarding', {}).expect(200);
+    await vi.waitFor(async () =>
+      expect((await s.read()).body.onboarding.facts.userName.value).toBe('Sam'),
+    );
+    await call.end();
+  });
+  it('ignores late interpretation after new speech and retains the newer name', async () => {
+    const s = await session();
+    let finish!: (value: unknown) => void;
+    let stale: unknown;
+    const pending = new Promise<unknown>((resolve) => {
+      finish = resolve;
+    });
+    voiceCommand = (input) => {
+      stale = spokenName(input, 'Sam');
+      return pending;
+    };
+    const call = await startCall(s);
+    await speech('old-name', 'Call me Sam.');
+    await vi.waitFor(() => expect(stale).toBeDefined());
+    voiceCommand = (input) => spokenName(input, 'Jordan');
+    await speech('new-name', 'Call me Jordan.');
+    await vi.waitFor(async () =>
+      expect((await s.read()).body.onboarding.facts.userName.value).toBe(
+        'Jordan',
+      ),
+    );
+    finish(stale);
+    await pending;
+    await emit({ type: 'rate_limits.updated' });
+    expect((await s.read()).body.onboarding.facts.userName.value).toBe(
+      'Jordan',
+    );
+    await call.end();
+  });
 });
