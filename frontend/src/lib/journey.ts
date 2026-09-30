@@ -8,6 +8,7 @@ export type Journey = {
 
 export const dashboardPaths = [
   "/dashboard",
+  "/dashboard/tasks",
   "/dashboard/conversation",
   "/dashboard/connections",
   "/dashboard/account",

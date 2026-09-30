@@ -5,6 +5,7 @@ import "./app-flow.css";
 import "./dashboard-blocks.css";
 import "./onboarding-progress.css";
 import "./intelligence.css";
+import "./your-tasks.css";
 
 const inter = localFont({
   src: "./fonts/inter-latin.woff2",
