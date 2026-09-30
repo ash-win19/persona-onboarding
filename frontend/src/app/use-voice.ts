@@ -40,6 +40,7 @@ const initialPreferences = (): Preferences => ({
 type Attempt = {
   preferences: Preferences;
   silenced: boolean;
+  outputRevision: number;
   id: string;
   headers: Record<string, string>;
   abort: AbortController;
@@ -231,6 +232,7 @@ export function useVoice(
           track.enabled = false;
         });
       if (next.replyMode !== previous.replyMode) {
+        current.outputRevision = next.revision;
         clearPlayback(current);
         current.activity = {
           ...interruptVoice(current.activity, true),
@@ -284,6 +286,7 @@ export function useVoice(
       id: crypto.randomUUID(),
       preferences: initialPreferences(),
       silenced: false,
+      outputRevision: 0,
       headers: headersRef.current(),
       abort: new AbortController(),
       dispatched: false,
@@ -335,7 +338,7 @@ export function useVoice(
               value.type === "response.created" &&
               value.response?.metadata?.preferenceRevision !== undefined &&
               Number(value.response.metadata.preferenceRevision) <
-                current.preferences.revision
+                current.outputRevision
             )
               return;
           }
@@ -558,11 +561,22 @@ export function useVoice(
     play: () => {
       if (attempt.current) void playAudio(attempt.current);
     },
-    typedTurn: () => {
+    typedTurn: (submissionId: string) => {
       const current = attempt.current;
       if (!current) return;
       clearPlayback(current);
-      const interrupted = interruptVoice(current.activity, true);
+      // Match Calls.type's provider item ID before its HTTP receipt or provider echo arrives.
+      const bytes = submissionId.replaceAll("-", "").match(/.{2}/g) ?? [];
+      const inputItemId =
+        "msg_" +
+        btoa(String.fromCharCode(...bytes.map((byte) => parseInt(byte, 16))))
+          .replaceAll("+", "-")
+          .replaceAll("/", "_")
+          .replaceAll("=", "");
+      const interrupted = {
+        ...interruptVoice(current.activity, true),
+        inputItemId,
+      };
       current.activity = interrupted;
       setActivity(interrupted);
       return () => {

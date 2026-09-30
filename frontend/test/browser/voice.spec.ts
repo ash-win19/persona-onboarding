@@ -102,6 +102,8 @@ async function voicePage(page: Page) {
   let holdFirst: (() => Promise<void>) | undefined;
   await page.route("**/api/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
+    if (path === "/api/workspace")
+      return route.fulfill({ json: { threads: [], priorities: [] } });
     if (path === "/api/ready") return route.fulfill({ json: { ready: true } });
     if (path === "/api/control") {
       control = { tabId: route.request().postDataJSON().tabId, epoch: 1 };
@@ -651,4 +653,81 @@ test("dashboard keeps call text separate from the daily conversation", async ({
   await page.screenshot({
     path: test.info().outputPath("dashboard-call-panel.png"),
   });
+});
+
+test("muting after typing preserves an already requested spoken reply", async ({
+  page,
+}) => {
+  await voicePage(page);
+  await page.goto("/onboarding");
+  await page.getByRole("button", { name: "Start a call" }).click();
+  await page
+    .getByRole("textbox", { name: "Message Persona" })
+    .fill("Keep speaking while I type.");
+  await page.getByRole("button", { name: "Send message" }).click();
+  await page.getByRole("button", { name: "Mute microphone" }).click();
+  await expect(
+    page.getByRole("button", { name: "Enable microphone" }),
+  ).toBeEnabled();
+  await providerEvent(page, {
+    type: "response.created",
+    response: {
+      id: "typed-before-mute",
+      status: "in_progress",
+      metadata: { preferenceRevision: "0" },
+    },
+  });
+  await providerEvent(page, {
+    type: "output_audio_buffer.started",
+    response_id: "typed-before-mute",
+  });
+  expect(
+    await page.evaluate(
+      () =>
+        (window as unknown as { callAudioInstances: { muted: boolean }[] })
+          .callAudioInstances[0].muted,
+    ),
+  ).toBe(false);
+  expect(
+    await page.evaluate(
+      () =>
+        (
+          window as unknown as { callInputStream: MediaStream }
+        ).callInputStream.getAudioTracks()[0].enabled,
+    ),
+  ).toBe(false);
+});
+
+test("a response first observed after typed Send cannot restart obsolete audio", async ({
+  page,
+}) => {
+  await voicePage(page);
+  await page.goto("/onboarding");
+  await page.getByRole("button", { name: "Start a call" }).click();
+  await page
+    .getByRole("textbox", { name: "Message Persona" })
+    .fill("Use the new request.");
+  await page.getByRole("button", { name: "Send message" }).click();
+  await providerEvent(page, {
+    type: "response.created",
+    response: {
+      id: "late-old",
+      status: "in_progress",
+      metadata: { sourceItem: "earlier-source", preferenceRevision: "0" },
+    },
+  });
+  await providerEvent(page, {
+    type: "output_audio_buffer.started",
+    response_id: "late-old",
+  });
+  expect(
+    await page.evaluate(
+      () =>
+        (window as unknown as { callAudioInstances: { muted: boolean }[] })
+          .callAudioInstances[0].muted,
+    ),
+  ).toBe(true);
+  await expect(
+    page.getByText("Persona is speaking", { exact: true }),
+  ).not.toBeVisible();
 });

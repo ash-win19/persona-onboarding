@@ -546,7 +546,7 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
     try {
       let data: Snapshot;
       if (voice.active && voice.call?.status === "active") {
-        voiceTurnFailed = voice.typedTurn();
+        voiceTurnFailed = voice.typedTurn(payload.submissionId);
         try {
           await api(
             "calls/turns",

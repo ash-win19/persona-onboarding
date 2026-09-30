@@ -527,7 +527,7 @@ export class Calls implements OnModuleDestroy {
         if (!microphoneEnabled) {
           discarded = (
             await sql.query<{ item_id: string }>(
-              `UPDATE voice_items SET discarded=true WHERE call_id=$1 AND role='user'
+              `UPDATE voice_items SET discarded=true,finalized=true WHERE call_id=$1 AND role='user'
              AND NOT audio_committed AND NOT finalized RETURNING item_id`,
               [id],
             )
@@ -1122,7 +1122,7 @@ export class Calls implements OnModuleDestroy {
         if (!known.rows[0]?.audio_committed && !known.rows[0]?.finalized) {
           await this.item(sql, call, event.item_id, 'user');
           await sql.query(
-            'UPDATE voice_items SET discarded=true WHERE call_id=$1 AND item_id=$2',
+            'UPDATE voice_items SET discarded=true,finalized=true WHERE call_id=$1 AND item_id=$2',
             [id, event.item_id],
           );
           return;

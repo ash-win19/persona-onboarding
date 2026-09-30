@@ -973,6 +973,48 @@ describe('browser call API', () => {
     expect(c.sent.some((e) => e.type === 'input_audio_buffer.clear')).toBe(
       true,
     );
+    await s
+      .post('/calls/turns', {
+        id,
+        submissionId: randomUUID(),
+        content: 'Call me Rowan. Skip setup.',
+      })
+      .expect(200);
+    const reply = c.sent.filter((e) => e.type === 'response.create').at(-1)!
+      .response as { metadata: { generation: string; sourceItem: string } };
+    await c.emit({
+      type: 'response.created',
+      response: {
+        id: 'after-discard',
+        status: 'in_progress',
+        metadata: reply.metadata,
+      },
+    });
+    await c.emit({
+      type: 'response.function_call_arguments.done',
+      response_id: 'after-discard',
+      call_id: 'capture-after-discard',
+      name: 'capture_onboarding',
+      arguments: JSON.stringify({
+        expectedRevision: (await s.read()).body.revision,
+        askOnboarding: false,
+        preferences: [],
+        exitEvidence: 'Skip setup.',
+        changes: [
+          {
+            goal: 'userName',
+            action: 'set',
+            value: 'Rowan',
+            evidence: 'Call me Rowan.',
+          },
+        ],
+      }),
+    });
+    expect((await s.read()).body.onboarding).toMatchObject({
+      graduated: true,
+      facts: { userName: { value: 'Rowan' } },
+    });
+
     await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
   });
 
