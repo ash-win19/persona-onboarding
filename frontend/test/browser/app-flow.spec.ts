@@ -157,6 +157,20 @@ test("return visits and Gmail callbacks keep dashboard access without fresh-star
   ).toHaveCount(0);
 });
 
+test("the dashboard heading takes focus on reload without a focus ring", async ({
+  page,
+}) => {
+  await appFixture(page, { entered: true });
+  await page.goto("/dashboard");
+  await page.reload();
+  const heading = page.getByRole("heading", { level: 1 });
+  // Focus still moves to the heading so screen readers announce the page.
+  await expect(heading).toBeFocused();
+  expect(
+    await heading.evaluate((el) => getComputedStyle(el).outlineStyle),
+  ).toBe("none");
+});
+
 test("deep links require a session and onboarding cannot be bypassed", async ({
   page,
 }) => {
