@@ -11,7 +11,7 @@ The original conversation and active call remain available after graduation. The
 - `backend/src/chat/opening.ts` has the saved greeting.
 - `backend/src/chat/onboarding.ts` validates quoted evidence, saves progress, picks the next step and finishes onboarding.
 - `backend/src/chat/calls.ts` captures finalized call speech, then asks the voice model to reply using the guide.
-- `frontend/src/app/onboarding-progress.tsx` shows the saved details and pending steps.
+- `frontend/src/app/onboarding-progress.tsx` shows the saved details and pending steps. Gmail and Google Calendar each have a card with its connect button just above the message box, side by side on wide screens and stacked on narrow ones. The rail shows their status only.
 
 ## How a turn works
 
@@ -26,7 +26,7 @@ Every saved detail must match the user's own words. When the interpreter propose
 
 Finishing needs both names, verified Gmail, verified Calendar when available, and a task choice. It also waits until no newer input is still being interpreted. When a detail arrives outside a reply, such as returning from Google consent, the browser asks the server to finish and a closing line is saved as the handoff turn. Finishing is idempotent.
 
-Save and exit returns to the landing page without graduating. The next visit resumes saved progress. A Google refusal or failed authorization leaves the step pending; the user can connect later from Your setup.
+Save and exit returns to the landing page without graduating. The next visit resumes saved progress. A Google refusal or failed authorization leaves the step pending; the user can connect later from the cards above the message box.
 
 ## Voice
 
@@ -34,6 +34,6 @@ Calls use the same guide and the same next step. The voice model speaks its own 
 
 ## Verification
 
-Backend tests cover the step order, moving past a postponed step, finishing in the same text reply or call turn, finishing after Gmail and Calendar connect, holding the finish while newer speech is pending, the guide prompt contents and repaired proposals. Browser tests cover the progress rail and the timed hand-off to the dashboard.
+Backend tests cover the step order, moving past a postponed step, finishing in the same text reply or call turn, finishing after Gmail and Calendar connect, holding the finish while newer speech is pending, the guide prompt contents and repaired proposals. Browser tests cover the progress rail, the Gmail and Calendar cards and the timed hand-off to the dashboard.
 
 `test/onboarding-live.e2e-spec.ts` is opt-in with `PERSONA_LIVE_MODEL=1`. It uses a real model with synthetic messages and a disposable local database, never production conversation storage. Real microphone and OAuth-provider behavior still need manual verification.

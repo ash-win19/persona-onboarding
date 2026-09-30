@@ -69,23 +69,19 @@ test("a delayed Gmail status cannot restore account details after a server-side 
     return route.fulfill({ json: snapshot() });
   });
   await page.goto("/onboarding");
-  await page.getByLabel("Gmail connection details").click();
-  await expect(
-    page.getByText("Gmail connected: old@example.test"),
-  ).toBeVisible();
+  const card = page.getByRole("region", { name: "Gmail connection" });
+  await expect(card.getByText("Connected as old@example.test")).toBeVisible();
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect.poll(() => reads).toBe(2);
   conversationId = "new-conversation";
   control = { ...control, epoch: 2 };
-  await expect(page.getByText("Gmail connected", { exact: true })).toHaveCount(
-    0,
-  );
-  releaseOld();
-  await expect(page.getByText("Gmail connected: old@example.test")).toHaveCount(
-    0,
-  );
   await expect(
-    page.getByRole("button", { name: "Connect Gmail", exact: true }),
+    card.getByRole("button", { name: "Connect Gmail", exact: true }),
+  ).toBeVisible();
+  releaseOld();
+  await expect(page.getByText("Connected as old@example.test")).toHaveCount(0);
+  await expect(
+    card.getByRole("button", { name: "Connect Gmail", exact: true }),
   ).toBeVisible();
 });
 

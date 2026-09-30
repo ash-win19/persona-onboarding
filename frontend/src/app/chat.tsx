@@ -792,6 +792,13 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
     void submit(payload);
   }
 
+  // Gmail and Google Calendar cards sit above the composer in the onboarding
+  // conversation, including after it moves under the dashboard. They wait for
+  // the welcome animation so loading them does not shift it.
+  const integrationCards =
+    !!snapshot?.control &&
+    !introducing &&
+    (!snapshot.journey?.entered || pathname === "/dashboard/onboarding");
   const gmailIntroduced =
     snapshot?.onboarding?.policy?.goals.gmail.introduced ||
     snapshot?.onboarding?.gmail === "connected" ||
@@ -1045,24 +1052,22 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
                 finishIntroduction();
                 void submit({ submissionId: crypto.randomUUID(), content });
               }}
-              gmail={
-                <GmailConnection
-                  key={snapshot.conversationId}
-                  headers={headers}
-                  enabled={hasControl && connection === "ready"}
-                  introduced
-                  conversationId={snapshot.conversationId}
-                  onChanged={refresh}
-                  onNotice={setGmailNotice}
-                />
-              }
             />
           )}
 
         <footer className="composer-area">
-          {snapshot?.control &&
-            (!snapshot.journey?.entered ||
-              pathname === "/dashboard/onboarding") && (
+          {integrationCards && (
+            <div className="onboarding-integrations">
+              <GmailConnection
+                key={`gmail-${snapshot.conversationId}`}
+                headers={headers}
+                enabled={hasControl && connection === "ready"}
+                introduced
+                conversationId={snapshot.conversationId}
+                onChanged={refresh}
+                onNotice={setGmailNotice}
+                card
+              />
               <CalendarPanel
                 key={snapshot.conversationId}
                 conversationId={snapshot.conversationId}
@@ -1070,7 +1075,8 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
                 enabled={hasControl && connection === "ready"}
                 onboarding
               />
-            )}
+            </div>
+          )}
           {voice.active &&
             snapshot?.turns.at(-1)?.content.includes("Retry saved speech") && (
               <div className="notice" role="alert">
@@ -1210,6 +1216,7 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
             </div>
           )}
           {snapshot?.control &&
+            !integrationCards &&
             (snapshot.journey?.entered || snapshot.onboarding?.graduated) && (
               <div className="composer-connections">
                 <GmailConnection

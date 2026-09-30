@@ -110,9 +110,15 @@ test("mobile has one usable composer for an uninterrupted conversation", async (
   await expect(
     page.getByRole("button", { name: "Start a call" }),
   ).toBeInViewport();
+  // Gmail's one connection control lives in its card above the composer.
   await expect(
     page.getByRole("button", { name: "Connect Gmail", exact: true }),
-  ).toHaveCount(0);
+  ).toHaveCount(1);
+  await expect(
+    page
+      .getByRole("region", { name: "Gmail connection" })
+      .getByRole("button", { name: "Connect Gmail", exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Send message" }),
   ).toBeInViewport();
