@@ -190,6 +190,9 @@ test("failed daily replies retry without creating another conversation or messag
   const fixture = await workspaceFixture(page);
   fixture.failOnce();
   await page.goto("/dashboard/conversation");
+  await expect(
+    page.getByRole("heading", { name: "What can we take off your mind?" }),
+  ).toBeVisible();
   await page
     .getByRole("textbox", { name: "Message Persona", exact: true })
     .fill("Plan my day");

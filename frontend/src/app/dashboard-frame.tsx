@@ -20,7 +20,8 @@ export function DashboardFrame({
   children,
   snapshot,
   call,
-  onEndCall,
+  callPanel,
+  callControls,
   onSignOut,
   signingOut,
   headers,
@@ -32,7 +33,8 @@ export function DashboardFrame({
   children: ReactNode;
   snapshot: Snapshot | null;
   call: boolean;
-  onEndCall: () => void;
+  callPanel: ReactNode;
+  callControls: ReactNode;
   onSignOut: () => void;
   signingOut: boolean;
   headers: () => Record<string, string>;
@@ -377,16 +379,15 @@ export function DashboardFrame({
           {children}
         </div>
         {dashboard && !onboarding && call && (
-          <div className="persistent-call" role="status">
+          <div className="persistent-call" aria-label="Active call">
             <ChatIcon name="headphones" />
             <div>
               <strong>Your call continues</strong>
               <small>Onboarding conversation with {agent}.</small>
             </div>
             <Link href="/dashboard/onboarding">Open conversation</Link>
-            <button className="secondary-button" onClick={onEndCall}>
-              End call
-            </button>
+            {callControls}
+            {callPanel}
           </div>
         )}
       </div>

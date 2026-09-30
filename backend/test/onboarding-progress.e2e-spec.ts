@@ -397,6 +397,173 @@ describe('onboarding progress and accepted plan', () => {
     expect(status.body.call).toMatchObject({ id: call.id, status: 'active' });
     await call.end();
   });
+  it('accepts the current plan by typed input during a muted text-only call', async () => {
+    const { s, plan } = await ready();
+    voiceCommand = (input) => ({
+      expectedRevision: input.state.revision,
+      askOnboarding: false,
+      changes: [],
+      preferences: [],
+      exitEvidence: null,
+      intake: { ...blank(), acceptPlan: { id: plan.id, evidence: 'Yes' } },
+    });
+    const call = await startCall(s);
+    await call
+      .post('/calls/preferences', {
+        id: call.id,
+        revision: 1,
+        microphoneEnabled: false,
+        replyMode: 'text',
+      })
+      .expect(200);
+    await call
+      .post('/calls/turns', {
+        id: call.id,
+        submissionId: randomUUID(),
+        content: 'Yes.',
+      })
+      .expect(200);
+    await vi.waitFor(async () =>
+      expect((await s.read()).body.journey.entered).toBe(true),
+    );
+    expect(
+      sent.filter((e) => e.type === 'response.create').at(-1),
+    ).toMatchObject({ response: { output_modalities: ['text'] } });
+    const status = await request(app.getHttpServer())
+      .get('/calls/status')
+      .set('Cookie', s.cookie)
+      .expect(200);
+    expect(status.body.call).toMatchObject({
+      id: call.id,
+      status: 'active',
+      microphoneEnabled: false,
+      replyMode: 'text',
+    });
+    await call.end();
+  });
+
+  it('captures typed details after discarding partial microphone input', async () => {
+    const s = await session();
+    voiceCommand = (input) => spokenName(input, 'Rowan');
+    const call = await startCall(s);
+    await emit({
+      type: 'input_audio_buffer.speech_started',
+      item_id: 'discarded-partial',
+    });
+    await call
+      .post('/calls/preferences', {
+        id: call.id,
+        revision: 1,
+        microphoneEnabled: false,
+        replyMode: 'text',
+      })
+      .expect(200);
+    const replies = sent.filter(
+      (event) => event.type === 'response.create',
+    ).length;
+    await emit({
+      type: 'conversation.item.input_audio_transcription.completed',
+      item_id: 'discarded-partial',
+      transcript: 'Call me Wrong.',
+    });
+    expect(
+      sent.filter((event) => event.type === 'response.create'),
+    ).toHaveLength(replies);
+    expect((await s.read()).body.onboarding.facts.userName.value).toBeNull();
+    await call
+      .post('/calls/turns', {
+        id: call.id,
+        submissionId: randomUUID(),
+        content: 'Call me Rowan.',
+      })
+      .expect(200);
+    await vi.waitFor(async () =>
+      expect((await s.read()).body.onboarding.facts.userName.value).toBe(
+        'Rowan',
+      ),
+    );
+    await emit({
+      type: 'conversation.item.input_audio_transcription.completed',
+      item_id: 'discarded-partial',
+      transcript: 'Call me Wrong.',
+    });
+    expect((await s.read()).body.onboarding.facts.userName.value).toBe('Rowan');
+    await call.end();
+  });
+
+  it('recaptures the current input when reply format changes during interpretation', async () => {
+    const s = await session();
+    let finish!: (value: unknown) => void;
+    let first: RepairInput | undefined;
+    const blocked = new Promise((resolve) => {
+      finish = resolve;
+    });
+    voiceCommand = (input) => {
+      first = input;
+      return blocked;
+    };
+    const call = await startCall(s);
+    await speech('mode-change-source', 'Call me Taylor.');
+    await vi.waitFor(() => expect(first).toBeDefined());
+    voiceCommand = (input) => spokenName(input, 'Taylor');
+    await call
+      .post('/calls/preferences', {
+        id: call.id,
+        revision: 1,
+        microphoneEnabled: false,
+        replyMode: 'text',
+      })
+      .expect(200);
+    await vi.waitFor(async () =>
+      expect((await s.read()).body.onboarding.facts.userName.value).toBe(
+        'Taylor',
+      ),
+    );
+    const reply = sent.filter((e) => e.type === 'response.create').at(-1)!
+      .response as {
+      metadata: { generation: string; sourceItem: string };
+      instructions: string;
+    };
+    expect(sent.at(-1)).toMatchObject({
+      type: 'response.create',
+      response: { output_modalities: ['text'] },
+    });
+    finish(spokenName(first!, 'Wrong'));
+    await blocked;
+    await emit({
+      type: 'response.created',
+      response: {
+        id: 'saved-reply',
+        status: 'in_progress',
+        metadata: reply.metadata,
+      },
+    });
+    await call
+      .post('/calls/preferences', {
+        id: call.id,
+        revision: 2,
+        microphoneEnabled: false,
+        replyMode: 'audio',
+      })
+      .expect(200);
+    await emit({
+      type: 'response.done',
+      response: { id: 'saved-reply', status: 'cancelled' },
+    });
+    expect(
+      sent.filter((e) => e.type === 'response.create').at(-1),
+    ).toMatchObject({
+      response: {
+        output_modalities: ['audio'],
+        instructions: reply.instructions,
+      },
+    });
+    expect((await s.read()).body.onboarding.facts.userName.value).toBe(
+      'Taylor',
+    );
+    await call.end();
+  });
+
   it('blocks button approval while newer speech is awaiting interpretation', async () => {
     const { s, plan } = await ready();
     let finish!: (value: unknown) => void;

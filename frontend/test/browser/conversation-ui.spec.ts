@@ -230,7 +230,7 @@ test("a call is marked in the conversation, with its spoken turns and recap", as
       },
     });
   });
-  await page.goto("/");
+  await page.goto("/onboarding");
   const log = page.getByRole("log");
   await expect(log.locator("article")).toHaveCount(7);
   const markers = log.locator(".call-marker");

@@ -28,6 +28,16 @@ test("a delayed Gmail status cannot restore account details after a server-side 
     conversationId,
     revision: 0,
     turns: [],
+    onboarding: {
+      facts: {
+        agentName: { value: "Persona", status: "known" },
+        userName: { value: "Sam", status: "known" },
+        helpRequest: { value: null, status: "missing" },
+      },
+      gmail: "not_connected",
+      graduated: false,
+      onboardingComplete: false,
+    },
     operation: null,
     control,
   });
@@ -59,7 +69,7 @@ test("a delayed Gmail status cannot restore account details after a server-side 
     return route.fulfill({ json: snapshot() });
   });
   await page.goto("/onboarding");
-  await page.getByText("Gmail connected", { exact: true }).click();
+  await page.getByLabel("Gmail connection details").click();
   await expect(
     page.getByText("Gmail connected: old@example.test"),
   ).toBeVisible();
@@ -76,7 +86,7 @@ test("a delayed Gmail status cannot restore account details after a server-side 
   );
   await expect(
     page.getByRole("button", { name: "Connect Gmail", exact: true }),
-  ).toHaveCount(0);
+  ).toBeVisible();
 });
 
 test("reset during Gmail polling cannot publish an old error into the fresh conversation", async ({
@@ -146,6 +156,16 @@ test("reset during Gmail polling cannot publish an old error into the fresh conv
                 },
               ]
             : [],
+        onboarding: {
+          facts: {
+            agentName: { value: "Persona", status: "known" },
+            userName: { value: "Sam", status: "known" },
+            helpRequest: { value: null, status: "missing" },
+          },
+          gmail: "not_connected",
+          graduated: false,
+          onboardingComplete: false,
+        },
         operation: null,
       },
     });
@@ -159,10 +179,10 @@ test("reset during Gmail polling cannot publish an old error into the fresh conv
   control = { ...control, epoch: 2 };
   await expect(
     page.getByRole("button", { name: "Connect Gmail", exact: true }),
-  ).toHaveCount(0);
+  ).toBeVisible();
   release();
   await expect(
     page.getByRole("button", { name: "Connect Gmail", exact: true }),
-  ).toHaveCount(0);
+  ).toBeVisible();
   await expect(page.getByText(/Could not check Gmail yet/)).toHaveCount(0);
 });

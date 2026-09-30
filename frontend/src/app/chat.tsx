@@ -1,5 +1,6 @@
 "use client";
 
+import { CallControls } from "./call-controls";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -66,6 +67,7 @@ export type Snapshot = {
   operation: {
     id: string;
     status: "generating" | "completed" | "failed";
+    errorCode?: string | null;
   } | null;
 };
 type Pending = { submissionId: string; content: string };
@@ -616,13 +618,29 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
     try {
       let data: Snapshot;
       if (voice.active && voice.call?.status === "active") {
-        voiceTurnFailed = voice.typedTurn();
-        await api(
-          "calls/turns",
-          controller.signal,
-          { ...payload, id: voice.call.id },
-          ownerRef.current,
-        );
+        voiceTurnFailed = voice.typedTurn(payload.submissionId);
+        try {
+          await api(
+            "calls/turns",
+            controller.signal,
+            { ...payload, id: voice.call.id },
+            ownerRef.current,
+          );
+        } catch (error) {
+          if (!(error instanceof RequestError) || error.status !== 409)
+            throw error;
+          const status = await api<{ call: CallState | null }>(
+            "calls/status",
+            controller.signal,
+          );
+          if (
+            status.call &&
+            ["active", "connecting"].includes(status.call.status)
+          )
+            throw error;
+          // Reuse the ID so a message accepted just before hangup is never duplicated.
+          await api("turns", controller.signal, payload, ownerRef.current);
+        }
         data = await api<Snapshot>("session", controller.signal);
       } else
         data = await streamTurn(payload, controller.signal, ownerRef.current, {
@@ -713,7 +731,8 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
     hasControl &&
     (!voice.active || voice.state === "active") &&
     !busy &&
-    !retryPayload &&
+    (!retryPayload ||
+      snapshot?.operation?.errorCode === "CALL_REPLY_INTERRUPTED") &&
     !!draft.trim();
   const visibleNotice =
     notice ||
@@ -769,13 +788,16 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
         ? "Connecting your call"
         : voice.playback === "blocked"
           ? "Call audio is paused"
-          : voice.phase === "speaking"
+          : voice.phase === "speaking" &&
+              voice.preferences.replyMode === "audio"
             ? voice.playback === "playing"
               ? `${agentName} is speaking`
               : "Waiting for call audio"
             : voice.phase === "thinking"
               ? `${agentName} is thinking`
-              : "Listening";
+              : voice.preferences.microphoneEnabled
+                ? "Listening"
+                : "Mic off. Type your reply.";
 
   async function signOut() {
     setSigningOut(true);
@@ -803,7 +825,53 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
     <DashboardFrame
       snapshot={snapshot}
       call={voice.active}
-      onEndCall={() => void voice.end()}
+      callPanel={
+        <details className="call-panel">
+          <summary>Message this call</summary>
+          <div
+            className="call-panel-transcript"
+            role="log"
+            aria-label="Call conversation"
+          >
+            {snapshot?.turns.slice(-8).map((turn) => (
+              <p key={turn.id}>
+                <strong>{turn.role === "user" ? "You" : agentName}</strong>{" "}
+                {turn.content}
+              </p>
+            ))}
+            {shownPending && (
+              <p>
+                <strong>You</strong> {pending.content}{" "}
+                <small>Not confirmed</small>
+              </p>
+            )}
+          </div>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              sendDraft();
+            }}
+          >
+            <label htmlFor="call-message">Message this call</label>
+            <textarea
+              id="call-message"
+              rows={2}
+              maxLength={8000}
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+            />
+            <button type="submit" disabled={!canSend}>
+              Send to call
+            </button>
+            {!!retryPayload && !busy && (
+              <button type="button" onClick={retry}>
+                Retry message
+              </button>
+            )}
+          </form>
+        </details>
+      }
+      callControls={<CallControls voice={voice} />}
       onSignOut={() => void signOut()}
       signingOut={signingOut}
       headers={headers}
@@ -1120,11 +1188,12 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
           {voice.notice && (
             <div className="notice voice-notice" role="status">
               <p>{voice.notice}</p>
-              {voice.playback === "blocked" && (
-                <button type="button" onClick={() => void voice.play()}>
-                  Play call audio
-                </button>
-              )}
+              {voice.playback === "blocked" &&
+                voice.preferences.replyMode === "audio" && (
+                  <button type="button" onClick={() => void voice.play()}>
+                    Play call audio
+                  </button>
+                )}
             </div>
           )}
           {voice.active && (
@@ -1135,20 +1204,21 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
                 active={
                   voice.state === "active" &&
                   voice.playback !== "blocked" &&
-                  (voice.phase !== "speaking" || voice.playback === "playing")
+                  voice.preferences.microphoneEnabled &&
+                  (voice.phase !== "speaking" ||
+                    (voice.playback === "playing" &&
+                      voice.preferences.replyMode === "audio"))
                 }
               />
               <span>
                 <strong>{callStatus}</strong>
-                <small>You can speak or keep typing here.</small>
+                <small>
+                  {voice.preferences.replyMode === "text"
+                    ? "Replies appear here in text."
+                    : "You can speak or keep typing here."}
+                </small>
               </span>
-              <button
-                type="button"
-                className="end-call"
-                onClick={() => void voice.end()}
-              >
-                <ChatIcon name="stop" /> End call
-              </button>
+              <CallControls voice={voice} />
             </div>
           )}
           {snapshot?.control &&

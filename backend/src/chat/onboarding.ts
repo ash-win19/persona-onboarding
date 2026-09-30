@@ -518,11 +518,11 @@ export class OnboardingService {
       onboarding_visit: string;
     }>(
       `UPDATE voice_responses r SET invitation_delivered=true
-       WHERE call_id=$1 AND played AND NOT interrupted AND NOT invitation_delivered
+       WHERE call_id=$1 AND (played OR text_delivered) AND NOT interrupted AND NOT invitation_delivered
        AND onboarding_goal IS NOT NULL
        AND EXISTS(SELECT 1 FROM turns t JOIN voice_items v ON v.turn_id=t.id
          WHERE v.call_id=r.call_id AND v.response_id=r.response_id AND NOT v.interrupted
-         AND t.delivery='played' AND length(t.content)>0)
+         AND t.delivery IN ('text','played') AND length(t.content)>0)
        RETURNING response_id,onboarding_goal,onboarding_visit`,
       [callId],
     );
@@ -671,7 +671,7 @@ export class OnboardingService {
         const batch = await sql.query<Source & { finalized: boolean }>(
           `SELECT v.turn_id AS id,t.content,v.submission_id,v.finalized FROM voice_items v
            LEFT JOIN turns t ON t.id=v.turn_id
-           WHERE v.call_id=$1 AND v.role='user' AND (NOT v.finalized OR t.id IS NOT NULL)
+           WHERE v.call_id=$1 AND v.role='user' AND NOT v.discarded AND (NOT v.finalized OR t.id IS NOT NULL)
            AND v.sequence <= (SELECT sequence FROM voice_items WHERE call_id=$1 AND item_id=$2)
            AND ($4 OR v.sequence > COALESCE((SELECT max(prior.sequence) FROM voice_items prior
              JOIN onboarding_assessments a ON a.submission_id=prior.submission_id AND a.conversation_id=$3

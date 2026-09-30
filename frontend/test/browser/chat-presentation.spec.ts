@@ -9,7 +9,7 @@ type Turn = {
   kind?: string;
 };
 
-async function chat(page: Page, turns: Turn[] = []) {
+async function chat(page: Page, turns: Turn[] = [], progress = false) {
   let control = { tabId: "", epoch: 1 };
   const state = {
     conversationId: "presentation",
@@ -23,6 +23,18 @@ async function chat(page: Page, turns: Turn[] = []) {
     turns: state.turns,
     revision: state.turns.length,
     operation: null,
+    onboarding: progress
+      ? {
+          facts: {
+            agentName: { value: "Persona", status: "known" },
+            userName: { value: "Sam", status: "known" },
+            helpRequest: { value: null, status: "missing" },
+          },
+          gmail: "not_connected",
+          graduated: false,
+          onboardingComplete: false,
+        }
+      : undefined,
     control,
   });
   await page.route("**/api/**", async (route) => {
@@ -198,20 +210,27 @@ test("a saved spoken user message clears the input hint", async ({ page }) => {
 });
 
 for (const height of [740, 350]) {
-  test(`one branded Gmail control stays above the composer across replies at 375x${height}`, async ({
+  test(`one branded Gmail control stays in setup across replies at 375x${height}`, async ({
     page,
   }) => {
     await page.setViewportSize({ width: 375, height });
-    const state = await chat(page, [
-      {
-        id: "gmail",
-        submissionId: "gmail",
-        role: "assistant",
-        content: "You can connect Gmail when you're ready.",
-      },
-    ]);
+    const state = await chat(
+      page,
+      [
+        {
+          id: "gmail",
+          submissionId: "gmail",
+          role: "assistant",
+          content: "You can connect Gmail when you're ready.",
+        },
+      ],
+      true,
+    );
     await page.goto("/onboarding");
-    const control = page.locator(".composer-connections");
+    const control = page.getByRole("complementary", {
+      name: "Onboarding progress",
+    });
+    await control.getByRole("button", { name: /Your setup/ }).click();
     const connect = control.getByRole("button", {
       name: "Connect Gmail",
       exact: true,
@@ -254,6 +273,7 @@ for (const height of [740, 350]) {
       fullPage: true,
     });
     await page.getByLabel("About Gmail connection").click();
+    await control.getByRole("button", { name: /Your setup/ }).click();
     const gmailBounds = await control.boundingBox();
     const formBounds = await page.locator(".composer").boundingBox();
     expect(gmailBounds!.y + gmailBounds!.height).toBeLessThanOrEqual(
@@ -264,11 +284,10 @@ for (const height of [740, 350]) {
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
+    await control.getByRole("button", { name: /Your setup/ }).click();
     state.gmail = "connected";
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-    await expect(
-      control.getByText("Gmail connected", { exact: true }),
-    ).toBeVisible();
+    await expect(control.getByLabel("Gmail connection details")).toBeVisible();
     await page.getByLabel("Gmail connection details").click();
     await expect(
       control.getByText("Gmail connected: sam@example.com"),

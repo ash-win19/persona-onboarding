@@ -42,6 +42,9 @@ type Call = Record<string, unknown> & {
   generation: number;
   source_item_id: string | null;
   opening_started: boolean;
+  microphone_enabled: boolean;
+  reply_mode: 'audio' | 'text';
+  preference_revision: number;
 };
 type Item = Record<string, unknown> & {
   item_id: string;
@@ -50,6 +53,7 @@ type Item = Record<string, unknown> & {
   sequence: string;
   role: string;
   finalized: boolean;
+  discarded: boolean;
   interrupted: boolean;
   response_id: string | null;
   generation: number;
@@ -74,6 +78,12 @@ type LiveCall = {
   pendingRepair?: string;
   pendingOpening?: string;
   pendingPurpose?: string;
+  activeReply?: {
+    generation: number;
+    repair?: string;
+    opening?: string;
+    purpose?: string;
+  };
   handoffQueued?: boolean;
   handoffRequested?: string;
   repairs: Map<number, number>;
@@ -109,6 +119,9 @@ export class Calls implements OnModuleDestroy {
     return {
       id: call.id,
       generation: call.generation,
+      microphoneEnabled: call.microphone_enabled,
+      replyMode: call.reply_mode,
+      preferenceRevision: call.preference_revision,
       status: call.status,
       reason: call.reason,
       deadline: call.deadline,
@@ -328,9 +341,16 @@ export class Calls implements OnModuleDestroy {
     runtime.pendingOpening = undefined;
     runtime.pendingPurpose = undefined;
     runtime.responding = true;
+    runtime.activeReply = {
+      generation: call.generation,
+      repair,
+      opening,
+      purpose,
+    };
     connection.send({
       type: 'response.create',
       response: {
+        output_modalities: [call.reply_mode],
         ...(opening
           ? { instructions: opening, tools: [], tool_choice: 'none' }
           : {}),
@@ -352,6 +372,8 @@ export class Calls implements OnModuleDestroy {
         metadata: {
           generation: String(call.generation),
           sourceItem: call.source_item_id ?? '',
+          preferenceRevision: String(call.preference_revision),
+          replyMode: call.reply_mode,
           ...(repair ? { purpose: 'fact_repair' } : {}),
           ...(opening ? { purpose: purpose ?? 'opening' } : {}),
         },
@@ -373,7 +395,7 @@ export class Calls implements OnModuleDestroy {
       [call.id, call.generation, itemId],
     );
     await sql.query(
-      'UPDATE voice_responses SET interrupted=true WHERE call_id=$1 AND NOT played',
+      'UPDATE voice_responses SET interrupted=true WHERE call_id=$1 AND NOT played AND NOT text_delivered',
       [call.id],
     );
     await sql.query(
@@ -438,7 +460,7 @@ export class Calls implements OnModuleDestroy {
           [c.id, submissionId],
         );
         await sql.query(
-          "INSERT INTO submissions(conversation_id,id,content,status,attempt,lease_until,owner_epoch) VALUES($1,$2,$3,'completed',$4,$5,$6)",
+          "INSERT INTO submissions(conversation_id,id,content,status,attempt,lease_until,owner_epoch,call_id,error_code) VALUES($1,$2,$3,'completed',$4,$5,$6,$7,'CALL_REPLY_PENDING')",
           [
             c.id,
             submissionId,
@@ -446,6 +468,7 @@ export class Calls implements OnModuleDestroy {
             randomUUID(),
             new Date(this.authority.now()),
             owner.epoch,
+            id,
           ],
         );
         accepted = call;
@@ -470,6 +493,159 @@ export class Calls implements OnModuleDestroy {
         }
       }
       return { accepted: true, generation: accepted?.generation };
+    });
+    runtime.queue = work.then(
+      () => undefined,
+      () => undefined,
+    );
+    return work;
+  }
+
+  async preferences(
+    credential: string | undefined,
+    owner: Owner,
+    id: string,
+    revision: number,
+    microphoneEnabled: boolean,
+    replyMode: 'audio' | 'text',
+  ) {
+    const runtime = this.live.get(id);
+    if (!runtime?.connection?.healthy() || runtime.closing)
+      throw new ConflictException('CALL_NOT_ACTIVE');
+    const work = runtime.queue.then(async () => {
+      let changed: Call | undefined;
+      let restart = false;
+      let cancelResponse = false;
+      let formatChanged = false;
+      let recapture = false;
+      let activeReply: LiveCall['activeReply'];
+      let discarded: string[] = [];
+      await this.db.transaction(async (sql) => {
+        const c = await this.authority.authorize(credential, sql, true);
+        this.authority.assertOwner(c, owner);
+        const call = await this.get(sql, id);
+        if (
+          !call ||
+          call.conversation_id !== c.id ||
+          call.owner_epoch !== owner.epoch ||
+          call.status !== 'active' ||
+          new Date(call.deadline).getTime() <= this.authority.now()
+        )
+          throw new ConflictException('CALL_NOT_CURRENT');
+        if (revision < call.preference_revision) return;
+        if (revision === call.preference_revision) {
+          if (
+            call.microphone_enabled !== microphoneEnabled ||
+            call.reply_mode !== replyMode
+          )
+            throw new ConflictException('PREFERENCE_CONFLICT');
+          return;
+        }
+        if (!microphoneEnabled) {
+          discarded = (
+            await sql.query<{ item_id: string }>(
+              `UPDATE voice_items SET discarded=true,finalized=true WHERE call_id=$1 AND role='user'
+             AND NOT audio_committed AND NOT finalized RETURNING item_id`,
+              [id],
+            )
+          ).rows.map((x) => x.item_id);
+        }
+        formatChanged = call.reply_mode !== replyMode;
+        const pending = await sql.query(
+          `SELECT 1 FROM voice_responses WHERE call_id=$1 AND generation=$2
+           AND NOT played AND NOT text_delivered AND NOT interrupted`,
+          [id, call.generation],
+        );
+        recapture = runtime.interpreting.has(call.generation);
+        activeReply =
+          runtime.activeReply?.generation === call.generation
+            ? runtime.activeReply
+            : undefined;
+        restart =
+          formatChanged &&
+          (runtime.responding === true || pending.rows.length > 0 || recapture);
+        cancelResponse =
+          formatChanged || discarded.includes(call.source_item_id ?? '');
+        if (cancelResponse) {
+          call.generation++;
+          await sql.query(
+            `UPDATE voice_responses SET interrupted=true WHERE call_id=$1 AND NOT played AND NOT text_delivered`,
+            [id],
+          );
+          await sql.query(
+            `UPDATE turns SET delivery='interrupted' WHERE call_id=$1 AND role='assistant' AND delivery='generated'`,
+            [id],
+          );
+          if (discarded.includes(call.source_item_id ?? '')) {
+            call.source_item_id = null;
+            restart = false;
+          }
+          runtime.pendingResponse = undefined;
+          runtime.pendingRepair = undefined;
+        }
+        await sql.query(
+          `UPDATE calls SET microphone_enabled=$2,reply_mode=$3,preference_revision=$4,
+          generation=$5,source_item_id=$6 WHERE id=$1`,
+          [
+            id,
+            microphoneEnabled,
+            replyMode,
+            revision,
+            call.generation,
+            call.source_item_id,
+          ],
+        );
+        changed = (await this.get(sql, id))!;
+        if (replyMode === 'text')
+          await sql.query(
+            `UPDATE conversations SET handoff_delivery='text' WHERE handoff_call_id=$1 AND handoff_delivery='waiting'`,
+            [id],
+          );
+      });
+      if (changed) {
+        try {
+          const connection = runtime.connection!;
+          if (!microphoneEnabled)
+            connection.send({ type: 'input_audio_buffer.clear' });
+          connection.send({
+            type: 'session.update',
+            session: {
+              type: 'realtime',
+              audio: {
+                input: {
+                  turn_detection: microphoneEnabled
+                    ? {
+                        type: 'server_vad',
+                        create_response: false,
+                        interrupt_response: true,
+                      }
+                    : null,
+                },
+              },
+            },
+          });
+          for (const item_id of discarded)
+            connection.send({ type: 'conversation.item.delete', item_id });
+          // Clear playback even if generation already finished. Never replay buffered speech.
+          if (cancelResponse) connection.send({ type: 'response.cancel' });
+          if (formatChanged)
+            connection.send({ type: 'output_audio_buffer.clear' });
+          if (restart) {
+            if (!recapture || !(await this.captureBeforeReply(changed)))
+              this.response(
+                connection,
+                changed,
+                activeReply?.repair,
+                activeReply?.opening,
+                activeReply?.purpose,
+              );
+          }
+        } catch {
+          await this.finish(id, 'control_lost');
+          throw new ConflictException('CALL_NOT_ACTIVE');
+        }
+      }
+      return { call: this.view(await this.get(this.db, id)) };
     });
     runtime.queue = work.then(
       () => undefined,
@@ -674,7 +850,7 @@ export class Calls implements OnModuleDestroy {
     )
       return;
     const unplayed = await this.db.query(
-      `SELECT r.response_id FROM voice_responses r WHERE r.call_id=$1 AND r.generation=$2 AND NOT r.played AND NOT r.interrupted
+      `SELECT r.response_id FROM voice_responses r WHERE r.call_id=$1 AND r.generation=$2 AND NOT r.played AND NOT r.text_delivered AND NOT r.interrupted
       AND (r.purpose IS NULL OR r.purpose <> 'fact_repair')
       AND EXISTS(SELECT 1 FROM voice_items v WHERE v.call_id=r.call_id AND v.response_id=r.response_id AND v.role='assistant')`,
       [call.id, call.generation],
@@ -824,7 +1000,28 @@ export class Calls implements OnModuleDestroy {
     await this.stopTransport(id);
     return this.status(credential);
   }
+  private async replyDelivered(sql: Sql, call: Call, responseId: string) {
+    await sql.query(
+      `UPDATE submissions s SET error_code=NULL WHERE s.call_id=$1 AND error_code='CALL_REPLY_PENDING'
+      AND EXISTS(SELECT 1 FROM voice_responses r WHERE r.call_id=$1 AND r.response_id=$2
+        AND r.generation=$3 AND NOT r.interrupted AND (r.played OR r.text_delivered))`,
+      [call.id, responseId, call.generation],
+    );
+  }
+
   private async markFinished(sql: Sql, id: string, reason: string) {
+    // Only the latest unanswered submission becomes the resumable operation.
+    // Earlier inputs are already in history and will inform that retry.
+    await sql.query(
+      `UPDATE submissions SET status='failed',error_code='CALL_REPLY_INTERRUPTED'
+      WHERE call_id=$1 AND error_code='CALL_REPLY_PENDING' AND id=(SELECT id FROM submissions
+        WHERE call_id=$1 AND error_code='CALL_REPLY_PENDING' ORDER BY created_at DESC LIMIT 1)`,
+      [id],
+    );
+    await sql.query(
+      `UPDATE submissions SET error_code=NULL WHERE call_id=$1 AND error_code='CALL_REPLY_PENDING'`,
+      [id],
+    );
     await sql.query(
       "UPDATE calls SET status=$2,reason=$3,ended_at=$4 WHERE id=$1 AND status IN ('connecting','active')",
       [
@@ -978,13 +1175,13 @@ export class Calls implements OnModuleDestroy {
     responseId?: string,
   ) {
     const item = await this.item(sql, call, id, role, responseId);
-    if (item.finalized) return;
+    if (item.finalized || item.discarded) return false;
     if (!text.trim()) {
       await sql.query(
         'UPDATE voice_items SET finalized=true WHERE call_id=$1 AND item_id=$2',
         [call.id, id],
       );
-      return;
+      return false;
     }
     const response = responseId
       ? (
@@ -1036,6 +1233,7 @@ export class Calls implements OnModuleDestroy {
       AND EXISTS(SELECT 1 FROM turns WHERE call_id=$3 AND role='user') AND EXISTS(SELECT 1 FROM turns WHERE call_id=$3 AND role='assistant')`,
       [call.conversation_id, new Date(this.authority.now()), call.id],
     );
+    return true;
   }
 
   private async event(id: string, event: VoiceEvent) {
@@ -1066,13 +1264,51 @@ export class Calls implements OnModuleDestroy {
         );
       if (!active && !recentEnd) return;
       if (
+        !call.microphone_enabled &&
+        event.item_id &&
+        [
+          'input_audio_buffer.speech_started',
+          'input_audio_buffer.committed',
+          'conversation.item.input_audio_transcription.completed',
+        ].includes(event.type)
+      ) {
+        const known = await sql.query<{
+          audio_committed: boolean;
+          finalized: boolean;
+        }>(
+          'SELECT audio_committed,finalized FROM voice_items WHERE call_id=$1 AND item_id=$2',
+          [id, event.item_id],
+        );
+        if (!known.rows[0]?.audio_committed && !known.rows[0]?.finalized) {
+          await this.item(sql, call, event.item_id, 'user');
+          await sql.query(
+            'UPDATE voice_items SET discarded=true,finalized=true WHERE call_id=$1 AND item_id=$2',
+            [id, event.item_id],
+          );
+          return;
+        }
+      }
+      if (
         active &&
+        call.microphone_enabled &&
         (event.type === 'input_audio_buffer.speech_started' ||
           event.type === 'input_audio_buffer.committed') &&
         event.item_id
       ) {
-        await this.supersede(sql, call, event.item_id);
-        if (event.type === 'input_audio_buffer.committed') respond = call;
+        const existing = await sql.query<{ discarded: boolean }>(
+          'SELECT discarded FROM voice_items WHERE call_id=$1 AND item_id=$2',
+          [id, event.item_id],
+        );
+        if (!existing.rows[0]?.discarded) {
+          await this.supersede(sql, call, event.item_id);
+          if (event.type === 'input_audio_buffer.committed') {
+            await sql.query(
+              'UPDATE voice_items SET audio_committed=true WHERE call_id=$1 AND item_id=$2',
+              [id, event.item_id],
+            );
+            if (call.source_item_id === event.item_id) respond = call;
+          }
+        }
       }
       if (
         (event.type === 'conversation.item.added' ||
@@ -1104,7 +1340,7 @@ export class Calls implements OnModuleDestroy {
         if (event.response.metadata?.purpose === 'fact_repair')
           runtime.repairResponses.set(event.response.id, generation);
         await sql.query(
-          'INSERT INTO voice_responses(call_id,response_id,generation,interrupted,source_item_id,purpose) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING',
+          'INSERT INTO voice_responses(call_id,response_id,generation,interrupted,source_item_id,purpose,reply_mode) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING',
           [
             id,
             event.response.id,
@@ -1112,6 +1348,7 @@ export class Calls implements OnModuleDestroy {
             generation !== call.generation,
             event.response.metadata?.sourceItem ?? call.source_item_id,
             event.response.metadata?.purpose ?? null,
+            event.response.metadata?.replyMode ?? call.reply_mode,
           ],
         );
         if (
@@ -1150,7 +1387,7 @@ export class Calls implements OnModuleDestroy {
         ].includes(event.type) &&
         event.item_id
       ) {
-        await this.saveTranscript(
+        const accepted = await this.saveTranscript(
           sql,
           call,
           event.item_id,
@@ -1160,6 +1397,7 @@ export class Calls implements OnModuleDestroy {
             : (event.transcript ?? ''),
         );
         if (
+          accepted &&
           active &&
           !c.graduated_at &&
           event.type === 'conversation.item.input_audio_transcription.completed'
@@ -1225,6 +1463,33 @@ export class Calls implements OnModuleDestroy {
             );
           }
       }
+      if (
+        event.type === 'response.done' &&
+        event.response?.status === 'completed' &&
+        active &&
+        !runtime?.repairResponses.has(event.response.id)
+      ) {
+        const delivered = await sql.query(
+          `UPDATE voice_responses SET text_delivered=true
+          WHERE call_id=$1 AND response_id=$2 AND generation=$3 AND reply_mode='text' AND NOT interrupted
+          AND EXISTS(SELECT 1 FROM voice_items v JOIN turns t ON t.id=v.turn_id
+            WHERE v.call_id=$1 AND v.response_id=$2 AND t.role='assistant' AND length(t.content)>0)
+          RETURNING response_id`,
+          [id, event.response.id, call.generation],
+        );
+        if (delivered.rows.length) {
+          await sql.query(
+            `UPDATE turns SET channel='text',delivery='text' WHERE call_id=$1 AND role='assistant'
+            AND id IN (SELECT turn_id FROM voice_items WHERE call_id=$1 AND response_id=$2)`,
+            [id, event.response.id],
+          );
+          await sql.query(
+            `UPDATE conversations SET handoff_delivery='text' WHERE handoff_call_id=$1 AND handoff_response_id=$2`,
+            [id, event.response.id],
+          );
+          await this.replyDelivered(sql, call, event.response.id);
+        }
+      }
       if (event.type === 'conversation.item.truncated' && event.item_id) {
         await sql.query(
           'UPDATE voice_items SET interrupted=true WHERE call_id=$1 AND item_id=$2',
@@ -1248,6 +1513,7 @@ export class Calls implements OnModuleDestroy {
           "UPDATE turns SET delivery='played' WHERE call_id=$1 AND delivery='generated' AND id IN (SELECT turn_id FROM voice_items WHERE call_id=$1 AND response_id=$2 AND NOT interrupted AND response_id IN (SELECT response_id FROM voice_responses WHERE call_id=$1 AND played AND NOT interrupted))",
           [id, event.response_id],
         );
+        await this.replyDelivered(sql, call, event.response_id);
         await sql.query(
           `UPDATE conversations SET handoff_delivery='played' WHERE id=$1 AND handoff_call_id=$2 AND handoff_response_id=$3
           AND EXISTS(SELECT 1 FROM voice_responses WHERE call_id=$2 AND response_id=$3 AND purpose='onboarding_handoff' AND played AND NOT interrupted AND generation=$4)`,

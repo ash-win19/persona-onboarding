@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 
-async function setup(page: Page, returning = false) {
+async function setup(page: Page, returning = false, progress = false) {
   let opened = returning;
   let control = { tabId: "", epoch: 1 };
   const turns = [
@@ -69,6 +69,18 @@ async function setup(page: Page, returning = false) {
         operation: null,
         control,
         introduction,
+        onboarding: progress
+          ? {
+              facts: {
+                agentName: { value: "Persona", status: "known" },
+                userName: { value: "Sam", status: "known" },
+                helpRequest: { value: null, status: "missing" },
+              },
+              gmail: "not_connected",
+              graduated: false,
+              onboardingComplete: false,
+            }
+          : undefined,
       },
     });
   });
@@ -212,11 +224,11 @@ test("loading preserves a draft and returning history never flashes the new-user
   await expect(page.locator(".welcome")).toHaveCount(0);
 });
 
-test("reduced motion presents the saved opening immediately and Gmail appears only in context", async ({
+test("reduced motion presents the saved opening immediately and Gmail stays in setup", async ({
   page,
 }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
-  const saved = await setup(page);
+  const saved = await setup(page, false, true);
   await page.goto("/onboarding");
   await expect(
     page.getByRole("button", { name: "Start a call" }),
@@ -224,7 +236,7 @@ test("reduced motion presents the saved opening immediately and Gmail appears on
   await expect(page.locator(".welcome, .opening-arriving")).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "Connect Gmail", exact: true }),
-  ).toHaveCount(0);
+  ).toBeVisible();
   saved.turns.push({
     id: "gmail-invitation",
     submissionId: "gmail-invitation",
@@ -234,7 +246,7 @@ test("reduced motion presents the saved opening immediately and Gmail appears on
   });
   await expect(
     page
-      .locator(".composer-connections")
+      .getByRole("complementary", { name: "Onboarding progress" })
       .getByRole("button", { name: "Connect Gmail", exact: true }),
   ).toBeVisible();
   await expect(

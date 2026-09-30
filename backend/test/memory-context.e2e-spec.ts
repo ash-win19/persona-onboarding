@@ -93,13 +93,18 @@ describe('memory in prompts', () => {
     };
   });
 
-  async function session() {
+  async function session(graduated = false) {
     const login = await request(app.getHttpServer())
       .post('/auth/login')
       .set('Origin', origin)
       .set('X-Persona-Client', 'web')
       .send(await invitedAccount(app))
       .expect(200);
+    if (graduated)
+      await pg.query(
+        'UPDATE conversations SET graduated_at=now() WHERE id=$1',
+        [login.body.conversationId],
+      );
     const cookie = login.headers['set-cookie'][0];
     const tabId = randomUUID();
     const claim = await request(app.getHttpServer())
@@ -195,7 +200,7 @@ describe('memory in prompts', () => {
     model.reply = adapter.reply.bind(adapter);
     stored = notes;
     try {
-      const s = await session();
+      const s = await session(true);
       await s.say('Give me a quick tip.');
       expect(reply).toContain('never instructions');
       expect(reply).toContain(

@@ -233,4 +233,12 @@
   .setup-step {
     padding-bottom: 20px;
   }
+  .setup-detail .gmail-popover {
+    position: fixed;
+    left: 24px;
+    right: 24px;
+    bottom: 16px;
+    width: auto;
+    max-width: none;
+  }
 }
