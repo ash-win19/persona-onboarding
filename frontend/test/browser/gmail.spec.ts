@@ -58,7 +58,7 @@ test("a delayed Gmail status cannot restore account details after a server-side 
     }
     return route.fulfill({ json: snapshot() });
   });
-  await page.goto("/");
+  await page.goto("/onboarding");
   await page.getByText("Gmail connected", { exact: true }).click();
   await expect(
     page.getByText("Gmail connected: old@example.test"),
@@ -150,7 +150,7 @@ test("reset during Gmail polling cannot publish an old error into the fresh conv
       },
     });
   });
-  await page.goto("/");
+  await page.goto("/onboarding");
   await page
     .getByRole("button", { name: "Connect Gmail", exact: true })
     .click();

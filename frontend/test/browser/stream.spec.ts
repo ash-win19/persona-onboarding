@@ -99,7 +99,7 @@ test("a streamed Markdown reply keeps its formatting when saved", async ({
     },
     () => snapshot([], null),
   );
-  await page.goto("/");
+  await page.goto("/onboarding");
   await page
     .getByRole("textbox", { name: "Message Persona" })
     .fill("Plan my week.");
@@ -162,7 +162,7 @@ test("a stream cut off after saving recovers the saved reply", async ({
           : null,
       ),
   );
-  await page.goto("/");
+  await page.goto("/onboarding");
   await page
     .getByRole("textbox", { name: "Message Persona" })
     .fill("Keep going.");

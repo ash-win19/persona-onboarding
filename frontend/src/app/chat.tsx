@@ -2,6 +2,10 @@
 
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import type { Journey } from "@/lib/journey";
+import { DashboardFrame } from "./dashboard-frame";
+import { DashboardHandoff } from "./dashboard-handoff";
 import { GmailConnection } from "./gmail-connection";
 import { AssistantMessage } from "./assistant-message";
 import { useVoice, type Control, type CallState } from "./use-voice";
@@ -17,7 +21,7 @@ type Turn = {
   channel?: string;
   delivery?: string;
   callId?: string | null;
-  kind?: "opening" | "message" | "recap";
+  kind?: "opening" | "message" | "handoff" | "recap";
 };
 type CallRecord = {
   id: string;
@@ -36,7 +40,8 @@ type Onboarding = {
   onboardingComplete: boolean;
   policy?: { goals: { gmail: { introduced: boolean } } };
 };
-type Snapshot = {
+export type Snapshot = {
+  journey?: Journey;
   control?: Control;
   onboarding?: Onboarding;
   conversationId: string;
@@ -201,6 +206,11 @@ function pause(ms: number, signal: AbortSignal) {
 }
 
 export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const [handoffBusy, setHandoffBusy] = useState(false);
+  const [handoffError, setHandoffError] = useState("");
+  const handoffRequest = useRef(false);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [connection, setConnection] = useState<Connection>("connecting");
   const [draft, setDraft] = useState("");
@@ -252,6 +262,66 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
   useEffect(() => {
     voiceRef.current = voice;
   }, [voice]);
+
+  async function changeJourney(action: "prepare" | "skip" | "enter") {
+    if (handoffRequest.current || !hasControl) return;
+    handoffRequest.current = true;
+    setHandoffBusy(true);
+    setHandoffError("");
+    try {
+      const data = await api<Snapshot>(
+        "journey",
+        new AbortController().signal,
+        { action },
+        ownerRef.current,
+      );
+      accept(data);
+      if (action === "enter") router.replace("/dashboard");
+    } catch {
+      setHandoffError("We couldn't open your dashboard yet. Please try again.");
+    } finally {
+      handoffRequest.current = false;
+      setHandoffBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!snapshot) return;
+    if (snapshot.journey?.entered && pathname === "/onboarding")
+      router.replace("/dashboard" + window.location.search);
+    else if (!snapshot.journey?.entered && pathname.startsWith("/dashboard"))
+      router.replace("/onboarding");
+  }, [snapshot, pathname, router]);
+
+  useEffect(() => {
+    if (
+      snapshot?.journey?.ready &&
+      !snapshot.journey.prepared &&
+      !snapshot.journey.entered &&
+      hasControl &&
+      connection === "ready" &&
+      !busy &&
+      snapshot.operation?.status !== "generating" &&
+      (!voice.active || voice.phase === "listening") &&
+      !handoffError
+    ) {
+      const timer = setTimeout(() => void changeJourney("prepare"), 0);
+      return () => clearTimeout(timer);
+    }
+    // Preparation follows readiness and settled delivery, never a URL change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    snapshot?.journey?.ready,
+    snapshot?.journey?.prepared,
+    snapshot?.journey?.entered,
+    snapshot?.operation?.status,
+    hasControl,
+    connection,
+    busy,
+    voice.active,
+    voice.phase,
+    handoffError,
+  ]);
 
   function control(value: Control) {
     const mine = value.tabId === tabId.current;
@@ -535,6 +605,15 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
 
   const agentName = snapshot?.onboarding?.facts.agentName.value || "Persona";
   const calls = new Map(snapshot?.calls?.map((call) => [call.id, call]));
+  // Markers go before a call's first turn and after its last, so a message
+  // posted during the call, such as the onboarding handoff, stays inside them.
+  const callBounds = new Map<string, { first: number; last: number }>();
+  snapshot?.turns.forEach(({ callId }, index) => {
+    if (!callId) return;
+    const bounds = callBounds.get(callId);
+    if (bounds) bounds.last = index;
+    else callBounds.set(callId, { first: index, last: index });
+  });
   const unresolved =
     snapshot?.operation && snapshot.operation.status !== "completed"
       ? snapshot.turns.find(
@@ -648,297 +727,357 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
         : "";
 
   return (
-    <main
-      className={`chat-shell ${introducing ? "is-introducing" : "has-messages"}`}
+    <DashboardFrame
+      snapshot={snapshot}
+      call={voice.active}
+      onEndCall={() => void voice.end()}
+      onSignOut={() => void signOut()}
+      signingOut={signingOut}
+      headers={headers}
+      enabled={hasControl && connection === "ready"}
+      onRefresh={refresh}
+      onNotice={setGmailNotice}
+      notice={gmailNotice || notice || voice.notice}
     >
-      <header className="chat-header">
-        <Link className="wordmark" href="/" aria-label="Persona home">
-          <PersonaLogo />
-        </Link>
-        <button
-          className="sign-out"
-          onClick={() => void signOut()}
-          disabled={signingOut}
-        >
-          {signingOut ? "Signing out…" : "Sign out"}
-        </button>
-      </header>
-
-      <section
-        ref={scrollArea}
-        className="conversation"
-        aria-label="Conversation"
-        onScroll={(event) => {
-          const area = event.currentTarget;
-          const nearEnd =
-            area.scrollHeight - area.scrollTop - area.clientHeight < 80;
-          followLatest.current = nearEnd;
-          setShowJump(!nearEnd);
-        }}
+      <main
+        className={`chat-shell ${introducing ? "is-introducing" : "has-messages"}`}
       >
-        <div className="conversation-content">
-          {!snapshot && connection === "connecting" && (
-            <p className="conversation-loading" role="status">
-              Opening your conversation…
-            </p>
+        <header className="chat-header">
+          <Link className="wordmark" href="/" aria-label="Persona home">
+            <PersonaLogo />
+          </Link>
+          {!snapshot?.journey?.entered && (
+            <span className="onboarding-label">A little introduction</span>
           )}
-          {introducing && (
-            <div
-              className={`welcome welcome-intro${introductionPhase === "leaving" ? " welcome-leaving" : ""}`}
-              aria-hidden={introductionPhase === "leaving"}
-            >
-              <div className="welcome-mark">
-                <PersonaMark />
-              </div>
-              <h1>Where should we start?</h1>
-              <p>
-                What would you like to call me? Or jump right into something you
-                need a hand with.
-              </p>
-            </div>
-          )}
-          <div
-            className="turns"
-            role="log"
-            aria-label="Messages"
-            aria-live="polite"
-            aria-relevant="additions text"
-            aria-hidden={introductionPhase === "holding"}
-            aria-busy={!!streamed}
-          >
-            {snapshot?.turns.map((turn, index, turns) => {
-              // A call's turns are consecutive, so markers wrap the first and last.
-              const call = turn.callId ? calls.get(turn.callId) : undefined;
-              const starts = call && turns[index - 1]?.callId !== call.id;
-              const ends =
-                call?.endedAt && turns[index + 1]?.callId !== call.id;
-              const cutOff = turn.delivery === "interrupted";
-              return (
-                <Fragment key={turn.id}>
-                  {starts && (
-                    <CallMarker>{`Call started · ${clockTime(call.startedAt)}`}</CallMarker>
-                  )}
-                  <article
-                    className={`turn ${turn.role}${turn.kind === "opening" ? openingClassName : ""}${turn.kind === "recap" ? " recap" : ""}${cutOff ? " cut-off" : ""}`}
-                    aria-label={turn.role === "user" ? "You" : agentName}
-                  >
-                    <div className="turn-body">
-                      {turn.kind === "recap" && (
-                        <span className="turn-label">Call recap</span>
-                      )}
-                      {turn.role === "assistant" ? (
-                        <AssistantMessage content={turn.content} />
-                      ) : (
-                        <p>{turn.content}</p>
-                      )}
-                      {turn.channel === "voice" && (
-                        <span className="turn-note">
-                          <ChatIcon name="phone" width={11} height={11} />
-                          {cutOff ? "Spoken · cut off" : "Spoken"}
-                        </span>
-                      )}
-                    </div>
-                  </article>
-                  {ends && call.endedAt && (
-                    <CallMarker>{`${call.status === "failed" ? "Call disconnected" : "Call ended"} · ${callLength(call.startedAt, call.endedAt)}`}</CallMarker>
-                  )}
-                </Fragment>
-              );
-            })}
-            {shownPending && (
-              <article className="turn user pending" aria-label="You">
-                <div className="turn-body">
-                  <p>{pending.content}</p>
-                </div>
-              </article>
+          {!snapshot?.journey?.prepared &&
+            !snapshot?.journey?.entered &&
+            snapshot && (
+              <button
+                className="skip-setup"
+                disabled={handoffBusy || busy || !hasControl}
+                onClick={() => void changeJourney("skip")}
+              >
+                Skip for now
+              </button>
             )}
-            {streamed && (
-              <article className="turn assistant" aria-label={agentName}>
-                <div className="turn-body">
-                  <AssistantMessage content={streamed.text} />
-                </div>
-              </article>
-            )}
-            {waitingText && !streamed && (
-              <ThinkingIndicator
-                text={waitingText}
-                active={generating || (connection === "ready" && !!submitting)}
-              />
-            )}
-          </div>
-        </div>
-      </section>
-
-      <footer className="composer-area">
-        {showJump && (
           <button
-            className="jump-button"
-            type="button"
-            aria-label="Back to latest"
-            title="Back to latest"
-            onClick={() => {
-              followLatest.current = true;
-              setShowJump(false);
-              scrollArea.current?.scrollTo({
-                top: scrollArea.current.scrollHeight,
-                behavior: window.matchMedia("(prefers-reduced-motion: reduce)")
-                  .matches
-                  ? "auto"
-                  : "smooth",
-              });
-            }}
+            className="sign-out"
+            onClick={() => void signOut()}
+            disabled={signingOut}
           >
-            <ChatIcon name="arrowDown" />
+            {signingOut ? "Signing out…" : "Sign out"}
           </button>
-        )}
-        {!hasControl && snapshot?.control && (
-          <div className="notice" role="status">
-            <p>This conversation is controlled in another tab.</p>
-            <button
-              type="button"
-              onClick={() =>
-                void takeControl().catch(() =>
-                  setNotice("Could not take control. Try again."),
-                )
-              }
-            >
-              Take control
-            </button>
-          </div>
-        )}
-        {visibleNotice && (
-          <div className="notice" role="status">
-            <p>{visibleNotice}</p>
-            {!busy && !generating && (
-              <button type="button" onClick={retry}>
-                {retryPayload ? "Retry message" : "Try connecting again"}
-              </button>
-            )}
-          </div>
-        )}
-        {gmailNotice && (
-          <div className="notice gmail-notice" role="status">
-            <p>{gmailNotice}</p>
-          </div>
-        )}
-        {voice.notice && (
-          <div className="notice voice-notice" role="status">
-            <p>{voice.notice}</p>
-            {voice.playback === "blocked" && (
-              <button type="button" onClick={() => void voice.play()}>
-                Play call audio
-              </button>
-            )}
-          </div>
-        )}
-        {voice.active && (
-          <div className="call-banner" role="status">
-            <CallAnimation
-              level={voice.level}
-              processing={voice.phase === "thinking"}
-              active={
-                voice.state === "active" &&
-                voice.playback !== "blocked" &&
-                (voice.phase !== "speaking" || voice.playback === "playing")
-              }
-            />
-            <span>
-              <strong>{callStatus}</strong>
-              <small>You can speak or keep typing here.</small>
-            </span>
-            <button
-              type="button"
-              className="end-call"
-              onClick={() => void voice.end()}
-            >
-              <ChatIcon name="stop" /> End call
-            </button>
-          </div>
-        )}
-        {snapshot?.control && (
-          <div className="composer-connections">
-            <GmailConnection
-              key={snapshot.conversationId}
-              headers={headers}
-              enabled={hasControl && connection === "ready"}
-              introduced={!!gmailIntroduced}
-              conversationId={snapshot.conversationId}
-              onChanged={refresh}
-              onNotice={setGmailNotice}
-            />
-          </div>
-        )}
-        <form
-          className="composer"
-          onSubmit={(event) => {
-            event.preventDefault();
-            sendDraft();
+        </header>
+
+        <section
+          ref={scrollArea}
+          className="conversation"
+          aria-label="Conversation"
+          onScroll={(event) => {
+            const area = event.currentTarget;
+            const nearEnd =
+              area.scrollHeight - area.scrollTop - area.clientHeight < 80;
+            followLatest.current = nearEnd;
+            setShowJump(!nearEnd);
           }}
         >
-          <label className="sr-only" htmlFor="message">
-            Message Persona
-          </label>
-          <textarea
-            ref={input}
-            id="message"
-            value={draft}
-            rows={1}
-            maxLength={8000}
-            placeholder={
-              !snapshot || hasUserMessage
-                ? ""
-                : voice.active
-                  ? "Type to join the conversation…"
-                  : "What's on your mind?"
-            }
-            onChange={(event) => {
-              finishIntroduction();
-              setDraft(event.target.value);
-            }}
-            onKeyDown={(event) => {
-              if (
-                event.key === "Enter" &&
-                !event.shiftKey &&
-                !event.nativeEvent.isComposing
-              ) {
-                event.preventDefault();
-                sendDraft();
-              }
-            }}
-          />
-          <div className="composer-toolbar">
-            <div className="composer-tools" />
-            <div className="send-tools">
-              {snapshot?.control && !voice.active && (
-                <button
-                  className="voice-button"
-                  type="button"
-                  disabled={
-                    !hasControl ||
-                    connection !== "ready" ||
-                    busy ||
-                    !!retryPayload
-                  }
-                  onClick={() => {
-                    finishIntroduction();
-                    void voice.start();
-                  }}
-                >
-                  <ChatIcon name="headphones" /> Start a call
-                </button>
-              )}
-              <button
-                className="send"
-                type="submit"
-                disabled={!canSend}
-                aria-label="Send message"
+          <div className="conversation-content">
+            {!snapshot && connection === "connecting" && (
+              <p className="conversation-loading" role="status">
+                Opening your conversation…
+              </p>
+            )}
+            {introducing && (
+              <div
+                className={`welcome welcome-intro${introductionPhase === "leaving" ? " welcome-leaving" : ""}`}
+                aria-hidden={introductionPhase === "leaving"}
               >
-                <ChatIcon name="arrowUp" />
-              </button>
+                <div className="welcome-mark">
+                  <PersonaMark />
+                </div>
+                <h1>Where should we start?</h1>
+                <p>
+                  What would you like to call me? Or jump right into something
+                  you need a hand with.
+                </p>
+              </div>
+            )}
+            <div
+              className="turns"
+              role="log"
+              aria-label="Messages"
+              aria-live="polite"
+              aria-relevant="additions text"
+              aria-hidden={introductionPhase === "holding"}
+              aria-busy={!!streamed}
+            >
+              {snapshot?.turns.map((turn, index) => {
+                const call = turn.callId ? calls.get(turn.callId) : undefined;
+                const starts = call && callBounds.get(call.id)?.first === index;
+                const ends =
+                  call?.endedAt && callBounds.get(call.id)?.last === index;
+                const cutOff = turn.delivery === "interrupted";
+                return (
+                  <Fragment key={turn.id}>
+                    {starts && (
+                      <CallMarker>{`Call started · ${clockTime(call.startedAt)}`}</CallMarker>
+                    )}
+                    <article
+                      className={`turn ${turn.role}${turn.kind === "opening" ? openingClassName : ""}${turn.kind === "recap" ? " recap" : ""}${cutOff ? " cut-off" : ""}`}
+                      aria-label={turn.role === "user" ? "You" : agentName}
+                    >
+                      <div className="turn-body">
+                        {turn.kind === "recap" && (
+                          <span className="turn-label">Call recap</span>
+                        )}
+                        {turn.role === "assistant" ? (
+                          <AssistantMessage content={turn.content} />
+                        ) : (
+                          <p>{turn.content}</p>
+                        )}
+                        {turn.channel === "voice" && (
+                          <span className="turn-note">
+                            <ChatIcon name="phone" width={11} height={11} />
+                            {cutOff ? "Spoken · cut off" : "Spoken"}
+                          </span>
+                        )}
+                      </div>
+                    </article>
+                    {ends && call.endedAt && (
+                      <CallMarker>{`${call.status === "failed" ? "Call disconnected" : "Call ended"} · ${callLength(call.startedAt, call.endedAt)}`}</CallMarker>
+                    )}
+                  </Fragment>
+                );
+              })}
+              {shownPending && (
+                <article className="turn user pending" aria-label="You">
+                  <div className="turn-body">
+                    <p>{pending.content}</p>
+                  </div>
+                </article>
+              )}
+              {streamed && (
+                <article className="turn assistant" aria-label={agentName}>
+                  <div className="turn-body">
+                    <AssistantMessage content={streamed.text} />
+                  </div>
+                </article>
+              )}
+              {waitingText && !streamed && (
+                <ThinkingIndicator
+                  text={waitingText}
+                  active={
+                    generating || (connection === "ready" && !!submitting)
+                  }
+                />
+              )}
             </div>
           </div>
-        </form>
-      </footer>
-    </main>
+        </section>
+
+        <footer className="composer-area">
+          {snapshot?.journey?.prepared &&
+            !snapshot.journey.entered &&
+            hasControl && (
+              <DashboardHandoff
+                message={snapshot.journey.message}
+                ready={
+                  connection === "ready" &&
+                  (snapshot.journey.delivery === "text" ||
+                    (snapshot.journey.delivery === "played" &&
+                      (!voice.active || voice.playback === "playing")))
+                }
+                busy={handoffBusy}
+                error={handoffError}
+                onContinue={() => void changeJourney("enter")}
+              />
+            )}
+          {handoffError && !snapshot?.journey?.prepared && (
+            <div className="notice" role="alert">
+              <p>{handoffError}</p>
+              <button
+                onClick={() =>
+                  void changeJourney(
+                    snapshot?.journey?.ready ? "prepare" : "skip",
+                  )
+                }
+              >
+                Try again
+              </button>
+            </div>
+          )}
+
+          {showJump && (
+            <button
+              className="jump-button"
+              type="button"
+              aria-label="Back to latest"
+              title="Back to latest"
+              onClick={() => {
+                followLatest.current = true;
+                setShowJump(false);
+                scrollArea.current?.scrollTo({
+                  top: scrollArea.current.scrollHeight,
+                  behavior: window.matchMedia(
+                    "(prefers-reduced-motion: reduce)",
+                  ).matches
+                    ? "auto"
+                    : "smooth",
+                });
+              }}
+            >
+              <ChatIcon name="arrowDown" />
+            </button>
+          )}
+          {!hasControl && snapshot?.control && (
+            <div className="notice" role="status">
+              <p>This conversation is controlled in another tab.</p>
+              <button
+                type="button"
+                onClick={() =>
+                  void takeControl().catch(() =>
+                    setNotice("Could not take control. Try again."),
+                  )
+                }
+              >
+                Take control
+              </button>
+            </div>
+          )}
+          {visibleNotice && (
+            <div className="notice" role="status">
+              <p>{visibleNotice}</p>
+              {!busy && !generating && (
+                <button type="button" onClick={retry}>
+                  {retryPayload ? "Retry message" : "Try connecting again"}
+                </button>
+              )}
+            </div>
+          )}
+          {gmailNotice && (
+            <div className="notice gmail-notice" role="status">
+              <p>{gmailNotice}</p>
+            </div>
+          )}
+          {voice.notice && (
+            <div className="notice voice-notice" role="status">
+              <p>{voice.notice}</p>
+              {voice.playback === "blocked" && (
+                <button type="button" onClick={() => void voice.play()}>
+                  Play call audio
+                </button>
+              )}
+            </div>
+          )}
+          {voice.active && (
+            <div className="call-banner" role="status">
+              <CallAnimation
+                level={voice.level}
+                processing={voice.phase === "thinking"}
+                active={
+                  voice.state === "active" &&
+                  voice.playback !== "blocked" &&
+                  (voice.phase !== "speaking" || voice.playback === "playing")
+                }
+              />
+              <span>
+                <strong>{callStatus}</strong>
+                <small>You can speak or keep typing here.</small>
+              </span>
+              <button
+                type="button"
+                className="end-call"
+                onClick={() => void voice.end()}
+              >
+                <ChatIcon name="stop" /> End call
+              </button>
+            </div>
+          )}
+          {snapshot?.control && (
+            <div className="composer-connections">
+              <GmailConnection
+                key={snapshot.conversationId}
+                headers={headers}
+                enabled={hasControl && connection === "ready"}
+                introduced={!!gmailIntroduced}
+                conversationId={snapshot.conversationId}
+                onChanged={refresh}
+                onNotice={setGmailNotice}
+              />
+            </div>
+          )}
+          <form
+            className="composer"
+            onSubmit={(event) => {
+              event.preventDefault();
+              sendDraft();
+            }}
+          >
+            <label className="sr-only" htmlFor="message">
+              Message Persona
+            </label>
+            <textarea
+              ref={input}
+              id="message"
+              value={draft}
+              rows={1}
+              maxLength={8000}
+              placeholder={
+                !snapshot || hasUserMessage
+                  ? ""
+                  : voice.active
+                    ? "Type to join the conversation…"
+                    : "What's on your mind?"
+              }
+              onChange={(event) => {
+                finishIntroduction();
+                setDraft(event.target.value);
+              }}
+              onKeyDown={(event) => {
+                if (
+                  event.key === "Enter" &&
+                  !event.shiftKey &&
+                  !event.nativeEvent.isComposing
+                ) {
+                  event.preventDefault();
+                  sendDraft();
+                }
+              }}
+            />
+            <div className="composer-toolbar">
+              <div className="composer-tools" />
+              <div className="send-tools">
+                {snapshot?.control && !voice.active && (
+                  <button
+                    className="voice-button"
+                    type="button"
+                    disabled={
+                      !hasControl ||
+                      connection !== "ready" ||
+                      busy ||
+                      !!retryPayload
+                    }
+                    onClick={() => {
+                      finishIntroduction();
+                      void voice.start();
+                    }}
+                  >
+                    <ChatIcon name="headphones" /> Start a call
+                  </button>
+                )}
+                <button
+                  className="send"
+                  type="submit"
+                  disabled={!canSend}
+                  aria-label="Send message"
+                >
+                  <ChatIcon name="arrowUp" />
+                </button>
+              </div>
+            </div>
+          </form>
+        </footer>
+      </main>
+    </DashboardFrame>
   );
 }

@@ -7,6 +7,7 @@ import { OnboardingService } from './onboarding.js';
 import { MODEL, type ReplyModel } from './model.js';
 import { Authority, credentialHash, type Owner } from './authority.js';
 import { saveOpening } from './opening.js';
+import { readJourney, handoffMessage, skipMessage } from './journey.js';
 import {
   CONVERSATION_MEMORY,
   memoryWindow,
@@ -25,7 +26,7 @@ export type Turn = {
   submissionId: string;
   createdAt: Date;
   callId: string | null;
-  kind: 'opening' | 'message' | 'recap';
+  kind: 'opening' | 'message' | 'handoff' | 'recap';
 };
 type Operation = {
   id: string;
@@ -105,13 +106,15 @@ export class ChatService {
     const interrupted =
       operation?.status === 'generating' &&
       new Date(operation.lease_until).getTime() <= Date.now();
+    const onboarding = await this.onboarding.read(
+      sql,
+      conversation.id,
+      conversation.revision,
+    );
     return {
       control: this.authority.view(conversation),
-      onboarding: await this.onboarding.read(
-        sql,
-        conversation.id,
-        conversation.revision,
-      ),
+      onboarding,
+      journey: await readJourney(sql, conversation.id, onboarding),
       conversationId: conversation.id,
       revision: conversation.revision,
       turns: result.rows,
@@ -266,5 +269,61 @@ export class ChatService {
   async ready() {
     await this.db.query('SELECT id FROM conversations LIMIT 1');
     return { ready: true };
+  }
+
+  async journey(
+    credential: string | undefined,
+    action: 'prepare' | 'skip' | 'enter',
+    owner?: Owner,
+  ) {
+    await this.db.transaction(async (sql) => {
+      const conversation = await this.authority.authorize(
+        credential,
+        sql,
+        true,
+      );
+      this.authority.assertOwner(conversation, owner);
+      const state = await this.onboarding.read(
+        sql,
+        conversation.id,
+        conversation.revision,
+      );
+      const journey = await readJourney(sql, conversation.id, state);
+      if (journey.entered) return;
+      if (action !== 'skip' && !journey.ready)
+        throw new ConflictException('ONBOARDING_NOT_READY');
+      if (action === 'enter' && !journey.prepared)
+        throw new ConflictException('HANDOFF_NOT_PREPARED');
+      if (!journey.prepared) {
+        const call = (
+          await sql.query<{ id: string }>(
+            "SELECT id FROM calls WHERE conversation_id=$1 AND status='active'",
+            [conversation.id],
+          )
+        ).rows[0];
+        const message = state.facts.helpRequest.value
+          ? handoffMessage
+          : skipMessage;
+        await sql.query(
+          `UPDATE conversations SET handoff_prepared_at=now(),graduated_at=COALESCE(graduated_at,now()),handoff_message=$2,handoff_delivery=$3,handoff_call_id=$4,revision=revision+1,onboarding_revision=revision+1 WHERE id=$1`,
+          [
+            conversation.id,
+            message,
+            call ? 'waiting' : 'text',
+            call?.id ?? null,
+          ],
+        );
+        await sql.query(
+          "INSERT INTO turns(id,conversation_id,submission_id,role,content,kind) VALUES($1,$2,$3,'assistant',$4,'handoff')",
+          [randomUUID(), conversation.id, randomUUID(), message],
+        );
+      }
+      if (action === 'enter')
+        await sql.query(
+          'UPDATE conversations SET dashboard_entered_at=COALESCE(dashboard_entered_at,now()) WHERE id=$1',
+          [conversation.id],
+        );
+    });
+    return this.read(credential);
   }
 }

@@ -6,6 +6,7 @@ test("a delayed anonymous focus check cannot undo a successful sign-in", async (
   let signedIn = false;
   let loginStarted = false;
   let staleStarted = false;
+  let staleFinished = false;
   let releaseLogin!: () => void;
   let releaseStale!: () => void;
   const loginGate = new Promise<void>((resolve) => {
@@ -32,14 +33,17 @@ test("a delayed anonymous focus check cannot undo a successful sign-in", async (
     if (!signedIn && loginStarted) {
       staleStarted = true;
       await staleGate;
-      return route.fulfill({ status: 401, json: {} });
+      // Navigating away from sign-in aborts this obsolete session check.
+      await route.fulfill({ status: 401, json: {} }).catch(() => undefined);
+      staleFinished = true;
+      return;
     }
     return route.fulfill({
       status: signedIn ? 200 : 401,
       json: signedIn ? snapshot : {},
     });
   });
-  await page.goto("/");
+  await page.goto("/sign-in");
   await page.getByLabel("Email", { exact: true }).fill("tanay@example.test");
   await page.getByLabel("Password", { exact: true }).fill("demo-password");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
@@ -49,12 +53,8 @@ test("a delayed anonymous focus check cannot undo a successful sign-in", async (
   releaseLogin();
   const composer = page.getByRole("textbox", { name: "Message Persona" });
   await composer.fill("Keep this draft");
-  const staleResponse = page.waitForResponse(
-    (response) =>
-      response.url().endsWith("/api/session") && response.status() === 401,
-  );
   releaseStale();
-  await (await staleResponse).finished();
+  await expect.poll(() => staleFinished).toBe(true);
   await page.evaluate(
     () =>
       new Promise<void>((resolve) =>
@@ -62,6 +62,7 @@ test("a delayed anonymous focus check cannot undo a successful sign-in", async (
       ),
   );
   await expect(composer).toHaveValue("Keep this draft");
+  await expect(page).toHaveURL(/\/onboarding$/);
 });
 
 test("invited users sign in, resume after refresh, and sign out", async ({
@@ -93,7 +94,7 @@ test("invited users sign in, resume after refresh, and sign out", async ({
       json: signedIn ? snapshot : {},
     });
   });
-  await page.goto("/");
+  await page.goto("/sign-in");
   await expect(page.getByRole("heading", { name: "Sign in." })).toBeVisible();
   await expect(
     page.getByRole("textbox", { name: "Message Persona" }),
@@ -141,13 +142,13 @@ test("each page load asks for a fresh start, but a Gmail consent return does not
     });
   });
   const composer = page.getByRole("textbox", { name: "Message Persona" });
-  await page.goto("/");
+  await page.goto("/sign-in");
   await expect(composer).toBeVisible();
   expect(freshStarts).toBe(1);
   await page.reload();
   await expect(composer).toBeVisible();
   expect(freshStarts).toBe(2);
-  await page.goto("/?gmail=connected");
+  await page.goto("/onboarding?gmail=connected");
   await expect(composer).toBeVisible();
   expect(freshStarts).toBe(2);
 });
@@ -165,7 +166,7 @@ test("a revoked session clears the conversation and returns to sign-in", async (
       json: { conversationId: "one", revision: 0, turns: [], operation: null },
     });
   });
-  await page.goto("/");
+  await page.goto("/sign-in");
   await page
     .getByRole("textbox", { name: "Message Persona" })
     .fill("A private message");

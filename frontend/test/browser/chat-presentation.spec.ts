@@ -94,7 +94,7 @@ for (const width of [1000, 375]) {
         ].join("\n\n"),
       },
     ]);
-    await page.goto("/");
+    await page.goto("/onboarding");
     const message = page.locator(".assistant-markdown");
     await expect(
       message.getByRole("heading", { name: "A clear plan" }),
@@ -154,7 +154,7 @@ test("pending messages contain only user text and the hint stays cleared after s
     release = resolve;
   });
   try {
-    await page.goto("/");
+    await page.goto("/onboarding");
     const input = page.getByRole("textbox", { name: "Message Persona" });
     await expect(input).toHaveAttribute("placeholder", "What's on your mind?");
     await input.fill("Hello **literally**\nSecond line");
@@ -181,7 +181,7 @@ test("pending messages contain only user text and the hint stays cleared after s
 
 test("a saved spoken user message clears the input hint", async ({ page }) => {
   const state = await chat(page);
-  await page.goto("/");
+  await page.goto("/onboarding");
   const input = page.getByRole("textbox", { name: "Message Persona" });
   await expect(input).toHaveAttribute("placeholder", "What's on your mind?");
   state.turns.push({
@@ -210,7 +210,7 @@ for (const height of [740, 350]) {
         content: "You can connect Gmail when you're ready.",
       },
     ]);
-    await page.goto("/");
+    await page.goto("/onboarding");
     const control = page.locator(".composer-connections");
     const connect = control.getByRole("button", {
       name: "Connect Gmail",

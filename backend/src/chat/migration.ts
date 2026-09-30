@@ -164,6 +164,16 @@ export async function migrate(db: Database) {
     await sql.query(
       'ALTER TABLE accounts ADD COLUMN IF NOT EXISTS fresh_start boolean NOT NULL DEFAULT false',
     );
+    await sql.query(`ALTER TABLE conversations
+      ADD COLUMN IF NOT EXISTS handoff_prepared_at timestamptz,
+      ADD COLUMN IF NOT EXISTS dashboard_entered_at timestamptz,
+      ADD COLUMN IF NOT EXISTS handoff_message text,
+      ADD COLUMN IF NOT EXISTS handoff_delivery text NOT NULL DEFAULT 'text',
+      ADD COLUMN IF NOT EXISTS handoff_call_id uuid,
+      ADD COLUMN IF NOT EXISTS handoff_response_id text`);
+    await sql.query(
+      'ALTER TABLE voice_responses ADD COLUMN IF NOT EXISTS purpose text',
+    );
     const existingPhase = await sql.query(
       "SELECT 1 FROM information_schema.columns WHERE table_name='conversations' AND column_name='graduated_at'",
     );

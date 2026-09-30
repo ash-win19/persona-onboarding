@@ -19,30 +19,34 @@ export interface ReplyModel {
   ): Promise<string>;
 }
 
-// Brackets each call's turns with notes, so a text reply knows which turns
-// were spoken and that the conversation moved between chat and a call.
+// Brackets each call with notes before its first turn and after its last, so a
+// text reply knows which turns were spoken. A message posted during the call,
+// such as the onboarding handoff, stays inside the brackets.
 export function withCallNotes(turns: ModelTurn[]) {
+  const last = new Map<string, number>();
+  turns.forEach(({ callId }, index) => {
+    if (callId) last.set(callId, index);
+  });
+  const started = new Set<string>();
   const input: { role: 'user' | 'assistant' | 'developer'; content: string }[] =
     [];
-  let call: string | null = null;
-  for (const { role, content, callId = null } of turns) {
-    if (callId !== call) {
-      if (call)
-        input.push({
-          role: 'developer',
-          content:
-            'The voice call ended here. The conversation continues in text chat.',
-        });
-      if (callId)
-        input.push({
-          role: 'developer',
-          content:
-            'A voice call started here. The turns until the call-ended note happened during the call; spoken turns are speech transcripts and can contain recognition errors.',
-        });
-      call = callId;
+  turns.forEach(({ role, content, callId }, index) => {
+    if (callId && !started.has(callId)) {
+      started.add(callId);
+      input.push({
+        role: 'developer',
+        content:
+          'A voice call started here. The turns until the call-ended note happened during the call; spoken turns are speech transcripts and can contain recognition errors.',
+      });
     }
     input.push({ role, content });
-  }
+    if (callId && last.get(callId) === index)
+      input.push({
+        role: 'developer',
+        content:
+          'The voice call ended here. The conversation continues in text chat.',
+      });
+  });
   return input;
 }
 

@@ -58,7 +58,7 @@ test("reading earlier messages survives polling and new replies until jumping to
   page,
 }) => {
   const saved = await conversation(page, true);
-  await page.goto("/");
+  await page.goto("/onboarding");
   const history = page.getByRole("region", {
     name: "Conversation",
     exact: true,
@@ -102,7 +102,7 @@ test("mobile has one usable composer for an uninterrupted conversation", async (
 }) => {
   await page.setViewportSize({ width: 375, height: 740 });
   await conversation(page);
-  await page.goto("/");
+  await page.goto("/onboarding");
   const input = page.getByRole("textbox", { name: "Message Persona" });
   await input.fill("Prepare for an interview");
   await expect(input).toHaveValue("Prepare for an interview");
@@ -135,7 +135,7 @@ test("a short viewport can scroll to Send with an expanded draft and a recovery 
         Promise.reject(new DOMException("Declined", "NotAllowedError")),
     });
   });
-  await page.goto("/");
+  await page.goto("/onboarding");
   await page.getByRole("button", { name: "Start a call" }).click();
   await expect(page.getByText(/Microphone access was declined/)).toBeVisible();
   await page
@@ -170,6 +170,8 @@ test("a call is marked in the conversation, with its spoken turns and recap", as
       ...spoken,
       delivery: "text",
     }),
+    // Posted during the call, so it stays inside the call's markers.
+    turn("h1", "assistant", "You are all set up.", { kind: "handoff" }),
     turn("t5", "assistant", "Great, start with your current role and", {
       ...spoken,
       delivery: "interrupted",
@@ -230,12 +232,12 @@ test("a call is marked in the conversation, with its spoken turns and recap", as
   });
   await page.goto("/");
   const log = page.getByRole("log");
-  await expect(log.locator("article")).toHaveCount(6);
+  await expect(log.locator("article")).toHaveCount(7);
   const markers = log.locator(".call-marker");
   await expect(markers).toHaveCount(2);
   await expect(markers.first()).toContainText("Call started");
   await expect(markers.last()).toHaveText("Call ended · 3m 12s");
-  // Markers wrap exactly the three call turns.
+  // Markers wrap the call's turns and the handoff posted during it.
   const order = await log
     .locator("article, .call-marker")
     .evaluateAll((nodes) =>
@@ -247,6 +249,7 @@ test("a call is marked in the conversation, with its spoken turns and recap", as
     "turn",
     "turn",
     "marker",
+    "turn",
     "turn",
     "turn",
     "turn",

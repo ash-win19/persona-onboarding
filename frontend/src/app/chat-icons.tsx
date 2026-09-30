@@ -1,6 +1,11 @@
 import type { SVGProps } from "react";
 
 const paths = {
+  arrowRight: "M5 12h14m-6-6 6 6-6 6",
+  home: "m3 10 9-7 9 7v10H3zM9 20v-7h6v7",
+  message: "M4 4h16v12H9l-5 4z",
+  user: "M20 21v-2a6 6 0 0 0-6-6h-4a6 6 0 0 0-6 6v2M16 6a4 4 0 1 1-8 0 4 4 0 0 1 8 0",
+  logout: "M9 4H4v16h5m6-13 5 5-5 5m-7-5h12",
   arrowUp: "m6 12 6-6 6 6M12 6v12",
   arrowDown: "m6 12 6 6 6-6M12 6v12",
   mail: "M4 5h16v14H4zM4 6l8 6 8-6",

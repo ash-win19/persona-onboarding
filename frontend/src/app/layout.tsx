@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
+import "./app-flow.css";
 
 const inter = localFont({
   src: "./fonts/inter-latin.woff2",
@@ -16,7 +17,11 @@ export const metadata: Metadata = {
     "One conversation to think things through, get help, and pick up where you left off.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html lang="en" className={`${inter.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">{children}</body>

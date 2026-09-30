@@ -36,4 +36,21 @@ describe('call notes', () => {
     expect(notes[4].content).toMatch(/voice call ended/);
     expect(notes.every((item) => !('callId' in item))).toBe(true);
   });
+
+  it('keeps a message posted during a call inside that call', () => {
+    const notes = withCallNotes([
+      { role: 'assistant', content: 'Shall we practise?', callId: 'one' },
+      { role: 'assistant', content: 'You are all set up.', callId: null },
+      { role: 'user', content: 'Great', callId: 'one' },
+      { role: 'user', content: 'Back in text', callId: null },
+    ]);
+    expect(notes.map((item) => item.content)).toEqual([
+      expect.stringMatching(/voice call started/),
+      'Shall we practise?',
+      'You are all set up.',
+      'Great',
+      expect.stringMatching(/voice call ended/),
+      'Back in text',
+    ]);
+  });
 });
