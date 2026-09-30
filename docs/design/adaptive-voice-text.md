@@ -1,6 +1,6 @@
 # Adaptive voice and text during onboarding
 
-Accepted design, September 29, 2026. Based on `origin/main` at `980aaf6`. Prepared on `feat/adaptive-voice-text`. The initial proposal is retained below as design context. The implementation and current behavior are documented in [Browser calls](../voice.md). Automated verification covers controlled providers; real-device and real-provider checks must be reported separately.
+Accepted design, September 29, 2026. Based on `origin/main` at `980aaf6`. Prepared on `feat/adaptive-voice-text`. The initial proposal is retained below as design context. The subsequently accepted [onboarding finish rule](../adr/0007-require-plan-acceptance-to-finish-onboarding.md) supersedes the early-graduation policy below: new users accept a starter plan after required setup, and Save and exit preserves unfinished onboarding. This feature retains that rule while allowing all call modes through plan acceptance. The implementation and current behavior are documented in [Browser calls](../voice.md). Automated verification covers controlled providers; real-device and real-provider checks must be reported separately.
 
 The user should be able to speak, type, listen, or read while continuing the same call conversation. Changing how they communicate must preserve their task, accepted details, and onboarding progress. Everything runs in the browser; phone numbers are unnecessary.
 

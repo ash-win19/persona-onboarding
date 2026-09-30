@@ -101,6 +101,13 @@ export class CallsController {
     );
   }
 
+  @Post('retry-onboarding')
+  @HttpCode(200)
+  async retryOnboarding(@Req() req: Request) {
+    const controller = browserWrite(req, this.config, true);
+    await this.calls.retryOnboarding(credential(req), controller);
+    return { accepted: true };
+  }
   @Post('ready')
   @HttpCode(200)
   ready(@Req() req: Request, @Body() body: unknown) {

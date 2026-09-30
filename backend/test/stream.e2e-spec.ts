@@ -204,17 +204,20 @@ describe('streamed text replies', () => {
     expect(list.at(-1)!.data.turns.at(-1).role).toBe('user');
   });
 
-  it('streams the real adapter reply without the questions the server replaces', async () => {
+  it('streams the saved onboarding reply without requesting another model answer', async () => {
+    let streamedRequests = 0;
     const provider = createServer(async (req, res) => {
       let body = '';
       for await (const chunk of req) body += chunk;
       const input = JSON.parse(body);
-      if (input.stream)
+      if (input.stream) {
+        streamedRequests++;
         return streamText(res, [
           'Nova it',
           ' is. What is your',
           ' name? Here is a tip.',
         ]);
+      }
       res.setHeader('Content-Type', 'application/json');
       res.end(
         JSON.stringify({
@@ -265,7 +268,9 @@ describe('streamed text replies', () => {
         .join('');
       const saved = list.at(-1)!.data.turns.at(-1);
       expect(saved.role).toBe('assistant');
-      expect(saved.content).toMatch(/^Nova it is\. Here is a tip\.\n\n\S/);
+      expect(saved.content).toContain('Start a call');
+      expect(list.at(-1)!.data.onboarding.facts.agentName.value).toBe('Nova');
+      expect(streamedRequests).toBe(0);
       expect(streamed).toBe(saved.content);
       expect(streamed).not.toContain('What is your name');
     } finally {

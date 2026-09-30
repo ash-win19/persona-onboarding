@@ -165,13 +165,18 @@ describe('browser call API', () => {
       transcript: user,
     });
   }
-  async function session() {
+  async function session(graduated = false) {
     const created = await request(app.getHttpServer())
       .post('/auth/login')
       .set('Origin', origin)
       .set('X-Persona-Client', 'web')
       .send(await invitedAccount(app))
       .expect(200);
+    if (graduated)
+      await postgres.query(
+        'UPDATE conversations SET graduated_at=now() WHERE id=$1',
+        [created.body.conversationId],
+      );
     const cookie = created.headers['set-cookie'][0];
     const tabId = randomUUID();
     const claim = await request(app.getHttpServer())
@@ -208,8 +213,8 @@ describe('browser call API', () => {
       heartbeat: () => post('/control', { tabId, takeover: false }).expect(200),
     };
   }
-  it('queues the tagged handoff after playback and preserves the call on dashboard entry', async () => {
-    const s = await session(),
+  it('for legacy graduates, queues the tagged handoff after playback and preserves the call on dashboard entry', async () => {
+    const s = await session(true),
       id = randomUUID();
     await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
     const c = connections.at(-1)!;
@@ -280,8 +285,8 @@ describe('browser call API', () => {
     await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
   });
 
-  it('does not treat interrupted handoff audio as a completed acknowledgement', async () => {
-    const s = await session(),
+  it('for legacy graduates, does not treat interrupted handoff audio as a completed acknowledgement', async () => {
+    const s = await session(true),
       id = randomUUID();
     await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
     const c = connections.at(-1)!;
@@ -497,9 +502,16 @@ describe('browser call API', () => {
     await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
   });
 
-  it('commits an explicit spoken exit and switches the live call to main instructions', async () => {
+  it('keeps onboarding pending when a spoken exit lacks required setup', async () => {
     const s = await session();
     const id = randomUUID();
+    repair.interpret = async (input) => ({
+      expectedRevision: input.state.revision,
+      askOnboarding: false,
+      exitEvidence: 'Skip setup',
+      changes: [],
+      preferences: [],
+    });
     await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
     const c = connections.at(-1)!;
     await c.emit({
@@ -511,49 +523,18 @@ describe('browser call API', () => {
       item_id: 'exit-source',
       transcript: 'Skip setup. I do not need help yet.',
     });
-    const before = (await s.read()).body;
-    await c.emit({
-      type: 'response.created',
-      response: {
-        id: 'exit-response',
-        status: 'in_progress',
-        metadata: { generation: '1', sourceItem: 'exit-source' },
-      },
-    });
-    await c.emit({
-      type: 'response.function_call_arguments.done',
-      response_id: 'exit-response',
-      call_id: 'exit-tool',
-      name: 'capture_onboarding',
-      arguments: JSON.stringify({
-        expectedRevision: before.revision,
-        askOnboarding: false,
-        exitEvidence: 'Skip setup',
-        changes: [],
-        preferences: [],
-        memory: [],
-      }),
-    });
-    await vi.waitFor(async () =>
-      expect((await s.read()).body.onboarding.mode).toBe('helping'),
+    await vi.waitFor(() =>
+      expect(c.sent.some((e) => e.type === 'response.create')).toBe(true),
     );
-    expect((await s.read()).body.onboarding.facts.helpRequest.value).toBeNull();
+    expect((await s.read()).body.onboarding.mode).toBe('onboarding');
+    expect((await s.read()).body.journey.entered).toBe(false);
     expect(c.closed).toBe(false);
-    expect(
-      c.sent.some(
-        (event) =>
-          event.type === 'session.update' &&
-          (event.session as { instructions: string }).instructions.includes(
-            'continuing the same conversation after onboarding',
-          ),
-      ),
-    ).toBe(true);
     await s.post('/calls/end', { id, reason: 'user_hangup' }).expect(200);
-    expect((await s.read()).body.onboarding.mode).toBe('helping');
+    expect((await s.read()).body.onboarding.mode).toBe('onboarding');
   });
 
   it('continues a known task when opening a call rather than asking for missing names', async () => {
-    const s = await session();
+    const s = await session(true);
     model.reply = async (_turns, tools) => {
       await tools.capture({
         expectedRevision: tools.state.revision,
@@ -763,7 +744,7 @@ describe('browser call API', () => {
       .expect(200);
   });
   it('persists ordered preferences and delivers text replies without audio playback', async () => {
-    const s = await session();
+    const s = await session(true);
     const id = randomUUID();
     await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
     const c = connections.at(-1)!;
@@ -857,7 +838,7 @@ describe('browser call API', () => {
   });
 
   it('switches a pending response to text and rejects late audio delivery', async () => {
-    const s = await session();
+    const s = await session(true);
     const id = randomUUID();
     await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
     const c = connections.at(-1)!;
@@ -929,7 +910,7 @@ describe('browser call API', () => {
   });
 
   it('discards partial and muted speech even when final transcripts arrive after unmute', async () => {
-    const s = await session();
+    const s = await session(true);
     const id = randomUUID();
     await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
     const c = connections.at(-1)!;
@@ -1019,7 +1000,7 @@ describe('browser call API', () => {
   });
 
   it('resumes an unanswered call message in text once after hangup', async () => {
-    const s = await session();
+    const s = await session(true);
     const id = randomUUID();
     const submissionId = randomUUID();
     await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
@@ -1130,7 +1111,7 @@ describe('browser call API', () => {
     await s.post('/calls/end', { id: next, reason: 'user_hangup' }).expect(200);
   });
   it('commits spoken facts from the finalized source and rejects a superseded voice tool', async () => {
-    const s = await session(),
+    const s = await session(true),
       id = randomUUID();
     await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
     const c = connections.at(-1)!;
@@ -1218,7 +1199,7 @@ describe('browser call API', () => {
     expect((await s.read()).body.onboarding.facts.userName.value).toBe('Sam');
   });
   it('saves facts split by speech detection with their own delayed transcripts and a later spoken correction', async () => {
-    const s = await session(),
+    const s = await session(true),
       id = randomUUID();
     await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
     const c = connections.at(-1)!;
@@ -1380,7 +1361,7 @@ describe('browser call API', () => {
         });
         return 'We can keep working here.';
       };
-      const s = await session(),
+      const s = await session(true),
         id = randomUUID();
       const first = await s
         .post('/turns', {
@@ -1457,7 +1438,7 @@ describe('browser call API', () => {
   it.each(['empty', 'failed'])(
     'saves a clear name after an %s transcription',
     async (outcome) => {
-      const s = await session(),
+      const s = await session(true),
         id = randomUUID();
       await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
       const c = connections.at(-1)!;
@@ -1662,7 +1643,7 @@ describe('browser call API', () => {
   it.each(['ready', 'delayed'])(
     'holds continuations and parallel captures when transcription is %s',
     async (transcription) => {
-      const s = await session(),
+      const s = await session(true),
         id = randomUUID();
       await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
       const c = connections.at(-1)!;
@@ -1799,7 +1780,7 @@ describe('browser call API', () => {
   it.each(['typing', 'speech', 'hangup', 'takeover', 'reset', 'deadline'])(
     'keeps %s responsive and rejects a late interpretation',
     async (action) => {
-      const s = await session(),
+      const s = await session(true),
         id = randomUUID();
       await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
       const c = connections.at(-1)!;
@@ -1918,7 +1899,7 @@ describe('browser call API', () => {
     },
   );
   it('repairs rejected voice facts before replying and bounds malformed retries', async () => {
-    const s = await session(),
+    const s = await session(true),
       id = randomUUID();
     await s.post('/calls/start', { id, sdp: 'v=0' }).expect(200);
     const c = connections.at(-1)!;

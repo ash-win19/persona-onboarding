@@ -1,35 +1,43 @@
 # Conversational onboarding
 
-The original onboarding conversation has two instruction sets within one continuous history. Onboarding collects the assistant name, user name, Gmail connection and a first task, and offers a browser call. After graduation, that conversation can continue task work with the same assistant identity and saved context. The dashboard now defaults to separate daily chats for new work; see [app flow](app-flow.md).
+Onboarding saves the assistant name, user name, verified Gmail connection and task choice. A task choice can contain several tasks or an explicit "nothing yet." The assistant proposes a short plan. Accepting that current plan through Looks good, text or voice saves it and opens the dashboard immediately.
+
+The original conversation and active call remain available after graduation. The dashboard starts separate daily chats for new work, using the saved names, tasks and accepted plan as context. See [app flow](app-flow.md).
 
 ## Instructions to review
 
-- `backend/src/chat/prompts.ts` defines shared authority rules, onboarding, task assistance and voice instructions.
-- `backend/src/chat/model.ts` defines interpretation, the strict capture schema and streaming text composition. A concurrent structured request personalizes the single server-authorized onboarding question; failure uses the goal-specific fallback.
-- `backend/src/chat/onboarding.ts` validates facts and exit evidence, chooses eligible goals and owns graduation.
-- `backend/src/chat/calls.ts` applies the active role to live calls, their openings and repair responses.
-- [The approved design](design/onboarding-instructions.md) includes examples and [ADR 0005](adr/0005-separate-onboarding-from-task-assistance.md) explains the role boundary.
+- `backend/src/chat/prompts.ts` defines the onboarding role and shared text and voice rules.
+- `backend/src/chat/model.ts` interprets user statements through the strict capture schema. During onboarding, it returns the server-authorized reply after capture.
+- `backend/src/chat/starter-plan.ts` tracks tasks, clarification count and the current plan.
+- `backend/src/chat/onboarding.ts` validates quoted evidence, saves progress and owns plan acceptance and graduation.
+- `backend/src/chat/calls.ts` captures finalized current-call speech before generating the next onboarding reply.
+- `frontend/src/app/onboarding-progress.tsx` displays the saved details and pending steps.
+- [The approved design](design/onboarding-progress.md) records the flow and [ADR 0007](adr/0007-require-plan-acceptance-to-finish-onboarding.md) explains the completion rule.
 
-## Graduation and completed setup
+## A bounded conversation
 
-An accepted help request no longer automatically graduates a new user. The normal path makes one delivered invitation for each eligible outstanding goal, including voice, and graduates once a clear first task is known. The last invitation stays available for the user to answer; the next reply uses the main role. An explicit request to leave setup commits graduation before the reply, even without a task.
+Clear tasks need no clarification. Normally the assistant asks at most one task question. A second is allowed only if the answer leaves an essential ambiguity about the desired outcome. The count persists across text, calls and reconnects. Execution details belong to task work after onboarding. If the user asks to stop the questions, the assistant proposes a plan with reasonable assumptions.
 
-The phase is durable. Migration preserves existing users who already had an accepted help request in the main experience. It does not graduate new users on subsequent migrations. Refresh, corrections, unavailable Gmail and interrupted calls do not restart intake.
+The assistant saves all stated tasks and suggests an order. It does not ask the user to invent a task or choose between several tasks before showing a plan. The plan states what Persona can actually do; Gmail authorization does not imply support for reading or sending mail.
 
-Onboarding completion remains separate: both names and a first task must be known, and Gmail must be verified. A successful call is not required for completion. Refused, deferred, unanswered and unavailable goals keep their actual statuses after graduation.
+A narrow desktop rail shows Assistant, You, Gmail, Your tasks and Plan with saved values and progress marks. Mobile uses an expandable summary above the chat. Gmail has a connection action in this rail, so the assistant never promises an unavailable link.
 
-## Facts and invitation delivery
+## Finishing and leaving
 
-The capture tool proposes explicit facts, corrections, preferences, optional memory and `exitEvidence`. Values and evidence must match the canonical user source and current revision. Assistant and user names remain distinct. Ambiguous proposals preserve prior accepted values. The server, rather than user claims, owns integration state and completion.
+New users need both names, verified Gmail and a task choice before accepting a plan. Acceptance requires the current, presented plan and no unfinished user input. A typed or spoken affirmative only accepts a plan that is awaiting confirmation; an unrelated or quoted "yes" does not finish onboarding. Changing the intake invalidates the prior plan. Acceptance and dashboard entry commit together, and repeated acceptance is safe.
 
-An exit quote represents a global request to leave setup. Skipping one question or deferring Gmail does not imply a global exit. Exit intent is preserved during voice repairs and failed-reply retries. Acknowledgements use committed results only.
+Save and exit returns to the landing page without graduating. The next visit resumes saved progress. Gmail refusal or authorization failure leaves Gmail pending; it does not trigger repeated chat prompts or grant dashboard access. The user can retry from the rail.
 
-Selecting an onboarding question does not consume an invitation. Text counts it when the assistant reply is committed; voice requires a played, uninterrupted response and finalized transcript. Failed generation and unheard speech leave the goal available. Explicit refusals persist until reopened; deferrals apply for the current visit, with a later relevant invitation permitted.
+Existing graduation and dashboard-entry records retain their prior meaning and access. The migration adds intake storage without resetting older completion markers.
 
-Text answers retain streaming. The server selects the goal and validates the contextual question's structured goal identifier and single-question shape. Natural-language meaning remains a model judgment, covered by behavioral tests rather than claimed as mechanically proven. Voice uses the same allowed goal and current phase.
+## Facts and call recovery
+
+Capture proposals need evidence from canonical user messages or finalized current-call speech, with the current revision and control owner. Assistant and user names remain distinct. The server verifies Gmail; user claims cannot mark it connected.
+
+A call is offered after the assistant is named, but voice is optional. Finalized speech is interpreted before the next onboarding reply. The same saved clarification count and plan apply in text and voice. An active call continues across dashboard entry. Current-call capture failures expose Retry saved speech; older ended-call transcripts stay in history and are not automatically included in a new recovery request. Ending a call before capture finishes can require the user to repeat an unsaved detail in text.
 
 ## Verification
 
-The backend suites cover evidence, stale proposals, phase persistence, normal and explicit graduation, retries, interrupted playback, live voice role changes, Gmail verification and unchanged authentication/recovery behavior. `test/onboarding-live.e2e-spec.ts` is opt-in with `PERSONA_LIVE_MODEL=1`; it uses a real OpenAI model and a disposable local database. It never uses production conversation storage.
+Focused backend tests cover mandatory Gmail, explicit no-task choices, multiple tasks, clarification limits, stale and repeated plan approval, quoted or qualified affirmatives and automatic capture of current-call speech. Browser tests cover desktop and mobile progress, immediate dashboard entry and Save and exit resumption.
 
-The trial verifies Gmail account access with metadata authorization. It does not fetch messages, send mail, browse or perform external tasks in either role.
+`test/onboarding-live.e2e-spec.ts` is opt-in with `PERSONA_LIVE_MODEL=1`. It uses a real model with synthetic messages and a disposable local database, never production conversation storage. Actual microphone and OAuth-provider behavior still need manual verification.

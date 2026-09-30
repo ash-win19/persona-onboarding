@@ -78,11 +78,18 @@ type LiveCall = {
   pendingRepair?: string;
   pendingOpening?: string;
   pendingPurpose?: string;
+  activeReply?: {
+    generation: number;
+    repair?: string;
+    opening?: string;
+    purpose?: string;
+  };
   handoffQueued?: boolean;
   handoffRequested?: string;
   repairs: Map<number, number>;
   strictRepairs: Set<number>;
   interpreting: Set<number>;
+  intakeCaptures: Set<number>;
   repairResponses: Map<string, number>;
   closing: boolean;
 };
@@ -203,6 +210,7 @@ export class Calls implements OnModuleDestroy {
       repairs: new Map(),
       strictRepairs: new Set(),
       interpreting: new Set(),
+      intakeCaptures: new Set(),
       repairResponses: new Map(),
     };
     this.live.set(id, runtime);
@@ -333,6 +341,12 @@ export class Calls implements OnModuleDestroy {
     runtime.pendingOpening = undefined;
     runtime.pendingPurpose = undefined;
     runtime.responding = true;
+    runtime.activeReply = {
+      generation: call.generation,
+      repair,
+      opening,
+      purpose,
+    };
     connection.send({
       type: 'response.create',
       response: {
@@ -472,7 +486,8 @@ export class Calls implements OnModuleDestroy {
               content: [{ type: 'input_text', text: content }],
             },
           });
-          this.response(runtime.connection!, accepted);
+          if (!(await this.captureBeforeReply(accepted)))
+            this.response(runtime.connection!, accepted);
         } catch {
           await this.finish(id, 'control_lost');
         }
@@ -502,6 +517,8 @@ export class Calls implements OnModuleDestroy {
       let restart = false;
       let cancelResponse = false;
       let formatChanged = false;
+      let recapture = false;
+      let activeReply: LiveCall['activeReply'];
       let discarded: string[] = [];
       await this.db.transaction(async (sql) => {
         const c = await this.authority.authorize(credential, sql, true);
@@ -539,9 +556,14 @@ export class Calls implements OnModuleDestroy {
            AND NOT played AND NOT text_delivered AND NOT interrupted`,
           [id, call.generation],
         );
+        recapture = runtime.interpreting.has(call.generation);
+        activeReply =
+          runtime.activeReply?.generation === call.generation
+            ? runtime.activeReply
+            : undefined;
         restart =
           formatChanged &&
-          (runtime.responding === true || pending.rows.length > 0);
+          (runtime.responding === true || pending.rows.length > 0 || recapture);
         cancelResponse =
           formatChanged || discarded.includes(call.source_item_id ?? '');
         if (cancelResponse) {
@@ -608,7 +630,16 @@ export class Calls implements OnModuleDestroy {
           if (cancelResponse) connection.send({ type: 'response.cancel' });
           if (formatChanged)
             connection.send({ type: 'output_audio_buffer.clear' });
-          if (restart) this.response(connection, changed);
+          if (restart) {
+            if (!recapture || !(await this.captureBeforeReply(changed)))
+              this.response(
+                connection,
+                changed,
+                activeReply?.repair,
+                activeReply?.opening,
+                activeReply?.purpose,
+              );
+          }
         } catch {
           await this.finish(id, 'control_lost');
           throw new ConflictException('CALL_NOT_ACTIVE');
@@ -632,6 +663,134 @@ export class Calls implements OnModuleDestroy {
       )
     ).rows[0];
     if (call) await this.refresh(call);
+  }
+
+  async sayPlan(credential: string | undefined, message: string) {
+    const c = await this.authority.authorize(credential);
+    const call = (
+      await this.db.query<Call>(
+        "SELECT * FROM calls WHERE conversation_id=$1 AND status='active'",
+        [c.id],
+      )
+    ).rows[0];
+    const runtime = call && this.live.get(call.id);
+    if (!call || !runtime?.connection || runtime.closing) return;
+    await this.refresh(call);
+    this.response(
+      runtime.connection,
+      call,
+      undefined,
+      `Speak exactly this saved plan, without adding questions or calling tools: ${JSON.stringify(message)}`,
+      'onboarding_plan',
+    );
+  }
+
+  // Final speech is interpreted before a reply is requested. Do not depend on
+  // the realtime model deciding to call a tool, and never hold its event queue
+  // while the interpreter is running: interruption and hangup still win.
+  private async captureBeforeReply(call: Call): Promise<boolean> {
+    const runtime = this.live.get(call.id);
+    if (!runtime || !call.source_item_id) return false;
+    const context = await this.context(call);
+    if (context.state.graduated) return false;
+    if (runtime.intakeCaptures.has(call.generation)) return true;
+    const source = await this.onboarding.capture(
+      {
+        conversationId: call.conversation_id,
+        callId: call.id,
+        generation: call.generation,
+        sourceItem: call.source_item_id,
+      },
+      null,
+    );
+    if (source.code === 'pending' || !source.sources?.length) return true;
+    runtime.intakeCaptures.add(call.generation);
+    runtime.interpreting.add(call.generation);
+    void this.interpretOnboarding(call, runtime, source, context.turns);
+    return true;
+  }
+
+  private async interpretOnboarding(
+    call: Call,
+    runtime: LiveCall,
+    source: CaptureResult,
+    history: { role: string; content: string }[],
+  ) {
+    let command: unknown;
+    try {
+      command = await this.factRepair.interpret({
+        state: source.state,
+        sources: source.sources!,
+        history,
+      });
+    } catch {
+      /* The transcript is preserved and the user can retry. */
+    }
+    runtime.queue = runtime.queue
+      .then(async () => {
+        runtime.interpreting.delete(call.generation);
+        if (this.live.get(call.id) !== runtime || runtime.closing) return;
+        await this.check(call.id);
+        const current = await this.get(this.db, call.id);
+        if (
+          !current ||
+          current.status !== 'active' ||
+          current.generation !== call.generation
+        )
+          return;
+        let captured: CaptureResult | undefined;
+        if (command !== undefined)
+          captured = await this.onboarding.capture(
+            {
+              conversationId: current.conversation_id,
+              callId: current.id,
+              generation: current.generation,
+              sourceItem: current.source_item_id!,
+            },
+            command,
+          );
+        if (captured?.ok) await this.refresh(current);
+        const reply = captured?.ok
+          ? captured.reply!
+          : 'I could not save that yet. Your words are still here. Please use Retry saved speech in Your setup.';
+        if (
+          captured?.ok &&
+          captured.state.intake?.ready &&
+          captured.state.intake.plan
+        ) {
+          // The exact plan is also visible in the browser while spoken playback
+          // remains interruptible. Approval is still bound to this plan's id.
+          await this.db.transaction((sql) =>
+            this.onboarding.presentPlan(sql, current.conversation_id),
+          );
+        }
+        if (!captured?.ok) runtime.intakeCaptures.delete(call.generation);
+        if (runtime.connection)
+          this.response(
+            runtime.connection,
+            current,
+            undefined,
+            `Speak exactly this response, without adding any question or using tools: ${JSON.stringify(reply)}`,
+            'onboarding_reply',
+          );
+      })
+      .catch(() => this.finish(call.id, 'event_failed'));
+  }
+
+  async retryOnboarding(credential: string | undefined, owner: Owner) {
+    const c = await this.authority.authorize(credential);
+    this.authority.assertOwner(c, owner);
+    const call = (
+      await this.db.query<Call>(
+        "SELECT * FROM calls WHERE conversation_id=$1 AND status='active'",
+        [c.id],
+      )
+    ).rows[0];
+    if (!call) throw new ConflictException('CALL_NOT_ACTIVE');
+    const runtime = this.live.get(call.id);
+    if (runtime?.interpreting.size) return;
+    runtime?.intakeCaptures.delete(call.generation);
+    await this.captureBeforeReply(call);
   }
 
   async handoff(credential: string | undefined, owner?: Owner) {
@@ -1016,13 +1175,13 @@ export class Calls implements OnModuleDestroy {
     responseId?: string,
   ) {
     const item = await this.item(sql, call, id, role, responseId);
-    if (item.finalized || item.discarded) return;
+    if (item.finalized || item.discarded) return false;
     if (!text.trim()) {
       await sql.query(
         'UPDATE voice_items SET finalized=true WHERE call_id=$1 AND item_id=$2',
         [call.id, id],
       );
-      return;
+      return false;
     }
     const response = responseId
       ? (
@@ -1074,6 +1233,7 @@ export class Calls implements OnModuleDestroy {
       AND EXISTS(SELECT 1 FROM turns WHERE call_id=$3 AND role='user') AND EXISTS(SELECT 1 FROM turns WHERE call_id=$3 AND role='assistant')`,
       [call.conversation_id, new Date(this.authority.now()), call.id],
     );
+    return true;
   }
 
   private async event(id: string, event: VoiceEvent) {
@@ -1088,8 +1248,8 @@ export class Calls implements OnModuleDestroy {
       let call = await this.get(sql, id);
       if (!call) return;
       const c = (
-        await sql.query<{ owner_epoch: number }>(
-          'SELECT owner_epoch FROM conversations WHERE id=$1 FOR UPDATE',
+        await sql.query<{ owner_epoch: number; graduated_at: Date | null }>(
+          'SELECT owner_epoch,graduated_at FROM conversations WHERE id=$1 FOR UPDATE',
           [call.conversation_id],
         )
       ).rows[0];
@@ -1227,7 +1387,7 @@ export class Calls implements OnModuleDestroy {
         ].includes(event.type) &&
         event.item_id
       ) {
-        await this.saveTranscript(
+        const accepted = await this.saveTranscript(
           sql,
           call,
           event.item_id,
@@ -1236,6 +1396,13 @@ export class Calls implements OnModuleDestroy {
             ? ''
             : (event.transcript ?? ''),
         );
+        if (
+          accepted &&
+          active &&
+          !c.graduated_at &&
+          event.type === 'conversation.item.input_audio_transcription.completed'
+        )
+          respond = call;
       }
       if (
         (event.type === 'response.output_audio_transcript.done' ||
@@ -1389,7 +1556,14 @@ export class Calls implements OnModuleDestroy {
         refreshAfterDelivery = call;
     });
     if (refreshAfterDelivery) await this.refresh(refreshAfterDelivery);
-    if (respond && runtime?.connection && !runtime.closing)
+    if (
+      respond &&
+      runtime?.connection &&
+      !runtime.closing &&
+      (responseOpening ||
+        responseRepair ||
+        !(await this.captureBeforeReply(respond)))
+    )
       this.response(
         runtime.connection,
         respond,

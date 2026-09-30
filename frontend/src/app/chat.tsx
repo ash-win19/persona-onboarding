@@ -7,6 +7,7 @@ import { usePathname, useRouter } from "next/navigation";
 import type { Journey } from "@/lib/journey";
 import { DashboardFrame } from "./dashboard-frame";
 import { DashboardHandoff } from "./dashboard-handoff";
+import { OnboardingProgress } from "./onboarding-progress";
 import { GmailConnection } from "./gmail-connection";
 import { AssistantMessage } from "./assistant-message";
 import { useVoice, type Control, type CallState } from "./use-voice";
@@ -35,6 +36,19 @@ type SavedFact = {
   status: "missing" | "known" | "ambiguous";
 };
 type Onboarding = {
+  intake?: {
+    tasks: string[];
+    noTasks: boolean;
+    questionsAsked: number;
+    clarification: string | null;
+    ready: boolean;
+    plan: null | {
+      id: string;
+      steps: string[];
+      presented: boolean;
+      accepted: boolean;
+    };
+  };
   facts: Record<"agentName" | "userName" | "helpRequest", SavedFact>;
   gmail: "connected" | "not_connected";
   graduated: boolean;
@@ -287,6 +301,35 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
     }
   }
 
+  async function changePlan(action: "review" | "accept") {
+    if (handoffRequest.current || !hasControl) return;
+    handoffRequest.current = true;
+    setHandoffBusy(true);
+    setHandoffError("");
+    try {
+      const data = await api<Snapshot>(
+        "onboarding/plan",
+        new AbortController().signal,
+        { action, id: snapshot?.onboarding?.intake?.plan?.id },
+        ownerRef.current,
+      );
+      accept(data);
+    } catch {
+      setHandoffError(
+        "We couldn't save the plan yet. Your progress is here. Please try again.",
+      );
+    } finally {
+      handoffRequest.current = false;
+      setHandoffBusy(false);
+    }
+  }
+
+  async function saveAndExit() {
+    if (voice.active) await voice.end();
+    sessionStorage.setItem("persona:resume-onboarding", "true");
+    router.push("/");
+  }
+
   useEffect(() => {
     if (!snapshot) return;
     if (snapshot.journey?.entered && pathname === "/onboarding")
@@ -294,6 +337,35 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
     else if (!snapshot.journey?.entered && pathname.startsWith("/dashboard"))
       router.replace("/onboarding");
   }, [snapshot, pathname, router]);
+
+  useEffect(() => {
+    if (
+      snapshot?.onboarding?.intake?.ready &&
+      !snapshot.onboarding.intake.plan?.presented &&
+      !snapshot.journey?.entered &&
+      hasControl &&
+      connection === "ready" &&
+      !busy &&
+      snapshot.operation?.status !== "generating" &&
+      (!voice.active || voice.phase === "listening") &&
+      !handoffError
+    ) {
+      const timer = setTimeout(() => void changePlan("review"), 0);
+      return () => clearTimeout(timer);
+    }
+    // Persist the displayed proposal before accepting a button or spoken yes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    snapshot?.onboarding?.intake,
+    snapshot?.journey?.entered,
+    snapshot?.operation?.status,
+    hasControl,
+    connection,
+    busy,
+    voice.active,
+    voice.phase,
+    handoffError,
+  ]);
 
   useEffect(() => {
     if (
@@ -731,6 +803,7 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
     setSigningOut(true);
     try {
       await api("auth/logout", new AbortController().signal, {});
+      sessionStorage.removeItem("persona:resume-onboarding");
       voiceRef.current.controlLost();
       active.current?.abort();
       onSignedOut?.();
@@ -808,7 +881,7 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
       notice={gmailNotice || notice || voice.notice}
     >
       <main
-        className={`chat-shell ${introducing ? "is-introducing" : "has-messages"}`}
+        className={`chat-shell ${introducing ? "is-introducing" : "has-messages"}${snapshot?.onboarding && !snapshot.journey?.entered && !snapshot.onboarding.graduated ? " with-setup" : ""}`}
       >
         <header className="chat-header">
           <Link className="wordmark" href="/" aria-label="Persona home">
@@ -823,9 +896,9 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
               <button
                 className="skip-setup"
                 disabled={handoffBusy || busy || !hasControl}
-                onClick={() => void changeJourney("skip")}
+                onClick={() => void saveAndExit()}
               >
-                Skip for now
+                Save and exit
               </button>
             )}
           <button
@@ -941,9 +1014,92 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
               )}
             </div>
           </div>
+          {snapshot?.onboarding?.intake?.ready &&
+            snapshot.onboarding.intake.plan?.presented &&
+            !snapshot.journey?.entered && (
+              <section
+                className="plan-actions conversation-content"
+                aria-label="Approve your plan"
+              >
+                <div>
+                  <button
+                    className="brand-button"
+                    disabled={busy || handoffBusy || !hasControl}
+                    onClick={() => void changePlan("accept")}
+                  >
+                    {handoffBusy ? "Saving your plan…" : "Looks good"}
+                    <ChatIcon name="arrowRight" />
+                  </button>
+                  <button
+                    className="secondary-button"
+                    disabled={busy || !hasControl}
+                    onClick={() => {
+                      setDraft("Change the plan: ");
+                      input.current?.focus();
+                    }}
+                  >
+                    Change plan
+                  </button>
+                </div>
+                <p>You can also say or type yes.</p>
+              </section>
+            )}
         </section>
 
+        {snapshot?.onboarding &&
+          !snapshot.journey?.entered &&
+          !snapshot.onboarding.graduated && (
+            <OnboardingProgress
+              snapshot={snapshot}
+              enabled={
+                hasControl && connection === "ready" && !busy && !generating
+              }
+              onSave={(content) => {
+                finishIntroduction();
+                void submit({ submissionId: crypto.randomUUID(), content });
+              }}
+              gmail={
+                <GmailConnection
+                  key={snapshot.conversationId}
+                  headers={headers}
+                  enabled={hasControl && connection === "ready"}
+                  introduced
+                  conversationId={snapshot.conversationId}
+                  onChanged={refresh}
+                  onNotice={setGmailNotice}
+                />
+              }
+            />
+          )}
+
         <footer className="composer-area">
+          {voice.active &&
+            snapshot?.turns.at(-1)?.content.includes("Retry saved speech") && (
+              <div className="notice" role="alert">
+                <p>
+                  Your speech is saved. The setup details have not been updated
+                  yet.
+                </p>
+                <button
+                  onClick={() =>
+                    void api(
+                      "calls/retry-onboarding",
+                      new AbortController().signal,
+                      {},
+                      ownerRef.current,
+                    )
+                      .then(refresh)
+                      .catch(() =>
+                        setNotice(
+                          "Could not retry yet. Your transcript is saved.",
+                        ),
+                      )
+                  }
+                >
+                  Retry saved speech
+                </button>
+              </div>
+            )}
           {snapshot?.journey?.prepared &&
             !snapshot.journey.entered &&
             hasControl && (
@@ -965,8 +1121,10 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
               <p>{handoffError}</p>
               <button
                 onClick={() =>
-                  void changeJourney(
-                    snapshot?.journey?.ready ? "prepare" : "skip",
+                  void changePlan(
+                    snapshot?.onboarding?.intake?.plan?.presented
+                      ? "accept"
+                      : "review",
                   )
                 }
               >
@@ -1022,7 +1180,7 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
               )}
             </div>
           )}
-          {gmailNotice && (
+          {gmailNotice && gmailNotice !== "Gmail connected." && (
             <div className="notice gmail-notice" role="status">
               <p>{gmailNotice}</p>
             </div>
@@ -1063,19 +1221,20 @@ export default function Chat({ onSignedOut }: { onSignedOut?: () => void }) {
               <CallControls voice={voice} />
             </div>
           )}
-          {snapshot?.control && (
-            <div className="composer-connections">
-              <GmailConnection
-                key={snapshot.conversationId}
-                headers={headers}
-                enabled={hasControl && connection === "ready"}
-                introduced={!!gmailIntroduced}
-                conversationId={snapshot.conversationId}
-                onChanged={refresh}
-                onNotice={setGmailNotice}
-              />
-            </div>
-          )}
+          {snapshot?.control &&
+            (snapshot.journey?.entered || snapshot.onboarding?.graduated) && (
+              <div className="composer-connections">
+                <GmailConnection
+                  key={snapshot.conversationId}
+                  headers={headers}
+                  enabled={hasControl && connection === "ready"}
+                  introduced={!!gmailIntroduced}
+                  conversationId={snapshot.conversationId}
+                  onChanged={refresh}
+                  onNotice={setGmailNotice}
+                />
+              </div>
+            )}
           <form
             className="composer"
             onSubmit={(event) => {

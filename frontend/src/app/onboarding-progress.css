@@ -1,0 +1,244 @@
+.chat-shell.with-setup {
+  display: grid;
+  grid-template-columns: minmax(0, 780px) 252px;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 0 44px;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 24px;
+  overflow: hidden;
+}
+.with-setup .chat-header {
+  grid-column: 1 / -1;
+  padding-inline: 0;
+}
+.with-setup .conversation {
+  grid-column: 1;
+  grid-row: 2;
+}
+.with-setup .composer-area {
+  grid-column: 1;
+  grid-row: 3;
+}
+.setup-rail {
+  grid-column: 2;
+  grid-row: 2 / 4;
+  padding: 40px 0 24px;
+  overflow-y: auto;
+}
+.setup-rail h2 {
+  margin: 0 0 30px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+.setup-summary {
+  display: none;
+}
+.setup-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.setup-step {
+  position: relative;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  column-gap: 14px;
+  padding-bottom: 30px;
+}
+.setup-step:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  top: 28px;
+  bottom: 7px;
+  width: 1px;
+  background: var(--line, #e8e8eb);
+}
+.setup-mark {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 24px;
+  color: var(--foreground);
+}
+.setup-mark svg {
+  width: 18px;
+  height: 18px;
+}
+.setup-mark > span {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--line-strong, #d8d8dc);
+  border-radius: 50%;
+}
+.is-current .setup-mark > span {
+  background: var(--foreground);
+  border-color: var(--foreground);
+}
+.setup-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 24px;
+  font-size: 14px;
+  font-weight: 500;
+}
+.setup-label button,
+.setup-later {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 8px;
+  background: none;
+  border: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.setup-label button {
+  margin: -8px 0;
+  min-height: 40px;
+}
+.setup-value {
+  margin: 5px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.is-saved .setup-value {
+  color: var(--foreground);
+}
+.setup-detail .gmail-controls {
+  margin-top: 8px;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.setup-detail .gmail-connected {
+  font-size: 12px;
+}
+.setup-detail .gmail-controls > .tool-button {
+  font-size: 12px;
+  padding: 8px 0;
+}
+.setup-detail .gmail-popover {
+  right: 0;
+  max-width: 240px;
+}
+.setup-detail .gmail-connected span {
+  display: none;
+}
+.setup-edit {
+  margin-top: 8px;
+}
+.setup-edit textarea {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--line-strong, #d8d8dc);
+  border-radius: 8px;
+  resize: vertical;
+  font: inherit;
+  font-size: 13px;
+}
+.setup-edit button {
+  border: 0;
+  background: none;
+  padding: 10px 12px 10px 0;
+  font-size: 12px;
+}
+.plan-actions {
+  border-top: 1px solid var(--line, #e8e8eb);
+  margin: 24px 0 0;
+  padding: 20px 0;
+}
+.plan-actions p {
+  color: var(--muted);
+  font-size: 13px;
+}
+.plan-actions > div {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.saved-plan {
+  margin: 24px 0;
+  padding: 24px;
+  background: var(--step-50, #fafafa);
+  border: 1px solid var(--line, #e8e8eb);
+  border-radius: 20px;
+}
+.saved-plan h2 {
+  font-size: 18px;
+  margin: 0 0 12px;
+}
+.saved-plan li {
+  margin: 8px 0;
+  line-height: 1.6;
+}
+@media (max-width: 960px) {
+  .chat-shell.with-setup {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    padding: 0;
+    gap: 0;
+  }
+  .with-setup .chat-header {
+    padding: 16px 20px;
+    min-height: 72px;
+  }
+  .with-setup .conversation {
+    grid-row: 3;
+  }
+  .with-setup .composer-area {
+    grid-row: 4;
+  }
+  .setup-rail {
+    grid-column: 1;
+    grid-row: 2;
+    padding: 0 24px;
+    border-bottom: 1px solid var(--line, #e8e8eb);
+    max-height: 40dvh;
+  }
+  .setup-rail h2 {
+    display: none;
+  }
+  .setup-summary {
+    display: flex;
+    width: 100%;
+    justify-content: space-between;
+    align-items: center;
+    min-height: 48px;
+    padding: 0;
+    border: 0;
+    background: none;
+    font-size: 13px;
+  }
+  .setup-summary svg {
+    width: 14px;
+    height: 14px;
+  }
+  .setup-count {
+    color: var(--muted);
+    margin-left: 10px;
+  }
+  .setup-steps {
+    display: none;
+    padding: 12px 0;
+  }
+  .setup-rail[data-expanded="true"] .setup-steps {
+    display: block;
+  }
+  .setup-step {
+    padding-bottom: 20px;
+  }
+  .setup-detail .gmail-popover {
+    position: fixed;
+    left: 24px;
+    right: 24px;
+    bottom: 16px;
+    width: auto;
+    max-width: none;
+  }
+}

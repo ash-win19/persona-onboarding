@@ -74,7 +74,9 @@ export function DashboardFrame({
   const heading = useRef<HTMLHeadingElement>(null);
   const name = snapshot?.onboarding?.facts.userName.value;
   const agent = snapshot?.onboarding?.facts.agentName.value || "Persona";
-  const task = snapshot?.onboarding?.facts.helpRequest.value;
+  const task = snapshot?.onboarding?.intake
+    ? snapshot.onboarding.intake.tasks[0]
+    : snapshot?.onboarding?.facts.helpRequest.value;
   const gmail = snapshot?.onboarding?.gmail === "connected";
   const root = snapshot?.conversationId;
   useEffect(() => {
@@ -238,16 +240,30 @@ export function DashboardFrame({
               </p>
             </header>
             {pathname === "/dashboard" && (
-              <IntelligenceDashboard
-                data={data}
-                error={error}
-                reload={() => setVersion((v) => v + 1)}
-                onChanged={setData}
-                headers={headers}
-                enabled={enabled}
-                task={task}
-                agent={agent}
-              />
+              <>
+                {snapshot?.onboarding?.intake?.plan?.accepted && (
+                  <section className="saved-plan" aria-label="Your saved plan">
+                    <h2>Your plan</h2>
+                    <ol>
+                      {snapshot.onboarding.intake.plan.steps.map(
+                        (step, index) => (
+                          <li key={index}>{step}</li>
+                        ),
+                      )}
+                    </ol>
+                  </section>
+                )}
+                <IntelligenceDashboard
+                  data={data}
+                  error={error}
+                  reload={() => setVersion((v) => v + 1)}
+                  onChanged={setData}
+                  headers={headers}
+                  enabled={enabled}
+                  task={task}
+                  agent={agent}
+                />
+              </>
             )}
             {settings && !integrations && (
               <section className="settings-list">
