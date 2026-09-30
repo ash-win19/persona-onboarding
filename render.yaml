@@ -21,5 +21,7 @@ services:
         sync: false
       - key: OPENAI_MODEL
         value: gpt-6-luna
+      - key: OPENAI_REALTIME_MODEL
+        value: gpt-realtime-2.1-mini
       - key: APP_ORIGINS
         value: https://usepersona.vercel.app

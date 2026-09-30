@@ -16,7 +16,7 @@ After a call ends and its queued transcripts are saved, the server writes a shor
 
 The conversation view marks each call's start time and length around its turns, labels spoken turns, and shows cut-off replies in a muted style.
 
-Set `OPENAI_REALTIME_MODEL` on Render to select the Realtime model. The default is `gpt-realtime-mini`. Voice uses the existing `OPENAI_API_KEY`. Model usage is billed to the existing OpenAI project.
+Set `OPENAI_REALTIME_MODEL` on Render to select the Realtime model. The default is `gpt-realtime-2.1-mini` with `low` reasoning effort. Input transcripts use `gpt-transcribe`. Setting `gpt-realtime-mini` rolls back to the previous model, which takes no reasoning setting and shuts down on January 20, 2027. Voice uses the existing `OPENAI_API_KEY`. Model usage is billed to the existing OpenAI project.
 
 ## Call controls and quiet replies
 

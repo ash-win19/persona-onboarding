@@ -12,7 +12,11 @@ import { OnboardingService } from './onboarding.js';
 import { Authority, CLOCK } from './authority.js';
 import { Calls } from './calls.js';
 import { CallsController } from './calls.controller.js';
-import { OpenAIVoiceProvider, VOICE_PROVIDER } from './voice-provider.js';
+import {
+  DEFAULT_REALTIME_MODEL,
+  OpenAIVoiceProvider,
+  VOICE_PROVIDER,
+} from './voice-provider.js';
 import { Module } from '@nestjs/common';
 import { ChatController } from './chat.controller.js';
 import { ChatService } from './chat.service.js';
@@ -84,7 +88,7 @@ import { CONVERSATION_MEMORY, createConversationMemory } from './memory.js';
       useFactory: () =>
         new OpenAIVoiceProvider(
           process.env.OPENAI_API_KEY ?? '',
-          process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime-mini',
+          process.env.OPENAI_REALTIME_MODEL || DEFAULT_REALTIME_MODEL,
         ),
     },
     {
